@@ -6,12 +6,14 @@ venv/
 build/
 dist/
 .pytest_cache/
+.ruff_cache/
 .ipynb_checkpoints/
 .env
 .env.*
 checkpoints/
 artifacts/
 outputs/
+reference/
 *.safetensors
 *.pt
 *.pth

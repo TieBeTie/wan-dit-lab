@@ -1,0 +1,19 @@
+{
+  "repo_id": "Wan-AI/Wan2.1-T2V-1.3B",
+  "revision": "37ec512624d61f7aa208f7ea8140a131f93afc9a",
+  "code_url": "https://github.com/Wan-Video/Wan2.1.git",
+  "code_revision": "9737cba9c1c3c4d04b33fcad41c111989865d315",
+  "local_dir": "checkpoints/Wan2.1-T2V-1.3B",
+  "files": [
+    "config.json",
+    "LICENSE.txt",
+    "README.md",
+    "diffusion_pytorch_model.safetensors",
+    "Wan2.1_VAE.pth",
+    "models_t5_umt5-xxl-enc-bf16.pth",
+    "google/umt5-xxl/special_tokens_map.json",
+    "google/umt5-xxl/spiece.model",
+    "google/umt5-xxl/tokenizer.json",
+    "google/umt5-xxl/tokenizer_config.json"
+  ]
+}
