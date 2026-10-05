@@ -8,7 +8,7 @@ import torch
 from wan_dit_lab.cli import environment
 
 LIMIT_MEM_ALLOC_FRAC = 0.95
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = Path(__file__).resolve().parents[2]
 RESULTS = ROOT / "benchmarks" / "results.jsonl"
 GPU_FIELDS = ["name", "memory.used", "memory.total", "utilization.gpu", "temperature.gpu"]
 
