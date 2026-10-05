@@ -1,0 +1,102 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="960" height="1150" viewBox="0 0 960 1150">
+<defs><marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#333"/></marker></defs>
+<rect width="960" height="1150" fill="#ffffff"/>
+<rect x="340" y="20" width="260" height="44" rx="9" fill="#efe7ff" stroke="#8f73cc" stroke-width="1.6"/>
+<text x="470.0" y="47.0" text-anchor="middle" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="15" font-weight="600" fill="#1d1d1d">x: токены [32760, 1536]</text>
+<polyline points="470,64 470,100" fill="none" stroke="#333" stroke-width="1.6" marker-end="url(#a)"/>
+<circle cx="470" cy="82" r="3.5" fill="#333"/>
+<polyline points="470,82 290,82 290,398 458,398" fill="none" stroke="#333" stroke-width="1.6" marker-end="url(#a)"/>
+<text x="280" y="240.0" text-anchor="end" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="12.5" fill="#444">residual</text>
+<rect x="340" y="100" width="260" height="50" rx="9" fill="#f3f3f3" stroke="#9a9a9a" stroke-width="1.6" stroke-dasharray="6 4"/>
+<text x="470.0" y="122.0" text-anchor="middle" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="15" font-weight="600" fill="#1d1d1d">LayerNorm</text>
+<text x="470.0" y="138.0" text-anchor="middle" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="12.5" fill="#444">без весов (norm1)</text>
+<polyline points="470,150 470,170" fill="none" stroke="#333" stroke-width="1.6" marker-end="url(#a)"/>
+<rect x="340" y="170" width="260" height="40" rx="9" fill="#fff3d6" stroke="#d9a63a" stroke-width="1.6"/>
+<text x="470.0" y="195.0" text-anchor="middle" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="15" font-weight="600" fill="#1d1d1d">× (1 + масштаб1) + сдвиг1</text>
+<polyline points="470,210 470,230" fill="none" stroke="#333" stroke-width="1.6" marker-end="url(#a)"/>
+<rect x="340" y="230" width="260" height="72" rx="9" fill="#f6d2ac" stroke="#c9823d" stroke-width="1.6"/>
+<text x="470.0" y="255.0" text-anchor="middle" font-family="Consolas, Menlo, monospace" font-size="15" font-weight="bold" fill="#1d1d1d">self_attn</text>
+<text x="470.0" y="271.0" text-anchor="middle" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="12.5" fill="#444">q, k, v → norm_q, norm_k → RoPE</text>
+<text x="470.0" y="287.0" text-anchor="middle" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="12.5" fill="#444">attention, 12 голов по 128 → o</text>
+<polyline points="470,302 470,322" fill="none" stroke="#333" stroke-width="1.6" marker-end="url(#a)"/>
+<rect x="340" y="322" width="260" height="40" rx="9" fill="#fff3d6" stroke="#d9a63a" stroke-width="1.6"/>
+<text x="470.0" y="347.0" text-anchor="middle" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="15" font-weight="600" fill="#1d1d1d">× вес1</text>
+<polyline points="470,362 470,386" fill="none" stroke="#333" stroke-width="1.6" marker-end="url(#a)"/>
+<circle cx="470" cy="398" r="12" fill="#fff" stroke="#333" stroke-width="1.6"/><line x1="464" y1="398" x2="476" y2="398" stroke="#333" stroke-width="1.8"/><line x1="470" y1="392" x2="470" y2="404" stroke="#333" stroke-width="1.8"/>
+<polyline points="470,410 470,444" fill="none" stroke="#333" stroke-width="1.6" marker-end="url(#a)"/>
+<circle cx="470" cy="426" r="3.5" fill="#333"/>
+<polyline points="470,426 290,426 290,628 458,628" fill="none" stroke="#333" stroke-width="1.6" marker-end="url(#a)"/>
+<text x="280" y="527.0" text-anchor="end" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="12.5" fill="#444">residual</text>
+<rect x="340" y="444" width="260" height="56" rx="9" fill="#d6eef0" stroke="#3f8f99" stroke-width="1.6"/>
+<text x="470.0" y="469.0" text-anchor="middle" font-family="Consolas, Menlo, monospace" font-size="15" font-weight="bold" fill="#1d1d1d">norm3</text>
+<text x="470.0" y="485.0" text-anchor="middle" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="12.5" fill="#444">LayerNorm с весами</text>
+<polyline points="470,500 470,520" fill="none" stroke="#333" stroke-width="1.6" marker-end="url(#a)"/>
+<rect x="340" y="520" width="260" height="72" rx="9" fill="#f6d2ac" stroke="#c9823d" stroke-width="1.6"/>
+<text x="470.0" y="545.0" text-anchor="middle" font-family="Consolas, Menlo, monospace" font-size="15" font-weight="bold" fill="#1d1d1d">cross_attn</text>
+<text x="470.0" y="561.0" text-anchor="middle" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="12.5" fill="#444">q из x; k и v из текста</text>
+<text x="470.0" y="577.0" text-anchor="middle" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="12.5" fill="#444">norm_q, norm_k, 12 голов → o</text>
+<polyline points="470,592 470,616" fill="none" stroke="#333" stroke-width="1.6" marker-end="url(#a)"/>
+<circle cx="470" cy="628" r="12" fill="#fff" stroke="#333" stroke-width="1.6"/><line x1="464" y1="628" x2="476" y2="628" stroke="#333" stroke-width="1.8"/><line x1="470" y1="622" x2="470" y2="634" stroke="#333" stroke-width="1.8"/>
+<rect x="660" y="528" width="200" height="56" rx="9" fill="#eaf6e6" stroke="#6aa85a" stroke-width="1.6"/>
+<text x="760.0" y="553.0" text-anchor="middle" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="15" font-weight="600" fill="#1d1d1d">текст [512, 1536]</text>
+<text x="760.0" y="569.0" text-anchor="middle" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="12.5" fill="#444">из text_embedding</text>
+<polyline points="660,556 600,556" fill="none" stroke="#333" stroke-width="1.6" marker-end="url(#a)"/>
+<polyline points="470,640 470,674" fill="none" stroke="#333" stroke-width="1.6" marker-end="url(#a)"/>
+<circle cx="470" cy="656" r="3.5" fill="#333"/>
+<polyline points="470,656 290,656 290,972 458,972" fill="none" stroke="#333" stroke-width="1.6" marker-end="url(#a)"/>
+<text x="280" y="814.0" text-anchor="end" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="12.5" fill="#444">residual</text>
+<rect x="340" y="674" width="260" height="50" rx="9" fill="#f3f3f3" stroke="#9a9a9a" stroke-width="1.6" stroke-dasharray="6 4"/>
+<text x="470.0" y="696.0" text-anchor="middle" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="15" font-weight="600" fill="#1d1d1d">LayerNorm</text>
+<text x="470.0" y="712.0" text-anchor="middle" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="12.5" fill="#444">без весов (norm2)</text>
+<polyline points="470,724 470,744" fill="none" stroke="#333" stroke-width="1.6" marker-end="url(#a)"/>
+<rect x="340" y="744" width="260" height="40" rx="9" fill="#fff3d6" stroke="#d9a63a" stroke-width="1.6"/>
+<text x="470.0" y="769.0" text-anchor="middle" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="15" font-weight="600" fill="#1d1d1d">× (1 + масштаб2) + сдвиг2</text>
+<polyline points="470,784 470,804" fill="none" stroke="#333" stroke-width="1.6" marker-end="url(#a)"/>
+<rect x="340" y="804" width="260" height="72" rx="9" fill="#d6eef0" stroke="#3f8f99" stroke-width="1.6"/>
+<text x="470.0" y="829.0" text-anchor="middle" font-family="Consolas, Menlo, monospace" font-size="15" font-weight="bold" fill="#1d1d1d">ffn</text>
+<text x="470.0" y="845.0" text-anchor="middle" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="12.5" fill="#444">ffn.0: 1536 → 8960, GELU</text>
+<text x="470.0" y="861.0" text-anchor="middle" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="12.5" fill="#444">ffn.2: 8960 → 1536</text>
+<polyline points="470,876 470,896" fill="none" stroke="#333" stroke-width="1.6" marker-end="url(#a)"/>
+<rect x="340" y="896" width="260" height="40" rx="9" fill="#fff3d6" stroke="#d9a63a" stroke-width="1.6"/>
+<text x="470.0" y="921.0" text-anchor="middle" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="15" font-weight="600" fill="#1d1d1d">× вес2</text>
+<polyline points="470,936 470,960" fill="none" stroke="#333" stroke-width="1.6" marker-end="url(#a)"/>
+<circle cx="470" cy="972" r="12" fill="#fff" stroke="#333" stroke-width="1.6"/><line x1="464" y1="972" x2="476" y2="972" stroke="#333" stroke-width="1.8"/><line x1="470" y1="966" x2="470" y2="978" stroke="#333" stroke-width="1.8"/>
+<polyline points="470,984 470,1010" fill="none" stroke="#333" stroke-width="1.6" marker-end="url(#a)"/>
+<rect x="340" y="1010" width="260" height="44" rx="9" fill="#efe7ff" stroke="#8f73cc" stroke-width="1.6"/>
+<text x="470.0" y="1037.0" text-anchor="middle" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="15" font-weight="600" fill="#1d1d1d">x → следующий блок</text>
+<rect x="650" y="20" width="140" height="50" rx="9" fill="#fff3d6" stroke="#d9a63a" stroke-width="1.6"/>
+<text x="720.0" y="42.0" text-anchor="middle" font-family="Consolas, Menlo, monospace" font-size="15" font-weight="bold" fill="#1d1d1d">e0 [6, 1536]</text>
+<text x="720.0" y="58.0" text-anchor="middle" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="12.5" fill="#444">из time_projection</text>
+<rect x="800" y="20" width="130" height="50" rx="9" fill="#d6eef0" stroke="#3f8f99" stroke-width="1.6"/>
+<text x="865.0" y="42.0" text-anchor="middle" font-family="Consolas, Menlo, monospace" font-size="15" font-weight="bold" fill="#1d1d1d">modulation</text>
+<text x="865.0" y="58.0" text-anchor="middle" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="12.5" fill="#444">[1, 6, 1536]</text>
+<polyline points="720,70 720,86 778,86" fill="none" stroke="#333" stroke-width="1.6" marker-end="url(#a)"/>
+<polyline points="865,70 865,86 802,86" fill="none" stroke="#333" stroke-width="1.6" marker-end="url(#a)"/>
+<circle cx="790" cy="86" r="11" fill="#fff" stroke="#333" stroke-width="1.6"/><line x1="784" y1="86" x2="796" y2="86" stroke="#333" stroke-width="1.8"/><line x1="790" y1="80" x2="790" y2="92" stroke="#333" stroke-width="1.8"/>
+<polyline points="790,97 790,112" fill="none" stroke="#333" stroke-width="1.6" marker-end="url(#a)"/>
+<rect x="650" y="112" width="280" height="62" rx="9" fill="#fff3d6" stroke="#d9a63a" stroke-width="1.6"/>
+<text x="790.0" y="132.0" text-anchor="middle" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="15" font-weight="600" fill="#1d1d1d">6 векторов</text>
+<text x="790.0" y="148.0" text-anchor="middle" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="12.5" fill="#444">self_attn: сдвиг1, масштаб1, вес1</text>
+<text x="790.0" y="164.0" text-anchor="middle" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="12.5" fill="#444">ffn: сдвиг2, масштаб2, вес2</text>
+<polyline points="900,174 900,916" fill="none" stroke="#b98a1f" stroke-width="1.6" stroke-dasharray="5 4"/>
+<polyline points="900,190 600,190" fill="none" stroke="#333" stroke-width="1.6" marker-end="url(#a)"/>
+<text x="750.0" y="207" text-anchor="middle" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="12.5" fill="#444">сдвиг1, масштаб1</text>
+<polyline points="900,342 600,342" fill="none" stroke="#333" stroke-width="1.6" marker-end="url(#a)"/>
+<text x="750.0" y="359" text-anchor="middle" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="12.5" fill="#444">вес1</text>
+<polyline points="900,764 600,764" fill="none" stroke="#333" stroke-width="1.6" marker-end="url(#a)"/>
+<text x="750.0" y="781" text-anchor="middle" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="12.5" fill="#444">сдвиг2, масштаб2</text>
+<polyline points="900,916 600,916" fill="none" stroke="#333" stroke-width="1.6" marker-end="url(#a)"/>
+<text x="750.0" y="933" text-anchor="middle" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="12.5" fill="#444">вес2</text>
+<rect x="40" y="1078" width="28" height="16" rx="4" fill="#f6d2ac" stroke="#c9823d" stroke-width="1.4"/>
+<text x="80" y="1091" text-anchor="start" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="12.5" fill="#444">attention с весами; подпись = ключ</text>
+<rect x="40" y="1102" width="28" height="16" rx="4" fill="#d6eef0" stroke="#3f8f99" stroke-width="1.4"/>
+<text x="80" y="1115" text-anchor="start" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="12.5" fill="#444">другой слой с весами; подпись = ключ</text>
+<rect x="40" y="1126" width="28" height="16" rx="4" fill="#f3f3f3" stroke="#9a9a9a" stroke-width="1.4" stroke-dasharray="4 3"/>
+<text x="80" y="1139" text-anchor="start" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="12.5" fill="#444">без весов, в файле нет</text>
+<rect x="520" y="1078" width="28" height="16" rx="4" fill="#fff3d6" stroke="#d9a63a" stroke-width="1.4"/>
+<text x="560" y="1091" text-anchor="start" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="12.5" fill="#444">зависит от шага t</text>
+<rect x="520" y="1102" width="28" height="16" rx="4" fill="#eaf6e6" stroke="#6aa85a" stroke-width="1.4"/>
+<text x="560" y="1115" text-anchor="start" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="12.5" fill="#444">приходит снаружи блока</text>
+<circle cx="534" cy="1134" r="8" fill="#fff" stroke="#333" stroke-width="1.6"/><line x1="528" y1="1134" x2="540" y2="1134" stroke="#333" stroke-width="1.8"/><line x1="534" y1="1128" x2="534" y2="1140" stroke="#333" stroke-width="1.8"/>
+<text x="560" y="1139" text-anchor="start" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="12.5" fill="#444">сложение: residual или modulation + e0</text>
+</svg>
