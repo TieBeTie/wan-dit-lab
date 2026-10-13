@@ -99,4 +99,8 @@
 <text x="560" y="1115" text-anchor="start" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="12.5" fill="#444">приходит снаружи блока</text>
 <circle cx="534" cy="1134" r="8" fill="#fff" stroke="#333" stroke-width="1.6"/><line x1="528" y1="1134" x2="540" y2="1134" stroke="#333" stroke-width="1.8"/><line x1="534" y1="1128" x2="534" y2="1140" stroke="#333" stroke-width="1.8"/>
 <text x="560" y="1139" text-anchor="start" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="12.5" fill="#444">сложение: residual или modulation + e0</text>
+<rect x="660" y="240" width="200" height="56" rx="9" fill="#eaf6e6" stroke="#6aa85a" stroke-width="1.6"/>
+<text x="760" y="265" text-anchor="middle" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="15" font-weight="600" fill="#1d1d1d">позиции freqs (RoPE 3D)</text>
+<text x="760" y="282" text-anchor="middle" font-family="Segoe UI, Helvetica, Arial, sans-serif" font-size="12.5" fill="#444">константа, без весов</text>
+<polyline points="660,268 600,268" fill="none" stroke="#333" stroke-width="1.6" marker-end="url(#a)"/>
 </svg>
