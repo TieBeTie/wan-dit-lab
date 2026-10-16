@@ -1,0 +1,26 @@
+[
+  {
+    "stage": "baseline",
+    "private_gib": 0.065643310546875,
+    "working_set_gib": 0.14495086669921875,
+    "python_loaded": false
+  },
+  {
+    "stage": "torch_cpu.dll",
+    "private_gib": 0.14436721801757812,
+    "working_set_gib": 0.229522705078125,
+    "python_loaded": false
+  },
+  {
+    "stage": "torch_cuda.dll",
+    "private_gib": 0.6918601989746094,
+    "working_set_gib": 0.4347877502441406,
+    "python_loaded": false
+  },
+  {
+    "stage": "torch.dll",
+    "private_gib": 0.6918678283691406,
+    "working_set_gib": 0.4348335266113281,
+    "python_loaded": false
+  }
+]

@@ -1,0 +1,104 @@
+﻿python.exe : W1014 09:48:06.712000 34512 site-packages\torch\_inductor\utils.py:1679] [2/0_1] Not enough SMs to use 
+max_autotune_gemm mode
+At line:1 char:446
++ ... StartNew(); & ".venv\Scripts\python.exe" -W ignore benchmarks\bench_m ...
++                 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (W1014 09:48:06....otune_gemm mode:String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+Traceback (most recent call last):
+  File "C:\Inner Firmament\Growth Space\Projects\wan-dit-lab\benchmarks\bench_model.py", line 67, in <module>
+    measure("model_mine", mine, call_mine, settings)
+    ~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Inner Firmament\Growth Space\Projects\wan-dit-lab\benchmarks\bench_model.py", line 33, in measure
+    run(f"{prefix}_compiled", lambda *a: call(compiled, *a), *ARGS[prefix], **settings)
+    ~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Inner Firmament\Growth Space\Projects\wan-dit-lab\src\wan_dit_lab\harness.py", line 80, in run
+    ts = bench_events(f, *arg, warmup=warmup, number=number, repeat=repeat)
+  File "C:\Inner Firmament\Growth Space\Projects\wan-dit-lab\src\wan_dit_lab\harness.py", line 22, in bench_events
+    f(*arg)
+    ~^^^^^^
+  File "C:\Inner Firmament\Growth Space\Projects\wan-dit-lab\benchmarks\bench_model.py", line 33, in <lambda>
+    run(f"{prefix}_compiled", lambda *a: call(compiled, *a), *ARGS[prefix], **settings)
+                                         ~~~~^^^^^^^^^^^^^^
+  File "C:\Inner Firmament\Growth Space\Projects\wan-dit-lab\benchmarks\bench_model.py", line 52, in call_mine
+    return model(x[None], t, context[None], sizes, freqs)
+  File "C:\Users\ramaf\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\torch\_dynamo\eval_frame.py", line 
+465, in __call__
+    return super().__call__(*args, **kwargs)
+           ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^
+  File "C:\Users\ramaf\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\torch\nn\modules\module.py", line 
+1776, in _wrapped_call_impl
+    return self._call_impl(*args, **kwargs)
+           ~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^
+  File "C:\Users\ramaf\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\torch\nn\modules\module.py", line 
+1787, in _call_impl
+    return forward_call(*args, **kwargs)
+  File "C:\Users\ramaf\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\torch\_dynamo\eval_frame.py", line 
+953, in compile_wrapper
+    return fn(*args, **kwargs)
+  File "C:\Users\ramaf\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\torch\nn\modules\module.py", line 
+1776, in _wrapped_call_impl
+    return self._call_impl(*args, **kwargs)
+           ~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^
+  File "C:\Users\ramaf\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\torch\nn\modules\module.py", line 
+1787, in _call_impl
+    return forward_call(*args, **kwargs)
+  File "C:\Inner Firmament\Growth Space\Projects\wan-dit-lab\src\wan_dit_lab\model.py", line 26, in forward
+    X = block(X, e0, grid_sizes=grid_sizes, freqs=freqs, context=context)
+  File "C:\Users\ramaf\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\torch\nn\modules\module.py", line 
+1776, in _wrapped_call_impl
+    return self._call_impl(*args, **kwargs)
+           ~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^
+  File "C:\Users\ramaf\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\torch\nn\modules\module.py", line 
+1787, in _call_impl
+    return forward_call(*args, **kwargs)
+  File "C:\Inner Firmament\Growth Space\Projects\wan-dit-lab\src\wan_dit_lab\block.py", line 24, in forward
+    X = X + self.self_attn(self.norm1(X) * (1 + scale_attn) + shift_attn, grid_sizes=grid_sizes, freq=freqs) * 
+gate_attn
+  File "C:\Inner Firmament\Growth Space\Projects\wan-dit-lab\src\wan_dit_lab\block.py", line 24, in 
+torch_dynamo_resume_in_forward_at_24
+    X = X + self.self_attn(self.norm1(X) * (1 + scale_attn) + shift_attn, grid_sizes=grid_sizes, freq=freqs) * 
+gate_attn
+  File "C:\Users\ramaf\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\torch\_dynamo\eval_frame.py", line 
+1181, in _fn
+    return fn(*args, **kwargs)
+  File "C:\Users\ramaf\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\torch\_functorch\aot_autograd.py", 
+line 1148, in forward
+    return compiled_fn(full_args)
+  File "C:\Users\ramaf\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\torch\_functorch\_aot_autograd\runtime
+_wrappers.py", line 357, in runtime_wrapper
+    all_outs = call_func_at_runtime_with_args(
+        compiled_fn, args, disable_amp=disable_amp, steal_args=True
+    )
+  File 
+"C:\Users\ramaf\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\torch\_functorch\_aot_autograd\utils.py", 
+line 134, in call_func_at_runtime_with_args
+    out = normalize_as_list(f(args))
+                            ~^^^^^^
+  File "C:\Users\ramaf\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\torch\_functorch\_aot_autograd\runtime
+_wrappers.py", line 1962, in __call__
+    return self.compiled_fn(*args, **kwargs)
+           ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^
+  File "C:\Users\ramaf\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\torch\_functorch\_aot_autograd\runtime
+_wrappers.py", line 531, in wrapper
+    return compiled_fn(runtime_args)
+  File "C:\Users\ramaf\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\torch\_functorch\_aot_autograd\runtime
+_wrappers.py", line 729, in inner_fn
+    outs = compiled_fn(args)
+  File "C:\Users\ramaf\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\torch\_inductor\output_code.py", line 
+638, in __call__
+    return self.current_callable(inputs)
+           ~~~~~~~~~~~~~~~~~~~~~^^^^^^^^
+  File "C:\Users\ramaf\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\torch\_inductor\utils.py", line 3220, 
+in run
+    out = model(new_inputs)
+  File 
+"C:\Users\ramaf\AppData\Local\Temp\torchinductor_ramaf\hb\chbyfxuxfsahbfe6d2b3xr2fpxv6g7lczu5dbzzhdhprv4mgrg5c.py", 
+line 915, in call
+    buf28 = empty_strided_cuda((32760, 8960), (8960, 1), torch.float16)
+torch.OutOfMemoryError: CUDA out of memory. Tried to allocate 560.00 MiB. GPU 0 has a total capacity of 8.00 GiB of 
+which 0 bytes is free. 7.60 GiB allowed; Of the allocated memory 6.65 GiB is allocated by PyTorch, and 511.03 MiB is 
+reserved by PyTorch but unallocated. If reserved but unallocated memory is large try setting 
+PYTORCH_ALLOC_CONF=expandable_segments:True to avoid fragmentation.  See documentation for Memory Management  
+(https://pytorch.org/docs/stable/notes/cuda.html#environment-variables)

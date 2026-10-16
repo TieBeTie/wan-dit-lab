@@ -1,0 +1,275 @@
+{"stage": "python_before_torch", "private_gib": 0.011325836181640625, "working_set_gib": 0.0197601318359375}
+{"stage": "torch_imported", "private_gib": 1.1933403015136719, "working_set_gib": 0.4800148010253906}
+C:\Users\ramaf\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\triton\windows_utils.py:425: UserWarning: Failed to find CUDA. Install CUDA Toolkit (https://developer.nvidia.com/cuda-downloads) or set CUDA_HOME / CUDA_PATH environment variable.
+  warnings.warn("Failed to find CUDA."
+{"stage": "project_imported", "private_gib": 1.7440376281738281, "working_set_gib": 0.7002944946289062}
+{"stage": "cuda_initialized", "private_gib": 1.7440376281738281, "working_set_gib": 0.7002983093261719}
+{"stage": "weights_mapped", "private_gib": 1.78857421875, "working_set_gib": 0.7048301696777344}
+{"stage": "offloader_started", "private_gib": 3.1173362731933594, "working_set_gib": 1.9455680847167969}
+{"stage": "inputs_created", "private_gib": 3.1431503295898438, "working_set_gib": 2.133026123046875}
+{"stage": "after_forward", "private_gib": 5.118431091308594, "working_set_gib": 3.8314170837402344}
+Trying torch.export on the same model
+Traceback (most recent call last):
+  File "C:\Users\ramaf\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\torch\fx\experimental\proxy_tensor.py", line 2151, in path_of_module
+    return Tracer.path_of_module(self, mod)
+           ~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^
+  File "C:\Users\ramaf\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\torch\fx\_symbolic_trace.py", line 509, in path_of_module
+    raise NameError("module is not installed as a submodule")
+NameError: module is not installed as a submodule
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "C:\Users\ramaf\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\torch\fx\experimental\proxy_tensor.py", line 2264, in call_module
+    return Tracer.call_module(self, m, forward, args, kwargs)
+           ~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\ramaf\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\torch\fx\_symbolic_trace.py", line 554, in call_module
+    module_qualified_name = self.path_of_module(m)
+  File "C:\Users\ramaf\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\torch\fx\experimental\proxy_tensor.py", line 2153, in path_of_module
+    raise _ModuleNotInstalledAsSubmoduleError from e
+torch.fx.experimental.proxy_tensor._ModuleNotInstalledAsSubmoduleError
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "C:\Users\ramaf\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\torch\export\_trace.py", line 2116, in _non_strict_export
+    aten_export_artifact = _to_aten_func(
+        patched_mod,
+    ...<5 lines>...
+        transform=_tuplify_outputs,
+    )
+  File "C:\Users\ramaf\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\torch\export\_trace.py", line 1904, in _export_to_aten_ir_make_fx
+    gm, graph_signature = transform(_make_fx_helper)(
+                          ~~~~~~~~~~~~~~~~~~~~~~~~~~^
+        stack,
+        ^^^^^^
+    ...<3 lines>...
+        kwargs=fake_kwargs,
+        ^^^^^^^^^^^^^^^^^^^
+    )
+    ^
+  File "C:\Users\ramaf\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\torch\export\_trace.py", line 2034, in _aot_export_non_strict
+    gm, sig = aot_export(stack, wrapped_mod, args, kwargs=kwargs, **flags)
+              ~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\ramaf\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\torch\export\_trace.py", line 1816, in _make_fx_helper
+    gm = make_fx(
+    ...<2 lines>...
+        pre_dispatch=True,
+    )(*flat_args)
+  File "C:\Users\ramaf\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\torch\fx\experimental\proxy_tensor.py", line 2701, in wrapped
+    return make_fx_tracer.trace(f, *args)
+           ~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^
+  File "C:\Users\ramaf\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\torch\fx\experimental\proxy_tensor.py", line 2626, in trace
+    return self._trace_inner(f, *args)
+           ~~~~~~~~~~~~~~~~~^^^^^^^^^^
+  File "C:\Users\ramaf\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\torch\fx\experimental\proxy_tensor.py", line 2588, in _trace_inner
+    t = dispatch_trace(
+        wrap_key(func, args, self.fx_tracer, self.pre_dispatch),
+        tracer=self.fx_tracer,
+        concrete_args=tuple(phs),
+    )
+  File "C:\Users\ramaf\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\torch\_compile.py", line 54, in inner
+    return disable_fn(*args, **kwargs)
+  File "C:\Users\ramaf\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\torch\_dynamo\eval_frame.py", line 1180, in _fn
+    return fn(*args, **kwargs)
+  File "C:\Users\ramaf\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\torch\fx\experimental\proxy_tensor.py", line 1460, in dispatch_trace
+    graph = tracer.trace(root, concrete_args)  # type: ignore[arg-type]
+  File "C:\Users\ramaf\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\torch\fx\experimental\proxy_tensor.py", line 2177, in trace
+    res = super().trace(root, concrete_args)
+  File "C:\Users\ramaf\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\torch\fx\_symbolic_trace.py", line 879, in trace
+    (self.create_arg(fn(*args)),),
+                     ~~^^^^^^^
+  File "C:\Users\ramaf\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\torch\fx\experimental\proxy_tensor.py", line 1526, in wrapped
+    out = f(*tensors)  # type:ignore[call-arg]
+  File "<string>", line 1, in <lambda>
+  File "C:\Users\ramaf\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\torch\export\_trace.py", line 1703, in wrapped_fn
+    return tuple(flat_fn(*args))
+                 ~~~~~~~^^^^^^^
+  File "C:\Users\ramaf\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\torch\_functorch\_aot_autograd\utils.py", line 193, in flat_fn
+    tree_out = fn(*args, **kwargs)
+  File "C:\Users\ramaf\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\torch\_functorch\_aot_autograd\graph_capture_wrappers.py", line 1377, in functional_call
+    out = mod(*args[params_len:], **kwargs)
+  File "C:\Users\ramaf\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\torch\fx\_symbolic_trace.py", line 853, in module_call_wrapper
+    return self.call_module(mod, forward, args, kwargs)
+           ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\ramaf\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\torch\fx\experimental\proxy_tensor.py", line 2264, in call_module
+    return Tracer.call_module(self, m, forward, args, kwargs)
+           ~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\ramaf\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\torch\fx\_symbolic_trace.py", line 569, in call_module
+    ret_val = forward(*args, **kwargs)
+  File "C:\Users\ramaf\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\torch\fx\_symbolic_trace.py", line 846, in forward
+    return _orig_module_call(mod, *args, **kwargs)
+  File "C:\Users\ramaf\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\torch\nn\modules\module.py", line 1776, in _wrapped_call_impl
+    return self._call_impl(*args, **kwargs)
+           ~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^
+  File "C:\Users\ramaf\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\torch\nn\modules\module.py", line 1787, in _call_impl
+    return forward_call(*args, **kwargs)
+  File "C:\Users\ramaf\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\torch\export\_trace.py", line 2018, in forward
+    tree_out = mod(*args, **kwargs)
+  File "C:\Users\ramaf\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\torch\fx\_symbolic_trace.py", line 853, in module_call_wrapper
+    return self.call_module(mod, forward, args, kwargs)
+           ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\ramaf\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\torch\fx\experimental\proxy_tensor.py", line 2264, in call_module
+    return Tracer.call_module(self, m, forward, args, kwargs)
+           ~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\ramaf\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\torch\fx\_symbolic_trace.py", line 569, in call_module
+    ret_val = forward(*args, **kwargs)
+  File "C:\Users\ramaf\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\torch\fx\_symbolic_trace.py", line 846, in forward
+    return _orig_module_call(mod, *args, **kwargs)
+  File "C:\Users\ramaf\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\torch\nn\modules\module.py", line 1776, in _wrapped_call_impl
+    return self._call_impl(*args, **kwargs)
+           ~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^
+  File "C:\Users\ramaf\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\torch\nn\modules\module.py", line 1787, in _call_impl
+    return forward_call(*args, **kwargs)
+  File "C:\Inner Firmament\Growth Space\Projects\wan-dit-lab\src\wan_dit_lab\model.py", line 39, in forward
+    X = block(X, e0, grid_sizes=grid_sizes, freqs=freqs, context=context)
+  File "C:\Users\ramaf\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\torch\fx\_symbolic_trace.py", line 853, in module_call_wrapper
+    return self.call_module(mod, forward, args, kwargs)
+           ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\ramaf\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\torch\fx\experimental\proxy_tensor.py", line 2273, in call_module
+    return forward(*args, **kwargs)
+  File "C:\Users\ramaf\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\torch\fx\_symbolic_trace.py", line 846, in forward
+    return _orig_module_call(mod, *args, **kwargs)
+  File "C:\Users\ramaf\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\torch\nn\modules\module.py", line 1776, in _wrapped_call_impl
+    return self._call_impl(*args, **kwargs)
+           ~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^
+  File "C:\Users\ramaf\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\torch\nn\modules\module.py", line 1787, in _call_impl
+    return forward_call(*args, **kwargs)
+  File "C:\Inner Firmament\Growth Space\Projects\wan-dit-lab\src\wan_dit_lab\block.py", line 23, in forward
+    shift_attn, scale_attn, gate_attn, shift_ffn, scale_ffn, gate_ffn = (time_in + self.modulation).chunk(6, dim=1)
+                                                                         ~~~~~~~~^~~~~~~~~~~~~~~~~
+  File "C:\Users\ramaf\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\torch\fx\experimental\proxy_tensor.py", line 1577, in __torch_function__
+    return func(*args, **kwargs)
+  File "C:\Users\ramaf\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\torch\fx\experimental\proxy_tensor.py", line 1648, in __torch_function__
+    return func(*args, **kwargs)
+  File "C:\Users\ramaf\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\torch\_export\non_strict_utils.py", line 1139, in __torch_function__
+    return func(*args, **kwargs)
+  File "C:\Users\ramaf\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\torch\_ops.py", line 940, in handler
+    return torch._library.utils.handle_dispatch_mode(
+           ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^
+        curr_mode, self, *args, **kwargs
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    )
+    ^
+  File "C:\Users\ramaf\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\torch\_library\utils.py", line 313, in handle_dispatch_mode
+    return curr_mode.__torch_dispatch__(op_overload, overload_types, args, kwargs)
+           ~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\ramaf\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\torch\utils\_stats.py", line 29, in wrapper
+    return fn(*args, **kwargs)
+  File "C:\Users\ramaf\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\torch\fx\experimental\proxy_tensor.py", line 1703, in __torch_dispatch__
+    return proxy_call(self, func, self.pre_dispatch, args, kwargs)
+  File "C:\Users\ramaf\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\torch\fx\experimental\proxy_tensor.py", line 1136, in proxy_call
+    proxy_out = proxy_mode.tracer.create_proxy(
+        "call_function",
+    ...<3 lines>...
+        name=proxy_mode.tracer.graph._target_to_str(func.overloadpacket.__name__),
+    )
+  File "C:\Users\ramaf\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\torch\fx\proxy.py", line 309, in create_proxy
+    args_ = self.create_arg(args)
+  File "C:\Users\ramaf\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\torch\fx\experimental\proxy_tensor.py", line 1305, in create_arg
+    return super().create_arg(a)  # type: ignore[return-value]
+           ~~~~~~~~~~~~~~~~~~^^^
+  File "C:\Users\ramaf\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\torch\fx\_symbolic_trace.py", line 466, in create_arg
+    return super().create_arg(a)
+           ~~~~~~~~~~~~~~~~~~^^^
+  File "C:\Users\ramaf\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\torch\fx\proxy.py", line 381, in create_arg
+    return handler(self, a)
+  File "C:\Users\ramaf\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\torch\fx\proxy.py", line 846, in <lambda>
+    _create_arg_bypass[tuple] = lambda self, a: tuple(self.create_arg(elem) for elem in a)
+                                                ^^^^^
+  File "C:\Users\ramaf\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\torch\fx\proxy.py", line 846, in <genexpr>
+    _create_arg_bypass[tuple] = lambda self, a: tuple(self.create_arg(elem) for elem in a)
+                                                      ~~~~~~~~~~~~~~~^^^^^^
+  File "C:\Users\ramaf\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\torch\fx\experimental\proxy_tensor.py", line 1301, in create_arg
+    return self.create_node("get_attr", qualname, (), {})
+           ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\ramaf\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\torch\fx\experimental\proxy_tensor.py", line 2286, in create_node
+    node = super().create_node(*args, **kwargs)  # type: ignore[arg-type]
+  File "C:\Users\ramaf\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\torch\fx\experimental\proxy_tensor.py", line 1347, in create_node
+    node.meta["val"] = extract_val(attr)
+                       ~~~~~~~~~~~^^^^^^
+  File "C:\Users\ramaf\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\torch\fx\experimental\proxy_tensor.py", line 614, in extract_val
+    return torch.empty_strided(
+           ~~~~~~~~~~~~~~~~~~~^
+        val.shape, val.stride(), device=val.device, dtype=val.dtype
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    )
+    ^
+  File "C:\Users\ramaf\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\torch\utils\_stats.py", line 29, in wrapper
+    return fn(*args, **kwargs)
+  File "C:\Users\ramaf\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\torch\_subclasses\fake_tensor.py", line 1397, in __torch_dispatch__
+    return self.dispatch(func, types, args, kwargs)
+           ~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\ramaf\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\torch\_subclasses\fake_tensor.py", line 2155, in dispatch
+    return self._cached_dispatch_impl(func, types, args, kwargs)
+           ~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\ramaf\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\torch\_subclasses\fake_tensor.py", line 1532, in _cached_dispatch_impl
+    output = self._output_from_cache_entry(state, entry, key, func, args)
+  File "C:\Users\ramaf\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\torch\_subclasses\fake_tensor.py", line 2076, in _output_from_cache_entry
+    return self._get_output_tensor_from_cache_entry(
+           ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^
+        state, entry.output_infos[0], key, func, args
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    )
+    ^
+  File "C:\Users\ramaf\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\torch\_subclasses\fake_tensor.py", line 2030, in _get_output_tensor_from_cache_entry
+    with in_kernel_invocation_manager(self), maybe_suppress():
+         ~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^
+  File "C:\Users\ramaf\AppData\Local\Python\pythoncore-3.14-64\Lib\contextlib.py", line 141, in __enter__
+    return next(self.gen)
+  File "C:\Users\ramaf\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\torch\_subclasses\fake_tensor.py", line 544, in in_kernel_invocation_manager
+    assert meta_in_tls == prev_in_kernel, f"{meta_in_tls}, {prev_in_kernel}"
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: False, True
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "C:\Inner Firmament\Growth Space\Projects\wan-dit-lab\benchmarks\bench_model.py", line 103, in probe_aot_memory
+    exported = torch.export.export(model, args, strict=False)
+  File "C:\Users\ramaf\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\torch\export\__init__.py", line 311, in export
+    raise e
+  File "C:\Users\ramaf\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\torch\export\__init__.py", line 277, in export
+    return _export(
+        mod,
+    ...<6 lines>...
+        prefer_deferred_runtime_asserts_over_guards=prefer_deferred_runtime_asserts_over_guards,
+    )
+  File "C:\Users\ramaf\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\torch\export\_trace.py", line 1271, in wrapper
+    raise e
+  File "C:\Users\ramaf\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\torch\export\_trace.py", line 1237, in wrapper
+    ep = fn(*args, **kwargs)
+  File "C:\Users\ramaf\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\torch\export\exported_program.py", line 124, in wrapper
+    return fn(*args, **kwargs)
+  File "C:\Users\ramaf\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\torch\export\_trace.py", line 2377, in _export
+    ep = _export_for_training(
+        mod,
+    ...<5 lines>...
+        prefer_deferred_runtime_asserts_over_guards=prefer_deferred_runtime_asserts_over_guards,
+    )
+  File "C:\Users\ramaf\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\torch\export\_trace.py", line 1271, in wrapper
+    raise e
+  File "C:\Users\ramaf\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\torch\export\_trace.py", line 1237, in wrapper
+    ep = fn(*args, **kwargs)
+  File "C:\Users\ramaf\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\torch\export\exported_program.py", line 124, in wrapper
+    return fn(*args, **kwargs)
+  File "C:\Users\ramaf\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\torch\export\_trace.py", line 2185, in _export_for_training
+    export_artifact = export_func(
+        mod=mod,
+    ...<6 lines>...
+        _to_aten_func=_export_to_aten_ir_make_fx,
+    )
+  File "C:\Users\ramaf\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\torch\export\_trace.py", line 2098, in _non_strict_export
+    fake_mode,
+    ^^^^^^^^^
+  File "C:\Users\ramaf\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\torch\_subclasses\fake_tensor.py", line 1442, in __exit__
+    super().__exit__(a, b, c)
+    ~~~~~~~~~~~~~~~~^^^^^^^^^
+  File "C:\Users\ramaf\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\torch\utils\_python_dispatch.py", line 169, in __exit__
+    _pop_mode(mb_dk_or_mode_key)
+    ~~~~~~~~~^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\ramaf\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\torch\utils\_python_dispatch.py", line 325, in _pop_mode
+    return _pop_torch_dispatch_stack(k)
+RuntimeError: Attempted to unset FakeTensorMode, but there wasn't one active.
+
+{"stage": "finished", "private_gib": 5.147026062011719, "working_set_gib": 3.8966217041015625}

@@ -1,0 +1,11 @@
+{"stage": "python_before_torch", "private_gib": 0.0111236572265625, "working_set_gib": 0.01865386962890625}
+{"stage": "torch_imported", "private_gib": 1.1937904357910156, "working_set_gib": 0.4771232604980469}
+C:\Users\ramaf\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\triton\windows_utils.py:425: UserWarning: Failed to find CUDA. Install CUDA Toolkit (https://developer.nvidia.com/cuda-downloads) or set CUDA_HOME / CUDA_PATH environment variable.
+  warnings.warn("Failed to find CUDA."
+{"stage": "project_imported", "private_gib": 1.7461585998535156, "working_set_gib": 0.7126579284667969}
+{"stage": "cuda_initialized", "private_gib": 1.7461585998535156, "working_set_gib": 0.7126617431640625}
+{"stage": "weights_mapped", "private_gib": 1.7905807495117188, "working_set_gib": 0.7171287536621094}
+{"stage": "offloader_started", "private_gib": 3.128986358642578, "working_set_gib": 1.9998092651367188}
+{"stage": "inputs_created", "private_gib": 3.152587890625, "working_set_gib": 2.0905303955078125}
+{"stage": "after_forward", "private_gib": 5.128913879394531, "working_set_gib": 6.089286804199219}
+{"stage": "finished", "private_gib": 5.1289825439453125, "working_set_gib": 6.073883056640625}

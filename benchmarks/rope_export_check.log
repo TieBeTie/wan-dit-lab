@@ -1,0 +1,8 @@
+.                                                                        [100%]
+============================== warnings summary ===============================
+tests/test_rope_export.py::test_static_grid_exports_and_matches_tensor_grid
+  C:\Users\ramaf\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\triton\windows_utils.py:425: UserWarning: Failed to find CUDA. Install CUDA Toolkit (https://developer.nvidia.com/cuda-downloads) or set CUDA_HOME / CUDA_PATH environment variable.
+    warnings.warn("Failed to find CUDA."
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+1 passed, 1 warning in 8.19s

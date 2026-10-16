@@ -1,0 +1,9 @@
+torch 2.10.0+cu128
+C:\Users\ramaf\AppData\Local\Python\pythoncore-3.14-64\Lib\site-packages\triton\windows_utils.py:425: UserWarning: Failed to find CUDA. Install CUDA Toolkit (https://developer.nvidia.com/cuda-downloads) or set CUDA_HOME / CUDA_PATH environment variable.
+  warnings.warn("Failed to find CUDA."
+export ok
+C:\Users\ramaf\AppData\Local\Python\pythoncore-3.14-64\Lib\copyreg.py:104: FutureWarning: `isinstance(treespec, LeafSpec)` is deprecated, use `isinstance(treespec, TreeSpec) and treespec.is_leaf()` instead.
+  return cls.__new__(cls, *args)
+compiled C:\Inner Firmament\Growth Space\Projects\wan-dit-lab\artifacts\aoti-cpu-probe.pt2
+W1016 10:30:11.966000 30104 site-packages\torch\_inductor\package\package.py:120] Loading outdated pt2 file. Please regenerate your package.
+output matches

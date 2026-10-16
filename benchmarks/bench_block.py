@@ -48,7 +48,7 @@ if __name__ == "__main__":
     settings = dict(warmup=5, number=10, repeat=5)  # warmup also pays for compilation and the CUDA graph recording
     with torch.no_grad():
         with torch.autocast(device.type, dtype=torch.float16):
-            run("reference", reference, *ref_args, **settings)
-            run("mine", mine, *mine_args, **settings)
-            run("reference_compiled", reference_compiled, *ref_args, **settings)
-            run("mine_compiled", mine_compiled, *mine_args, **settings)
+            run("block_reference", reference, *ref_args, **settings)
+            run("block_mine", mine, *mine_args, **settings)
+            run("block_reference_compiled", reference_compiled, *ref_args, **settings)
+            run("block_mine_compiled", mine_compiled, *mine_args, **settings)
