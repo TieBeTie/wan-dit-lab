@@ -9,16 +9,17 @@ def rope(pos_count, pos_dim):
     angles = positions * frequencies
     return torch.stack((torch.cos(angles), torch.sin(angles)))
 
-def rope_apply(X, grid_sizes, freq):
-    # X = (batch, token, heads, dim)
-    f, h, w = grid_sizes[0].tolist()
+def rope_apply(X, grid_sizes, freq, start_frame=0):
+    # X = (batch, token, heads, dim); start_frame: the time position of the first frame of X (a chunk of a longer video)
+    # Export can specialize Python sizes; tensor values would become data-dependent symbols.
+    f, h, w = grid_sizes[0].tolist() if isinstance(grid_sizes, torch.Tensor) else grid_sizes[0]
     c = X.size(3) // 2
     sizes = [c - 2 * (c // 3), c // 3, c // 3]
     # freq = (2, position, pair): cos and sin on the first axis, built by rope()
     time, height, width = freq.split(sizes, dim=-1)
     # (2, token_pos, 1, 64 angles)
     C, S = torch.cat([
-        time[:, :f].view(2, f, 1, 1, -1).expand(2, f, h, w, -1),
+        time[:, start_frame:start_frame + f].view(2, f, 1, 1, -1).expand(2, f, h, w, -1),
         height[:, :h].view(2, 1, h, 1, -1).expand(2, f, h, w, -1),
         width[:, :w].view(2, 1, 1, w, -1).expand(2, f, h, w, -1),
     ], dim=-1).reshape(2, f * h * w, 1, -1)

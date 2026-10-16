@@ -19,16 +19,19 @@ class MultiHeadAttention(torch.nn.Module):
         self.norm_q = RMSNorm(dim, eps=eps)
         self.norm_k = RMSNorm(dim, eps=eps)
     
-    def forward(self, X, grid_sizes=None, freq=None, context=None):
-        # softmax((QK^T)/sqrt(d)) V; keys and values come from context in cross attention
+    def forward(self, X, grid_sizes=None, freq=None, context=None, start_frame=0, cache=None):
+        # softmax((QK^T)/sqrt(d)) V; keys and values come from context in cross attention,
+        # and from the cached frames before this chunk too when a cache is given (causal.KVCache)
         C = X if context is None else context
         Q, K, V = self.norm_q(self.q(X)), self.norm_k(self.k(C)), self.v(C)
         Q = Q.reshape(X.shape[0], X.shape[-2], self.num_heads, self.head_dim)
         K = K.reshape(C.shape[0], C.shape[-2], self.num_heads, self.head_dim)
         if context is None:
-            Q = rope_apply(Q, grid_sizes, freq)
-            K = rope_apply(K, grid_sizes, freq)
+            Q = rope_apply(Q, grid_sizes, freq, start_frame)
+            K = rope_apply(K, grid_sizes, freq, start_frame)
         V = V.reshape(C.shape[0], C.shape[-2], self.num_heads, self.head_dim)
+        if cache is not None:  # attention over the cached frames too, outside a compiled graph (causal.KVCache)
+            return self.o(cache.attend(Q, K, V).reshape(X.shape[0], X.shape[-2], self.dim))
         Q = Q.permute(0, 2, 1, 3)
         K = K.permute(0, 2, 1, 3)
         V = V.permute(0, 2, 1, 3)
