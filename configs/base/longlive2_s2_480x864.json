@@ -1,0 +1,17 @@
+{
+  "base": "configs/base/longlive2_s2_original.json",
+  "about": "The original 2-step LongLive 2.0 brought to 480x864 (token grid 15x27, aspect 1.80 against the trained 22x40, 1.82) by the recipe of E27: RoPE positions of height and width spread over the trained grid; the shift and the attention scale as the original (they changed nothing, E27). Everything else original.",
+  "common": {
+    "height": 480,
+    "width": 864,
+    "rope_interpolate_from": [
+      704,
+      1280
+    ]
+  },
+  "policy_overrides": {
+    "resource_cost_model": {
+      "calibration": "configs/calibration/longlive2_s2_480x864_kv_bf16.json"
+    }
+  }
+}

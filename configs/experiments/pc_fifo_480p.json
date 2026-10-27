@@ -1,0 +1,248 @@
+{
+  "id": "PC_FIFO_BF16_480p_16prompts",
+  "output": "outputs/experiments/2026-10-18/11_PC_FIFO_BF16_480p_16prompts",
+  "selection_seed": 20261017,
+  "prompt_source": "reference\\DeepForcing\\prompts\\MovieGenVideoBench.txt",
+  "prompt_source_sha256": "005fac9ec760bf9c98b9442f1cce9f1b5d5c6911f1836107feecbb0c564b4bbd",
+  "prompt_population_size": 1003,
+  "width": 832,
+  "height": 480,
+  "latent_frames": 81,
+  "fps": 16,
+  "weights": "self_forcing_dmd.pt / generator_ema",
+  "precision": "BF16 weights and KV",
+  "shift": 5.0,
+  "context_frames": 21,
+  "sink_frames": 10,
+  "positions": "window",
+  "decoder": "TAEHV FP16",
+  "compile": "default",
+  "attention": "cudnn",
+  "cross_cache": true,
+  "context_noise": 0,
+  "conditions": {
+    "FIFO": {
+      "pc_recent": null
+    },
+    "PC": {
+      "pc_recent": 1
+    }
+  },
+  "primary": {
+    "metric": "MUSIQ KonIQ10k raw score, higher is better",
+    "frame_indices": [
+      240,
+      256,
+      272,
+      288,
+      304
+    ],
+    "definition": "mean MUSIQ of five frames, 15..19 seconds at 1 Hz",
+    "pair_difference": "PC minus FIFO",
+    "unit": "one independently selected distinct benchmark prompt with one assigned seed",
+    "test": "exact two-sided binomial sign test, ties |difference| <= 1e-6 excluded",
+    "null": "P(PC score > FIFO score | not tied) = 0.5",
+    "alpha": 0.05,
+    "all_pairs_required": 16,
+    "minimum_wins_for_significance_without_ties": 13,
+    "decision": "reject H0 for benefit if p<.05 and wins>losses; reject for harm if reversed; otherwise do not reject H0"
+  },
+  "secondary": {
+    "early_frame_indices": [
+      0,
+      16,
+      32,
+      48,
+      64
+    ],
+    "metrics": [
+      "early MUSIQ",
+      "early minus late MUSIQ (quality drop)",
+      "adjacent decoded frame mean absolute RGB difference (descriptive motion proxy)",
+      "steady generation seconds per video second",
+      "peak allocated GPU memory"
+    ],
+    "inferential_tests": "none; descriptive only"
+  },
+  "limitations": [
+    "20.0625 s at native 480x832, native shift 5, one seed per prompt",
+    "MUSIQ is frame quality, not prompt adherence or temporal coherence",
+    "Not a full VBench evaluation; benchmark prompts only",
+    "No early stopping or choosing a different primary metric after seeing results",
+    "No automatic change to default inference settings",
+    "The same 16 prompts/seeds as the exploratory 256p series; not an independent replication across resolutions",
+    "BF16 block offloading enabled identically in both conditions; timing is for this placement"
+  ],
+  "pairs": [
+    {
+      "id": "01",
+      "source_line": 288,
+      "prompt": "Time lapse video of a city, shown from dusk until dawn, with traffic and light trails",
+      "seed": 757251961,
+      "order": [
+        "FIFO",
+        "PC"
+      ]
+    },
+    {
+      "id": "02",
+      "source_line": 32,
+      "prompt": "New York City submerged like Atlantis. Fish, whales, sea turtles and sharks swim through the streets of New York.",
+      "seed": 1704515217,
+      "order": [
+        "FIFO",
+        "PC"
+      ]
+    },
+    {
+      "id": "03",
+      "source_line": 449,
+      "prompt": "A cute furry monster is blowing on hot cocoa to cool it down.",
+      "seed": 766267953,
+      "order": [
+        "PC",
+        "FIFO"
+      ]
+    },
+    {
+      "id": "04",
+      "source_line": 188,
+      "prompt": "a ninja walking through the desert carrying a case of wine while being followed by a pack of hyenas",
+      "seed": 702602667,
+      "order": [
+        "PC",
+        "FIFO"
+      ]
+    },
+    {
+      "id": "05",
+      "source_line": 680,
+      "prompt": "A surfer accelerating on a wave, carving through the water.",
+      "seed": 1352683390,
+      "order": [
+        "FIFO",
+        "PC"
+      ]
+    },
+    {
+      "id": "06",
+      "source_line": 125,
+      "prompt": "A lightning bolt strikes a turtle in the middle of a lake, immediately turning him into an alligator.",
+      "seed": 586420939,
+      "order": [
+        "FIFO",
+        "PC"
+      ]
+    },
+    {
+      "id": "07",
+      "source_line": 497,
+      "prompt": "Space shuttles dock and depart from a space station orbiting a distant, colorful nebula, with astronauts floating through the docking bays, attending to various tasks.",
+      "seed": 1403905850,
+      "order": [
+        "PC",
+        "FIFO"
+      ]
+    },
+    {
+      "id": "08",
+      "source_line": 914,
+      "prompt": "a toy robot wearing a green dress and a sun hat taking a pleasant stroll in Mumbai India during a beautiful sunset",
+      "seed": 53683859,
+      "order": [
+        "PC",
+        "FIFO"
+      ]
+    },
+    {
+      "id": "09",
+      "source_line": 813,
+      "prompt": "A pedestal up through a dense forest floor, rising to show the sunlight filtering through the treetops.",
+      "seed": 1548458155,
+      "order": [
+        "PC",
+        "FIFO"
+      ]
+    },
+    {
+      "id": "10",
+      "source_line": 537,
+      "prompt": "A cozy coffee shop is filled with people reading, chatting, and sipping warm drinks, the air rich with the scent of freshly brewed coffee and baked goods.",
+      "seed": 1638940510,
+      "order": [
+        "FIFO",
+        "PC"
+      ]
+    },
+    {
+      "id": "11",
+      "source_line": 962,
+      "prompt": "an adorable kangaroo wearing purple overalls and cowboy boots taking a pleasant stroll in Johannesburg South Africa during a beautiful sunset",
+      "seed": 2126289791,
+      "order": [
+        "FIFO",
+        "PC"
+      ]
+    },
+    {
+      "id": "12",
+      "source_line": 544,
+      "prompt": "A tranquil island retreat features swaying palm trees and hammocks strung between them, inviting guests to relax and enjoy the serene beauty of the surroundings.",
+      "seed": 704952942,
+      "order": [
+        "FIFO",
+        "PC"
+      ]
+    },
+    {
+      "id": "13",
+      "source_line": 535,
+      "prompt": "In a mysterious underwater cave, ancient ruins lie scattered among the coral, illuminated by beams of light filtering down from the surface, hinting at a forgotten past.",
+      "seed": 1323322828,
+      "order": [
+        "PC",
+        "FIFO"
+      ]
+    },
+    {
+      "id": "14",
+      "source_line": 772,
+      "prompt": "A close-up of a butterfly's wings, showing the intricate patterns and vibrant colors in fine detail.",
+      "seed": 1515279592,
+      "order": [
+        "FIFO",
+        "PC"
+      ]
+    },
+    {
+      "id": "15",
+      "source_line": 569,
+      "prompt": "A deer in a fancy ballroom dress, waltzing with a fox under a chandelier.",
+      "seed": 1378606712,
+      "order": [
+        "FIFO",
+        "PC"
+      ]
+    },
+    {
+      "id": "16",
+      "source_line": 965,
+      "prompt": "an adorable kangaroo wearing purple overalls and cowboy boots taking a pleasant stroll in Antarctica during a beautiful sunset",
+      "seed": 1298582667,
+      "order": [
+        "FIFO",
+        "PC"
+      ]
+    }
+  ],
+  "offloading": {
+    "enabled": true,
+    "window": 2,
+    "ram_window": 2,
+    "weight_dtype": "BF16"
+  },
+  "note": "notes/research/PC эксперимент 480p.md",
+  "derived_from": "configs/experiments/pc_fifo_256p.json",
+  "encoded_contexts_source": "outputs\\experiments\\2026-10-17\\10_PC_FIFO_BF16_256p_16prompts\\_data\\contexts.pt",
+  "encoded_contexts_sha256": "8fcacaac4d1925599f840a892dfcc76c60115da03cc89130a308d3164c0bc158"
+}

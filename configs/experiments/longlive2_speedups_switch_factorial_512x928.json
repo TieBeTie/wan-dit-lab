@@ -1,0 +1,847 @@
+{
+  "base": "configs/base/longlive2_s2_512x928.json",
+  "question": "The speed-ups on prompt switches: full 3x2x2 factorial of weights (BF16, FP8, W4A4), attention (SDPA, Sage 2) and KV cache (BF16, FP8) on 4 sequences (3 shots of LongLive 2.0 and 1 continuation) at 512x928, RoPE as it is; the blind test of 04 found the full Live set losing 3 of 4 switches to the original",
+  "common": {
+    "latent_frames": 48
+  },
+  "runs": [
+    {
+      "prompt_refs": [
+        "configs/prompts/multishot_candidates.json#roof_1",
+        "configs/prompts/multishot_candidates.json#roof_2"
+      ],
+      "switch": "shot",
+      "switch_every": 3,
+      "seed": 0,
+      "id": "roof_shot__wbf16__asdpa__kvbf16",
+      "common": {
+        "attention": "cudnn",
+        "kv_fp8": false
+      },
+      "policy": {
+        "packed_dit_weights": null
+      }
+    },
+    {
+      "prompt_refs": [
+        "configs/prompts/multishot_candidates.json#roof_1",
+        "configs/prompts/multishot_candidates.json#roof_2"
+      ],
+      "switch": "shot",
+      "switch_every": 3,
+      "seed": 0,
+      "id": "roof_shot__wbf16__asdpa__kvfp8",
+      "common": {
+        "attention": "cudnn",
+        "kv_fp8": true
+      },
+      "policy": {
+        "packed_dit_weights": null
+      }
+    },
+    {
+      "prompt_refs": [
+        "configs/prompts/multishot_candidates.json#roof_1",
+        "configs/prompts/multishot_candidates.json#roof_2"
+      ],
+      "switch": "shot",
+      "switch_every": 3,
+      "seed": 0,
+      "id": "roof_shot__wbf16__asage__kvbf16",
+      "common": {
+        "attention": "sage",
+        "kv_fp8": false
+      },
+      "policy": {
+        "packed_dit_weights": null
+      }
+    },
+    {
+      "prompt_refs": [
+        "configs/prompts/multishot_candidates.json#roof_1",
+        "configs/prompts/multishot_candidates.json#roof_2"
+      ],
+      "switch": "shot",
+      "switch_every": 3,
+      "seed": 0,
+      "id": "roof_shot__wbf16__asage__kvfp8",
+      "common": {
+        "attention": "sage",
+        "kv_fp8": true
+      },
+      "policy": {
+        "packed_dit_weights": null
+      }
+    },
+    {
+      "prompt_refs": [
+        "configs/prompts/multishot_candidates.json#roof_1",
+        "configs/prompts/multishot_candidates.json#roof_2"
+      ],
+      "switch": "shot",
+      "switch_every": 3,
+      "seed": 0,
+      "id": "roof_shot__wfp8__asdpa__kvbf16",
+      "common": {
+        "attention": "cudnn",
+        "kv_fp8": false
+      },
+      "policy": {
+        "packed_dit_weights": "artifacts/longlive2_5b_s2_blocks.fp8"
+      }
+    },
+    {
+      "prompt_refs": [
+        "configs/prompts/multishot_candidates.json#roof_1",
+        "configs/prompts/multishot_candidates.json#roof_2"
+      ],
+      "switch": "shot",
+      "switch_every": 3,
+      "seed": 0,
+      "id": "roof_shot__wfp8__asdpa__kvfp8",
+      "common": {
+        "attention": "cudnn",
+        "kv_fp8": true
+      },
+      "policy": {
+        "packed_dit_weights": "artifacts/longlive2_5b_s2_blocks.fp8"
+      }
+    },
+    {
+      "prompt_refs": [
+        "configs/prompts/multishot_candidates.json#roof_1",
+        "configs/prompts/multishot_candidates.json#roof_2"
+      ],
+      "switch": "shot",
+      "switch_every": 3,
+      "seed": 0,
+      "id": "roof_shot__wfp8__asage__kvbf16",
+      "common": {
+        "attention": "sage",
+        "kv_fp8": false
+      },
+      "policy": {
+        "packed_dit_weights": "artifacts/longlive2_5b_s2_blocks.fp8"
+      }
+    },
+    {
+      "prompt_refs": [
+        "configs/prompts/multishot_candidates.json#roof_1",
+        "configs/prompts/multishot_candidates.json#roof_2"
+      ],
+      "switch": "shot",
+      "switch_every": 3,
+      "seed": 0,
+      "id": "roof_shot__wfp8__asage__kvfp8",
+      "common": {
+        "attention": "sage",
+        "kv_fp8": true
+      },
+      "policy": {
+        "packed_dit_weights": "artifacts/longlive2_5b_s2_blocks.fp8"
+      }
+    },
+    {
+      "prompt_refs": [
+        "configs/prompts/multishot_candidates.json#roof_1",
+        "configs/prompts/multishot_candidates.json#roof_2"
+      ],
+      "switch": "shot",
+      "switch_every": 3,
+      "seed": 0,
+      "id": "roof_shot__ww4a4__asdpa__kvbf16",
+      "common": {
+        "attention": "cudnn",
+        "kv_fp8": false
+      },
+      "policy": {
+        "packed_dit_weights": "artifacts/longlive2_5b_s2_blocks_fused.w4a4"
+      }
+    },
+    {
+      "prompt_refs": [
+        "configs/prompts/multishot_candidates.json#roof_1",
+        "configs/prompts/multishot_candidates.json#roof_2"
+      ],
+      "switch": "shot",
+      "switch_every": 3,
+      "seed": 0,
+      "id": "roof_shot__ww4a4__asdpa__kvfp8",
+      "common": {
+        "attention": "cudnn",
+        "kv_fp8": true
+      },
+      "policy": {
+        "packed_dit_weights": "artifacts/longlive2_5b_s2_blocks_fused.w4a4"
+      }
+    },
+    {
+      "prompt_refs": [
+        "configs/prompts/multishot_candidates.json#roof_1",
+        "configs/prompts/multishot_candidates.json#roof_2"
+      ],
+      "switch": "shot",
+      "switch_every": 3,
+      "seed": 0,
+      "id": "roof_shot__ww4a4__asage__kvbf16",
+      "common": {
+        "attention": "sage",
+        "kv_fp8": false
+      },
+      "policy": {
+        "packed_dit_weights": "artifacts/longlive2_5b_s2_blocks_fused.w4a4"
+      }
+    },
+    {
+      "prompt_refs": [
+        "configs/prompts/multishot_candidates.json#roof_1",
+        "configs/prompts/multishot_candidates.json#roof_2"
+      ],
+      "switch": "shot",
+      "switch_every": 3,
+      "seed": 0,
+      "id": "roof_shot__ww4a4__asage__kvfp8",
+      "common": {
+        "attention": "sage",
+        "kv_fp8": true
+      },
+      "policy": {
+        "packed_dit_weights": "artifacts/longlive2_5b_s2_blocks_fused.w4a4"
+      }
+    },
+    {
+      "prompt_refs": [
+        "configs/prompts/multishot_candidates.json#titanic_1",
+        "configs/prompts/multishot_candidates.json#titanic_2"
+      ],
+      "switch": "shot",
+      "switch_every": 3,
+      "seed": 0,
+      "id": "titanic_shot__wbf16__asdpa__kvbf16",
+      "common": {
+        "attention": "cudnn",
+        "kv_fp8": false
+      },
+      "policy": {
+        "packed_dit_weights": null
+      }
+    },
+    {
+      "prompt_refs": [
+        "configs/prompts/multishot_candidates.json#titanic_1",
+        "configs/prompts/multishot_candidates.json#titanic_2"
+      ],
+      "switch": "shot",
+      "switch_every": 3,
+      "seed": 0,
+      "id": "titanic_shot__wbf16__asdpa__kvfp8",
+      "common": {
+        "attention": "cudnn",
+        "kv_fp8": true
+      },
+      "policy": {
+        "packed_dit_weights": null
+      }
+    },
+    {
+      "prompt_refs": [
+        "configs/prompts/multishot_candidates.json#titanic_1",
+        "configs/prompts/multishot_candidates.json#titanic_2"
+      ],
+      "switch": "shot",
+      "switch_every": 3,
+      "seed": 0,
+      "id": "titanic_shot__wbf16__asage__kvbf16",
+      "common": {
+        "attention": "sage",
+        "kv_fp8": false
+      },
+      "policy": {
+        "packed_dit_weights": null
+      }
+    },
+    {
+      "prompt_refs": [
+        "configs/prompts/multishot_candidates.json#titanic_1",
+        "configs/prompts/multishot_candidates.json#titanic_2"
+      ],
+      "switch": "shot",
+      "switch_every": 3,
+      "seed": 0,
+      "id": "titanic_shot__wbf16__asage__kvfp8",
+      "common": {
+        "attention": "sage",
+        "kv_fp8": true
+      },
+      "policy": {
+        "packed_dit_weights": null
+      }
+    },
+    {
+      "prompt_refs": [
+        "configs/prompts/multishot_candidates.json#titanic_1",
+        "configs/prompts/multishot_candidates.json#titanic_2"
+      ],
+      "switch": "shot",
+      "switch_every": 3,
+      "seed": 0,
+      "id": "titanic_shot__wfp8__asdpa__kvbf16",
+      "common": {
+        "attention": "cudnn",
+        "kv_fp8": false
+      },
+      "policy": {
+        "packed_dit_weights": "artifacts/longlive2_5b_s2_blocks.fp8"
+      }
+    },
+    {
+      "prompt_refs": [
+        "configs/prompts/multishot_candidates.json#titanic_1",
+        "configs/prompts/multishot_candidates.json#titanic_2"
+      ],
+      "switch": "shot",
+      "switch_every": 3,
+      "seed": 0,
+      "id": "titanic_shot__wfp8__asdpa__kvfp8",
+      "common": {
+        "attention": "cudnn",
+        "kv_fp8": true
+      },
+      "policy": {
+        "packed_dit_weights": "artifacts/longlive2_5b_s2_blocks.fp8"
+      }
+    },
+    {
+      "prompt_refs": [
+        "configs/prompts/multishot_candidates.json#titanic_1",
+        "configs/prompts/multishot_candidates.json#titanic_2"
+      ],
+      "switch": "shot",
+      "switch_every": 3,
+      "seed": 0,
+      "id": "titanic_shot__wfp8__asage__kvbf16",
+      "common": {
+        "attention": "sage",
+        "kv_fp8": false
+      },
+      "policy": {
+        "packed_dit_weights": "artifacts/longlive2_5b_s2_blocks.fp8"
+      }
+    },
+    {
+      "prompt_refs": [
+        "configs/prompts/multishot_candidates.json#titanic_1",
+        "configs/prompts/multishot_candidates.json#titanic_2"
+      ],
+      "switch": "shot",
+      "switch_every": 3,
+      "seed": 0,
+      "id": "titanic_shot__wfp8__asage__kvfp8",
+      "common": {
+        "attention": "sage",
+        "kv_fp8": true
+      },
+      "policy": {
+        "packed_dit_weights": "artifacts/longlive2_5b_s2_blocks.fp8"
+      }
+    },
+    {
+      "prompt_refs": [
+        "configs/prompts/multishot_candidates.json#titanic_1",
+        "configs/prompts/multishot_candidates.json#titanic_2"
+      ],
+      "switch": "shot",
+      "switch_every": 3,
+      "seed": 0,
+      "id": "titanic_shot__ww4a4__asdpa__kvbf16",
+      "common": {
+        "attention": "cudnn",
+        "kv_fp8": false
+      },
+      "policy": {
+        "packed_dit_weights": "artifacts/longlive2_5b_s2_blocks_fused.w4a4"
+      }
+    },
+    {
+      "prompt_refs": [
+        "configs/prompts/multishot_candidates.json#titanic_1",
+        "configs/prompts/multishot_candidates.json#titanic_2"
+      ],
+      "switch": "shot",
+      "switch_every": 3,
+      "seed": 0,
+      "id": "titanic_shot__ww4a4__asdpa__kvfp8",
+      "common": {
+        "attention": "cudnn",
+        "kv_fp8": true
+      },
+      "policy": {
+        "packed_dit_weights": "artifacts/longlive2_5b_s2_blocks_fused.w4a4"
+      }
+    },
+    {
+      "prompt_refs": [
+        "configs/prompts/multishot_candidates.json#titanic_1",
+        "configs/prompts/multishot_candidates.json#titanic_2"
+      ],
+      "switch": "shot",
+      "switch_every": 3,
+      "seed": 0,
+      "id": "titanic_shot__ww4a4__asage__kvbf16",
+      "common": {
+        "attention": "sage",
+        "kv_fp8": false
+      },
+      "policy": {
+        "packed_dit_weights": "artifacts/longlive2_5b_s2_blocks_fused.w4a4"
+      }
+    },
+    {
+      "prompt_refs": [
+        "configs/prompts/multishot_candidates.json#titanic_1",
+        "configs/prompts/multishot_candidates.json#titanic_2"
+      ],
+      "switch": "shot",
+      "switch_every": 3,
+      "seed": 0,
+      "id": "titanic_shot__ww4a4__asage__kvfp8",
+      "common": {
+        "attention": "sage",
+        "kv_fp8": true
+      },
+      "policy": {
+        "packed_dit_weights": "artifacts/longlive2_5b_s2_blocks_fused.w4a4"
+      }
+    },
+    {
+      "prompt_refs": [
+        "configs/prompts/multishot_candidates.json#fox_1",
+        "configs/prompts/multishot_candidates.json#fox_2"
+      ],
+      "switch": "shot",
+      "switch_every": 3,
+      "seed": 0,
+      "id": "fox_shot__wbf16__asdpa__kvbf16",
+      "common": {
+        "attention": "cudnn",
+        "kv_fp8": false
+      },
+      "policy": {
+        "packed_dit_weights": null
+      }
+    },
+    {
+      "prompt_refs": [
+        "configs/prompts/multishot_candidates.json#fox_1",
+        "configs/prompts/multishot_candidates.json#fox_2"
+      ],
+      "switch": "shot",
+      "switch_every": 3,
+      "seed": 0,
+      "id": "fox_shot__wbf16__asdpa__kvfp8",
+      "common": {
+        "attention": "cudnn",
+        "kv_fp8": true
+      },
+      "policy": {
+        "packed_dit_weights": null
+      }
+    },
+    {
+      "prompt_refs": [
+        "configs/prompts/multishot_candidates.json#fox_1",
+        "configs/prompts/multishot_candidates.json#fox_2"
+      ],
+      "switch": "shot",
+      "switch_every": 3,
+      "seed": 0,
+      "id": "fox_shot__wbf16__asage__kvbf16",
+      "common": {
+        "attention": "sage",
+        "kv_fp8": false
+      },
+      "policy": {
+        "packed_dit_weights": null
+      }
+    },
+    {
+      "prompt_refs": [
+        "configs/prompts/multishot_candidates.json#fox_1",
+        "configs/prompts/multishot_candidates.json#fox_2"
+      ],
+      "switch": "shot",
+      "switch_every": 3,
+      "seed": 0,
+      "id": "fox_shot__wbf16__asage__kvfp8",
+      "common": {
+        "attention": "sage",
+        "kv_fp8": true
+      },
+      "policy": {
+        "packed_dit_weights": null
+      }
+    },
+    {
+      "prompt_refs": [
+        "configs/prompts/multishot_candidates.json#fox_1",
+        "configs/prompts/multishot_candidates.json#fox_2"
+      ],
+      "switch": "shot",
+      "switch_every": 3,
+      "seed": 0,
+      "id": "fox_shot__wfp8__asdpa__kvbf16",
+      "common": {
+        "attention": "cudnn",
+        "kv_fp8": false
+      },
+      "policy": {
+        "packed_dit_weights": "artifacts/longlive2_5b_s2_blocks.fp8"
+      }
+    },
+    {
+      "prompt_refs": [
+        "configs/prompts/multishot_candidates.json#fox_1",
+        "configs/prompts/multishot_candidates.json#fox_2"
+      ],
+      "switch": "shot",
+      "switch_every": 3,
+      "seed": 0,
+      "id": "fox_shot__wfp8__asdpa__kvfp8",
+      "common": {
+        "attention": "cudnn",
+        "kv_fp8": true
+      },
+      "policy": {
+        "packed_dit_weights": "artifacts/longlive2_5b_s2_blocks.fp8"
+      }
+    },
+    {
+      "prompt_refs": [
+        "configs/prompts/multishot_candidates.json#fox_1",
+        "configs/prompts/multishot_candidates.json#fox_2"
+      ],
+      "switch": "shot",
+      "switch_every": 3,
+      "seed": 0,
+      "id": "fox_shot__wfp8__asage__kvbf16",
+      "common": {
+        "attention": "sage",
+        "kv_fp8": false
+      },
+      "policy": {
+        "packed_dit_weights": "artifacts/longlive2_5b_s2_blocks.fp8"
+      }
+    },
+    {
+      "prompt_refs": [
+        "configs/prompts/multishot_candidates.json#fox_1",
+        "configs/prompts/multishot_candidates.json#fox_2"
+      ],
+      "switch": "shot",
+      "switch_every": 3,
+      "seed": 0,
+      "id": "fox_shot__wfp8__asage__kvfp8",
+      "common": {
+        "attention": "sage",
+        "kv_fp8": true
+      },
+      "policy": {
+        "packed_dit_weights": "artifacts/longlive2_5b_s2_blocks.fp8"
+      }
+    },
+    {
+      "prompt_refs": [
+        "configs/prompts/multishot_candidates.json#fox_1",
+        "configs/prompts/multishot_candidates.json#fox_2"
+      ],
+      "switch": "shot",
+      "switch_every": 3,
+      "seed": 0,
+      "id": "fox_shot__ww4a4__asdpa__kvbf16",
+      "common": {
+        "attention": "cudnn",
+        "kv_fp8": false
+      },
+      "policy": {
+        "packed_dit_weights": "artifacts/longlive2_5b_s2_blocks_fused.w4a4"
+      }
+    },
+    {
+      "prompt_refs": [
+        "configs/prompts/multishot_candidates.json#fox_1",
+        "configs/prompts/multishot_candidates.json#fox_2"
+      ],
+      "switch": "shot",
+      "switch_every": 3,
+      "seed": 0,
+      "id": "fox_shot__ww4a4__asdpa__kvfp8",
+      "common": {
+        "attention": "cudnn",
+        "kv_fp8": true
+      },
+      "policy": {
+        "packed_dit_weights": "artifacts/longlive2_5b_s2_blocks_fused.w4a4"
+      }
+    },
+    {
+      "prompt_refs": [
+        "configs/prompts/multishot_candidates.json#fox_1",
+        "configs/prompts/multishot_candidates.json#fox_2"
+      ],
+      "switch": "shot",
+      "switch_every": 3,
+      "seed": 0,
+      "id": "fox_shot__ww4a4__asage__kvbf16",
+      "common": {
+        "attention": "sage",
+        "kv_fp8": false
+      },
+      "policy": {
+        "packed_dit_weights": "artifacts/longlive2_5b_s2_blocks_fused.w4a4"
+      }
+    },
+    {
+      "prompt_refs": [
+        "configs/prompts/multishot_candidates.json#fox_1",
+        "configs/prompts/multishot_candidates.json#fox_2"
+      ],
+      "switch": "shot",
+      "switch_every": 3,
+      "seed": 0,
+      "id": "fox_shot__ww4a4__asage__kvfp8",
+      "common": {
+        "attention": "sage",
+        "kv_fp8": true
+      },
+      "policy": {
+        "packed_dit_weights": "artifacts/longlive2_5b_s2_blocks_fused.w4a4"
+      }
+    },
+    {
+      "prompt_refs": [
+        "configs/prompts/multishot_candidates.json#loft_1",
+        "configs/prompts/multishot_candidates.json#loft_2"
+      ],
+      "switch": "swap",
+      "switch_every": 3,
+      "seed": 0,
+      "id": "loft_swap__wbf16__asdpa__kvbf16",
+      "common": {
+        "attention": "cudnn",
+        "kv_fp8": false
+      },
+      "policy": {
+        "packed_dit_weights": null
+      }
+    },
+    {
+      "prompt_refs": [
+        "configs/prompts/multishot_candidates.json#loft_1",
+        "configs/prompts/multishot_candidates.json#loft_2"
+      ],
+      "switch": "swap",
+      "switch_every": 3,
+      "seed": 0,
+      "id": "loft_swap__wbf16__asdpa__kvfp8",
+      "common": {
+        "attention": "cudnn",
+        "kv_fp8": true
+      },
+      "policy": {
+        "packed_dit_weights": null
+      }
+    },
+    {
+      "prompt_refs": [
+        "configs/prompts/multishot_candidates.json#loft_1",
+        "configs/prompts/multishot_candidates.json#loft_2"
+      ],
+      "switch": "swap",
+      "switch_every": 3,
+      "seed": 0,
+      "id": "loft_swap__wbf16__asage__kvbf16",
+      "common": {
+        "attention": "sage",
+        "kv_fp8": false
+      },
+      "policy": {
+        "packed_dit_weights": null
+      }
+    },
+    {
+      "prompt_refs": [
+        "configs/prompts/multishot_candidates.json#loft_1",
+        "configs/prompts/multishot_candidates.json#loft_2"
+      ],
+      "switch": "swap",
+      "switch_every": 3,
+      "seed": 0,
+      "id": "loft_swap__wbf16__asage__kvfp8",
+      "common": {
+        "attention": "sage",
+        "kv_fp8": true
+      },
+      "policy": {
+        "packed_dit_weights": null
+      }
+    },
+    {
+      "prompt_refs": [
+        "configs/prompts/multishot_candidates.json#loft_1",
+        "configs/prompts/multishot_candidates.json#loft_2"
+      ],
+      "switch": "swap",
+      "switch_every": 3,
+      "seed": 0,
+      "id": "loft_swap__wfp8__asdpa__kvbf16",
+      "common": {
+        "attention": "cudnn",
+        "kv_fp8": false
+      },
+      "policy": {
+        "packed_dit_weights": "artifacts/longlive2_5b_s2_blocks.fp8"
+      }
+    },
+    {
+      "prompt_refs": [
+        "configs/prompts/multishot_candidates.json#loft_1",
+        "configs/prompts/multishot_candidates.json#loft_2"
+      ],
+      "switch": "swap",
+      "switch_every": 3,
+      "seed": 0,
+      "id": "loft_swap__wfp8__asdpa__kvfp8",
+      "common": {
+        "attention": "cudnn",
+        "kv_fp8": true
+      },
+      "policy": {
+        "packed_dit_weights": "artifacts/longlive2_5b_s2_blocks.fp8"
+      }
+    },
+    {
+      "prompt_refs": [
+        "configs/prompts/multishot_candidates.json#loft_1",
+        "configs/prompts/multishot_candidates.json#loft_2"
+      ],
+      "switch": "swap",
+      "switch_every": 3,
+      "seed": 0,
+      "id": "loft_swap__wfp8__asage__kvbf16",
+      "common": {
+        "attention": "sage",
+        "kv_fp8": false
+      },
+      "policy": {
+        "packed_dit_weights": "artifacts/longlive2_5b_s2_blocks.fp8"
+      }
+    },
+    {
+      "prompt_refs": [
+        "configs/prompts/multishot_candidates.json#loft_1",
+        "configs/prompts/multishot_candidates.json#loft_2"
+      ],
+      "switch": "swap",
+      "switch_every": 3,
+      "seed": 0,
+      "id": "loft_swap__wfp8__asage__kvfp8",
+      "common": {
+        "attention": "sage",
+        "kv_fp8": true
+      },
+      "policy": {
+        "packed_dit_weights": "artifacts/longlive2_5b_s2_blocks.fp8"
+      }
+    },
+    {
+      "prompt_refs": [
+        "configs/prompts/multishot_candidates.json#loft_1",
+        "configs/prompts/multishot_candidates.json#loft_2"
+      ],
+      "switch": "swap",
+      "switch_every": 3,
+      "seed": 0,
+      "id": "loft_swap__ww4a4__asdpa__kvbf16",
+      "common": {
+        "attention": "cudnn",
+        "kv_fp8": false
+      },
+      "policy": {
+        "packed_dit_weights": "artifacts/longlive2_5b_s2_blocks_fused.w4a4"
+      }
+    },
+    {
+      "prompt_refs": [
+        "configs/prompts/multishot_candidates.json#loft_1",
+        "configs/prompts/multishot_candidates.json#loft_2"
+      ],
+      "switch": "swap",
+      "switch_every": 3,
+      "seed": 0,
+      "id": "loft_swap__ww4a4__asdpa__kvfp8",
+      "common": {
+        "attention": "cudnn",
+        "kv_fp8": true
+      },
+      "policy": {
+        "packed_dit_weights": "artifacts/longlive2_5b_s2_blocks_fused.w4a4"
+      }
+    },
+    {
+      "prompt_refs": [
+        "configs/prompts/multishot_candidates.json#loft_1",
+        "configs/prompts/multishot_candidates.json#loft_2"
+      ],
+      "switch": "swap",
+      "switch_every": 3,
+      "seed": 0,
+      "id": "loft_swap__ww4a4__asage__kvbf16",
+      "common": {
+        "attention": "sage",
+        "kv_fp8": false
+      },
+      "policy": {
+        "packed_dit_weights": "artifacts/longlive2_5b_s2_blocks_fused.w4a4"
+      }
+    },
+    {
+      "prompt_refs": [
+        "configs/prompts/multishot_candidates.json#loft_1",
+        "configs/prompts/multishot_candidates.json#loft_2"
+      ],
+      "switch": "swap",
+      "switch_every": 3,
+      "seed": 0,
+      "id": "loft_swap__ww4a4__asage__kvfp8",
+      "common": {
+        "attention": "sage",
+        "kv_fp8": true
+      },
+      "policy": {
+        "packed_dit_weights": "artifacts/longlive2_5b_s2_blocks_fused.w4a4"
+      }
+    }
+  ],
+  "output": "outputs/experiments/2026-10-22/05_Ускорения_на_смене_промпта_512x928",
+  "execution": {
+    "resource_budgets": {
+      "ram_gib": 9.0,
+      "vram_gib": 7.25
+    }
+  },
+  "policy_overrides": {
+    "resources": {
+      "mode": "managed",
+      "vram_cache_gib": 5.0,
+      "backing_ram_gib": 3.0,
+      "backing_disk_gib": 18.0,
+      "working_ram_mib": 512,
+      "working_vram_mib": 512,
+      "staging_mib": 16,
+      "system_ram_reserve_gib": 0.0,
+      "process_rss_limit_gib": null,
+      "disk_reserve_gib": 3.0,
+      "prefetch": true
+    }
+  }
+}

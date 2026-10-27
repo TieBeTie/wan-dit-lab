@@ -1,0 +1,113 @@
+{
+  "id": "Scene_switch_BF16_480p_30s",
+  "output": "outputs/experiments/2026-10-20/02_Смена_сцены_reanchor_480p_30сек",
+  "question": "Does replacing the sink with frames of the new scene (reanchor) let the prompt change take effect without the drift seen with decay?",
+  "hypotheses": [
+    "notes/research/cards/H03. Recache без дообучения достаточно для перехода.md",
+    "notes/research/cards/H04. Текущий decay даёт приемлемую смену сцены.md"
+  ],
+  "derived_from": "outputs/sw-decay.json (experiment 2026-10-17/03), the same three prompts and seed",
+  "script": "scripts/experiments/offloading_generate.py",
+  "mode": "as in training of Self-Forcing: 480x832, shift 5.0, BF16 weights and KV, context 21 frames, context noise 0",
+  "width": 832,
+  "height": 480,
+  "latent_frames": 123,
+  "video_frames": 489,
+  "fps": 16,
+  "duration_s": 30.5625,
+  "chunks": 41,
+  "switch_every": 14,
+  "switch_at_s": [
+    10.3125,
+    20.8125
+  ],
+  "seed": 0,
+  "weights": "self_forcing_dmd.pt / generator_ema",
+  "precision": "BF16 weights and KV",
+  "shift": 5.0,
+  "context_frames": 21,
+  "sink_frames": 10,
+  "positions": "window",
+  "pc_recent": null,
+  "cross_cache": true,
+  "context_noise": 0,
+  "decoder": "TAEHV FP16",
+  "compile": "default",
+  "attention": "cudnn",
+  "blend_chunks": 4,
+  "decay_mu": [
+    0.1,
+    0.7
+  ],
+  "prompts": [
+    "A stunning mid-afternoon landscape photograph with a low camera angle, showcasing several giant wooly mammoths treading through a snowy meadow. Their long, wooly fur gently billows in the brisk wind as they move, creating a sense of natural movement. Snow-covered trees and dramatic snow-capped mountains loom in the distance, adding to the majestic setting. Wispy clouds and a high sun cast a warm glow over the scene, enhancing the serene and awe-inspiring atmosphere. The depth of field brings out the detailed textures of the mammoths and the snowy environment, capturing every nuance of these prehistoric giants in breathtaking clarity.",
+    "The same herd of woolly mammoths walks into a dense pine forest as heavy snow begins to fall, soft grey light, the camera follows them at a low angle, cinematic.",
+    "The woolly mammoths reach a frozen lake at sunset, warm orange light glows on the ice and on their fur, wide cinematic shot."
+  ],
+  "conditions": {
+    "swap": {
+      "switch": "swap",
+      "role": "baseline: old sink and memory kept"
+    },
+    "reanchor": {
+      "switch": "reanchor",
+      "role": "sink replaced by the first 10 frames of the new scene, then recache"
+    },
+    "blend_reanchor": {
+      "switch": "blend+reanchor",
+      "role": "text blended over 4 chunks, sink replaced"
+    },
+    "decay_reanchor": {
+      "switch": "decay+reanchor",
+      "role": "old memory fades for 4 chunks; then reanchor's recache resets the caches (and the decay state) from new-scene frames only"
+    }
+  },
+  "not_included": [
+    "new empty cache (H02): no such switch in causal.SWITCHES yet",
+    "decay without fading the sink: needs a change in KVCache.forget"
+  ],
+  "observe": [
+    "does the scene follow each new prompt, and how many seconds after the switch",
+    "does the image float or drift after the switch (colour, sharpness, camera zoom onto one animal)",
+    "is the herd kept across the switch",
+    "switch cost in seconds (record switch_s)"
+  ],
+  "limitations": [
+    "one seed, one prompt sequence: observations, not a test",
+    "reanchor recaches 18 frames once the new scene has 12 frames: a pause of several seconds in Live",
+    "the 2026-10-17 run used sink 9 and 99 latent frames; compare with the swap of this run, not with it"
+  ],
+  "policy": "configs/experiments/offloading_managed_cost_guarded.json",
+  "common": {
+    "prompt": "A stunning mid-afternoon landscape photograph with a low camera angle, showcasing several giant wooly mammoths treading through a snowy meadow. Their long, wooly fur gently billows in the brisk wind as they move, creating a sense of natural movement. Snow-covered trees and dramatic snow-capped mountains loom in the distance, adding to the majestic setting. Wispy clouds and a high sun cast a warm glow over the scene, enhancing the serene and awe-inspiring atmosphere. The depth of field brings out the detailed textures of the mammoths and the snowy environment, capturing every nuance of these prehistoric giants in breathtaking clarity.",
+    "seed": 0,
+    "width": 832,
+    "height": 480,
+    "fps": 16,
+    "latent_frames": 123,
+    "generated_video_frames": 489,
+    "saved_video_frames": 489,
+    "saved_video_seconds": 30.5625,
+    "weights": "self_forcing_dmd.pt / generator_ema",
+    "weight_precision": "BF16",
+    "kv_precision": "BF16",
+    "decoder": "TAEHV FP16",
+    "shift": 5.0,
+    "context_frames": 21,
+    "sink_frames": 10,
+    "positions": "window",
+    "pc_recent": null,
+    "cross_cache": true,
+    "context_noise": 0,
+    "attention": "cudnn",
+    "compile": "default"
+  },
+  "execution": {
+    "resource_budgets": {
+      "ram_gib": 14.0,
+      "vram_gib": 7.25
+    },
+    "require_compilation": true,
+    "warmup_chunks": 3
+  }
+}

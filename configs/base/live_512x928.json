@@ -1,0 +1,9 @@
+{
+  "model": "longlive2",
+  "height": 512,
+  "width": 928,
+  "seed": 0,
+  "rope_interpolate": false,
+  "stream_blocks": 24,
+  "prompt": "A close-up shot of a ceramic teacup slowly pouring water into a glass mug. The water flows smoothly from the spout of the teacup into the mug, creating gentle ripples as it fills up. Both cups have detailed textures, with the teacup having a matte finish and the glass mug showcasing clear transparency. The background is a blurred kitchen countertop, adding context without distracting from the central action. The pouring motion is fluid and natural, emphasizing the interaction between the two cups."
+}

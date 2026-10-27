@@ -1,0 +1,20 @@
+{
+  "profile": "managed_resources",
+  "t5": {"ram": 1, "gpu": 2},
+  "dit": {"ram": 1, "gpu": 2},
+  "resources": {
+    "mode": "managed",
+    "vram_cache_gib": 5.5,
+    "backing_ram_gib": 1.0,
+    "backing_disk_gib": 8.0,
+    "working_ram_mib": 256,
+    "working_vram_mib": 512,
+    "staging_mib": 16,
+    "system_ram_reserve_gib": 2.0,
+    "process_rss_limit_gib": 8.0,
+    "disk_reserve_gib": 3.0,
+    "prefetch": true
+  },
+  "scope": "One resource cache policy; automatic VRAM/RAM eviction, explicit dirty SSD spill and clean-copy reuse; mapped immutable weight sources",
+  "execution": "No automatic generation or baseline rerun; needs short real-model validation before a measured series"
+}

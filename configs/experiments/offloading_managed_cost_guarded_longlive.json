@@ -1,0 +1,33 @@
+{
+  "profile": "managed_cost_guarded_longlive",
+  "t5": {
+    "ram": 1,
+    "gpu": 2
+  },
+  "dit": {
+    "ram": 1,
+    "gpu": 2
+  },
+  "resources": {
+    "mode": "managed",
+    "vram_cache_gib": 6.1875,
+    "backing_ram_gib": 0.8125,
+    "backing_disk_gib": 8.0,
+    "working_ram_mib": 256,
+    "working_vram_mib": 512,
+    "staging_mib": 16,
+    "system_ram_reserve_gib": 0.0,
+    "process_rss_limit_gib": null,
+    "disk_reserve_gib": 3.0,
+    "prefetch": true
+  },
+  "scope": "Calibrated common resource cache; queue-aware VRAM prefetch, stale backing retirement, RAM admission, immutable BF16 block source; LongLive-1.3B weights (LoRA merged), the default for Live; Self-Forcing stays as the reference in offloading_managed_cost_guarded.json",
+  "execution": "Same placements as the Self-Forcing guarded profile; LongLive runs use window 12, sink 3 (its training). Calibration taken from the Self-Forcing 5 s run: same block shapes.",
+  "resource_cost_model": {
+    "profile": "guarded",
+    "calibration": "outputs/experiments/2026-10-19/22_Calibrated_prefetch_5s/calibration_uniform_live.json"
+  },
+  "packed_dit_weights": "artifacts/longlive_dit_blocks.bf16",
+  "commit_in_attention": true,
+  "checkpoint": "checkpoints/longlive_merged.pt"
+}

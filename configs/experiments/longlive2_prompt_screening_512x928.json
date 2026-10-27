@@ -1,0 +1,115 @@
+{
+  "base": "configs/base/longlive2_s2_512x928.json",
+  "question": "Which prompts are representative: 12 candidates from LongLive 2.0, Causal-Forcing, the Sora showcase and SageAttention, the first 3 chunks (24 latent frames, about 4 s) of the original at 512x928",
+  "common": {
+    "latent_frames": 24
+  },
+  "execution": {
+    "resource_budgets": {
+      "ram_gib": 9.0,
+      "vram_gib": 7.25
+    }
+  },
+  "policy_overrides": {
+    "resources": {
+      "mode": "managed",
+      "vram_cache_gib": 5.0,
+      "backing_ram_gib": 3.0,
+      "backing_disk_gib": 18.0,
+      "working_ram_mib": 512,
+      "working_vram_mib": 512,
+      "staging_mib": 16,
+      "system_ram_reserve_gib": 0.0,
+      "process_rss_limit_gib": null,
+      "disk_reserve_gib": 3.0,
+      "prefetch": true
+    }
+  },
+  "runs": [
+    {
+      "id": "chef_plating",
+      "prompt_refs": [
+        "configs/prompts/showcase_candidates.json#chef_plating"
+      ],
+      "seed": 0
+    },
+    {
+      "id": "sheep_river",
+      "prompt_refs": [
+        "configs/prompts/showcase_candidates.json#sheep_river"
+      ],
+      "seed": 0
+    },
+    {
+      "id": "tsunami_alley",
+      "prompt_refs": [
+        "configs/prompts/showcase_candidates.json#tsunami_alley"
+      ],
+      "seed": 0
+    },
+    {
+      "id": "retriever_car",
+      "prompt_refs": [
+        "configs/prompts/showcase_candidates.json#retriever_car"
+      ],
+      "seed": 0
+    },
+    {
+      "id": "cowboy_gobi",
+      "prompt_refs": [
+        "configs/prompts/showcase_candidates.json#cowboy_gobi"
+      ],
+      "seed": 0
+    },
+    {
+      "id": "child_grass",
+      "prompt_refs": [
+        "configs/prompts/showcase_candidates.json#child_grass"
+      ],
+      "seed": 0
+    },
+    {
+      "id": "tokyo_walk",
+      "prompt_refs": [
+        "configs/prompts/showcase_candidates.json#tokyo_walk"
+      ],
+      "seed": 0
+    },
+    {
+      "id": "mammoths",
+      "prompt_refs": [
+        "configs/prompts/showcase_candidates.json#mammoths"
+      ],
+      "seed": 0
+    },
+    {
+      "id": "big_sur_waves",
+      "prompt_refs": [
+        "configs/prompts/showcase_candidates.json#big_sur_waves"
+      ],
+      "seed": 0
+    },
+    {
+      "id": "waterfall",
+      "prompt_refs": [
+        "configs/prompts/showcase_candidates.json#waterfall"
+      ],
+      "seed": 0
+    },
+    {
+      "id": "sea_turtle",
+      "prompt_refs": [
+        "configs/prompts/showcase_candidates.json#sea_turtle"
+      ],
+      "seed": 0
+    },
+    {
+      "id": "toy_ship",
+      "prompt_refs": [
+        "configs/prompts/showcase_candidates.json#toy_ship"
+      ],
+      "seed": 0
+    }
+  ],
+  "output": "outputs/experiments/2026-10-22/02_Отбор_промптов_512x928"
+}

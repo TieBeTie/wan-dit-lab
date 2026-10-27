@@ -1,0 +1,48 @@
+{
+  "base": "configs/base/live_512x928.json",
+  "report_dir": "C:/Users/ramaf/Documents/Experiments/DIT/outputs/experiments/2026-10-26/RoPE_Triton/20261026T125141885037Z",
+  "run": {
+    "mode": "benchmark"
+  },
+  "harness": {
+    "warmup_chunks": 6,
+    "measured_chunks": 24
+  },
+  "variants": [
+    {
+      "label": "original",
+      "pipeline": [
+        {
+          "name": "rope",
+          "backend": "original"
+        },
+        {
+          "name": "kv_store",
+          "backend": "original"
+        },
+        {
+          "name": "compile",
+          "mode": "default"
+        }
+      ]
+    },
+    {
+      "label": "triton",
+      "pipeline": [
+        {
+          "name": "rope",
+          "backend": "triton"
+        },
+        {
+          "name": "kv_store",
+          "backend": "original"
+        },
+        {
+          "name": "compile",
+          "mode": "default"
+        }
+      ]
+    }
+  ],
+  "keep_open": true
+}

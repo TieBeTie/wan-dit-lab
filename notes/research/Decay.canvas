@@ -1,0 +1,107 @@
+{
+  "nodes": [
+    {
+      "id": "reference",
+      "type": "text",
+      "text": "<span class=\"wan-scene-style wan-scene-math\"></span>\n\n## 1. Опорный кадр новой сцены\n\n$$\nc_1\\to Z^{\\rm ref}=(z_a,z_b,z_c)\\to z_c\n$$\nСначала генерируем первый чистый чанк с новым текстом. В нашей реализации берём K **последнего латентного кадра** этого чанка.",
+      "x": 0,
+      "y": 0,
+      "width": 1480,
+      "height": 220,
+      "color": "3"
+    },
+    {
+      "id": "match",
+      "type": "text",
+      "text": "<span class=\"wan-scene-style wan-scene-math\"></span>\n\n## 2. Сравнить старый токен с той же позицией\n\n$$\nd_{\\ell i}=1-\\cos\\!\\left(P_{\\rm sp}k^{\\rm old}_{\\ell i},P_{\\rm sp}k^{\\rm ref}_{\\ell,p(i)}\\right)\n$$\ni: старый токен; p(i): его место в кадре. Pₛₚ оставляет пространственные каналы ключа, убирая временные пары RoPE. Каналы всех голов объединены для косинуса.",
+      "x": 0,
+      "y": 280,
+      "width": 710,
+      "height": 300
+    },
+    {
+      "id": "rate",
+      "type": "text",
+      "text": "<span class=\"wan-scene-style wan-scene-math\"></span>\n\n## 3. Различие превращается в скорость забывания\n\n$$\n\\delta_{\\ell i}=\\frac{d_{\\ell i}-d_{\\ell,\\min}}{d_{\\ell,\\max}-d_{\\ell,\\min}+\\epsilon}\n$$\n$$\n\\mu_{\\ell i}=\\mu_{\\min}+(\\mu_{\\max}-\\mu_{\\min})\\delta_{\\ell i}\n$$\nMin/max по старым токенам блока. В наших опытах μmin = 0.1, μmax = 0.7. Чем сильнее отличие, тем быстрее затухание.",
+      "x": 770,
+      "y": 280,
+      "width": 710,
+      "height": 300
+    },
+    {
+      "id": "weights",
+      "type": "text",
+      "text": "<span class=\"wan-scene-style wan-scene-math\"></span>\n\n## 4. Вес каждой старой строки\n\n$$\nw_{\\ell i}(r)=e^{-r\\mu_{\\ell i}},\\qquad D_\\ell(r)=\\operatorname{diag}_i w_{\\ell i}(r)\n$$\nr=1 при генерации следующего чанка после опорного. Для новых токенов вес 1. Выбираются **веса токенов**, а не нужные чанки.",
+      "x": 0,
+      "y": 645,
+      "width": 710,
+      "height": 285
+    },
+    {
+      "id": "read",
+      "type": "text",
+      "text": "<span class=\"wan-scene-style wan-scene-math\"></span>\n\n## 5. Применить вес при чтении памяти\n\n$$\n\\widetilde K_\\ell=D_\\ell K^{\\rm old}_\\ell,\\qquad\\widetilde V_\\ell=D_\\ell V^{\\rm old}_\\ell\n$$\n$$\nA=\\operatorname{softmax}(Q\\widetilde K_\\ell^{\\mathsf T}/\\sqrt{d_h})\\widetilde V_\\ell\n$$\nЭто self-attention над историей. Храним исходные K/V, умножаем копию при чтении. Новый текст даёт 𝒯₁ в cross-attention.",
+      "x": 770,
+      "y": 645,
+      "width": 710,
+      "height": 285,
+      "color": "5"
+    },
+    {
+      "id": "distinction",
+      "type": "text",
+      "text": "<span class=\"wan-scene-style wan-scene-math\"></span>\n\n## Не путать три операции\n\n$$\n\\mathrm{RoPE}:\\ k\\mapsto Rk,\\quad\\|Rk\\|=\\|k\\|\\qquad\\mathrm{decay}:\\ k_i\\mapsto w_i k_i\n$$\n**RoPE:** поворот по позиции. **Decay:** масштабирование по отличию содержимого. **PC:** отдельно выбирает удаляемые токены; к decay не относится.\n\nУменьшение K/V не гарантирует монотонного уменьшения softmax-веса: это не прямая маска attention.",
+      "x": 0,
+      "y": 995,
+      "width": 1480,
+      "height": 225
+    },
+    {
+      "id": "parent-navigation",
+      "type": "text",
+      "text": "<span class=\"wan-scene-style wan-scene-math\"></span>\n\n## Уровень схемы\n\n[[Growth Space/Projects/wan-dit-lab/Исследование.canvas|Гибрид]] → [[Growth Space/Projects/wan-dit-lab/notes/research/Продолжение сцены.canvas|Продолжение сцены]] → **Decay**",
+      "x": 0,
+      "y": -170,
+      "width": 1480,
+      "height": 115
+    }
+  ],
+  "edges": [
+    {
+      "id": "reference-match",
+      "fromNode": "reference",
+      "fromSide": "bottom",
+      "toNode": "match",
+      "toSide": "top",
+      "fromEnd": "none",
+      "toEnd": "arrow"
+    },
+    {
+      "id": "match-rate",
+      "fromNode": "match",
+      "fromSide": "right",
+      "toNode": "rate",
+      "toSide": "left",
+      "fromEnd": "none",
+      "toEnd": "arrow"
+    },
+    {
+      "id": "rate-weights",
+      "fromNode": "rate",
+      "fromSide": "bottom",
+      "toNode": "weights",
+      "toSide": "top",
+      "fromEnd": "none",
+      "toEnd": "arrow"
+    },
+    {
+      "id": "weights-read",
+      "fromNode": "weights",
+      "fromSide": "right",
+      "toNode": "read",
+      "toSide": "left",
+      "fromEnd": "none",
+      "toEnd": "arrow"
+    }
+  ]
+}

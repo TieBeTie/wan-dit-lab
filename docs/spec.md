@@ -1,4 +1,4 @@
-	# Спецификация Wan2.1-T2V-1.3B
+		# Спецификация Wan2.1-T2V-1.3B
 
 ## 1. Предсказание до открытия файла (27.09.2026)
 
@@ -19,7 +19,7 @@
 
 ## 2. Что в файле
 
-Источник: `python -m wan_dit_lab.checkpoint` по `diffusion_pytorch_model.safetensors`, ревизия `37ec512` из `configs/upstream.json`. Веса не загружались, формы прочитаны из заголовка файла.
+Источник: `python -m wan_dit_lab.models.checkpoint` по `diffusion_pytorch_model.safetensors`, ревизия `37ec512` из `configs/upstream.json`. Веса не загружались, формы прочитаны из заголовка файла.
 
 ### Итог
 

@@ -6,7 +6,25 @@
 
 Пишем входное преобразование видеолатентов, conditioning по времени, self-attention, cross-attention, FFN, блоки трансформера и выходную голову. Текстовый энкодер, VAE и scheduler сначала используем готовые. Обучение с нуля не входит в начальный этап.
 
-Это пока каркас проекта: модель и загрузчик весов ещё не реализованы.
+## RoPE 3D: проверить и сравнить
+
+```powershell
+.\scripts\check_rope.ps1 -OpenReport
+```
+
+Тесты → точность → скорость → отчёт PyTorch / Triton. Всё выполняется локально
+в существующем WSL-окружении, без загрузки весов. `-TestsOnly` запускает только тесты.
+
+[Конфиг](configs/experiments/rope_triton.json) · [Ядро](src/wan_dit_lab/kernels/rope_triton.py) ·
+[Методика и статьи](docs/rope-triton-validation.md).
+
+Результаты сохраняются в `Documents/Experiments/DIT/outputs/experiments/2026-10-26/RoPE_Triton`.
+`latest.json` указывает на последний прогон, включая неудачный. Отчёт доступен
+в HTML и Markdown, все измерения и метаданные сохраняются в JSON.
+
+FP8-запись K/V прямо в кэш: `./scripts/check_rope.ps1 -CacheStore`.
+Сначала локальные тесты, затем парные замеры и Live A/B на Windows.
+`-TestsOnly` сохраняет только проверки. [Контракт и калибровка](docs/cache-fp8-validation.md).
 
 ## Быстрый старт
 
@@ -20,7 +38,7 @@
 
 ## Начальная цель
 
-База — Wan2.1 T2V-1.3B. Ревизии кода и checkpoint зафиксированы в `configs/upstream.json`. Загрузка всех необходимых весов и проверка хешей: `python scripts/prepare_weights.py`. Не подставлять размеры из других моделей или CausalWan без сверки.
+База — Wan2.1 T2V-1.3B. Ревизии кода и checkpoint зафиксированы в `configs/upstream.json`. Загрузка всех необходимых весов и проверка хешей: `python scripts/conversion/prepare_weights.py`. Не подставлять размеры из других моделей или CausalWan без сверки.
 
 Почему эта база и как расширять проект в сторону streaming inference: [выбор проекта и актуальные альтернативы](docs/project-positioning.md).
 
@@ -41,11 +59,17 @@
 
 ## Структура
 
-- `src/wan_dit_lab/` — собственная реализация.
+- `src/wan_dit_lab/models/` — модель, T5, VAE и исходные операции.
+- `src/wan_dit_lab/kernels/`, `quantization/` — ускоренные операции и квантование.
+- `src/wan_dit_lab/generation/`, `offloading/` — генерация и управление ресурсами.
+- `src/wan_dit_lab/harness/`, `runtime/` — измерения, конфиги и pipeline.
+- `src/wan_dit_lab/experiments/`, `reports/` — сценарии и отчёты.
 - `tests/` — проверки против оригинала и граничные случаи.
 - `benchmarks/` — воспроизводимые измерения.
 - `configs/` — проверенные конфигурации модели и экспериментов.
 - `docs/` — архитектура, план и результаты.
+
+[Harness: конфиг, запуск, метрики памяти](docs/harness.md).
 
 ## Правила измерений
 

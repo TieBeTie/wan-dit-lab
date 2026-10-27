@@ -1,0 +1,94 @@
+{
+  "id": "offloading_resources_pilot_480p",
+  "output": "outputs/experiments/2026-10-19/13_Offloading_resources_pilot_480p",
+  "common": {
+    "prompt": "New York City submerged like Atlantis. Fish, whales, sea turtles and sharks swim through the streets of New York.",
+    "seed": 1704515217,
+    "width": 832,
+    "height": 480,
+    "fps": 16,
+    "latent_frames": 123,
+    "generated_video_frames": 489,
+    "saved_video_frames": 480,
+    "saved_video_seconds": 30,
+    "trim": "keep first 480 decoded frames; time all 41 generated chunks and final writer close",
+    "weights": "self_forcing_dmd.pt / generator_ema",
+    "weight_precision": "BF16",
+    "kv_precision": "BF16",
+    "decoder": "TAEHV FP16",
+    "shift": 5.0,
+    "context_frames": 21,
+    "sink_frames": 10,
+    "positions": "window",
+    "pc_recent": 1,
+    "cross_cache": true,
+    "context_noise": 0,
+    "attention": "cudnn",
+    "compile": "default"
+  },
+  "execution": {
+    "resource_budgets": {
+      "ram_gib": 14.0,
+      "vram_gib": 7.25
+    }
+  },
+  "policies": {
+    "fixed_2x2": {
+      "profile": "fixed_2x2",
+      "t5": {
+        "ram": 2,
+        "gpu": 2
+      },
+      "dit": {
+        "ram": 2,
+        "gpu": 2
+      }
+    },
+    "resources_ram": {
+      "profile": "resource_migration_correctness",
+      "t5": {
+        "ram": 2,
+        "gpu": 2
+      },
+      "dit": {
+        "ram": 2,
+        "gpu": 2
+      },
+      "resources": {
+        "self_kv": "ram",
+        "cross_kv": "ram",
+        "decoder_weights": "ram",
+        "decoder_state": "ram",
+        "history": "ram",
+        "latents": "disk",
+        "backing_ram_gib": 7.0,
+        "backing_disk_gib": 32.0,
+        "staging_mib": 16
+      },
+      "scope": "Explicit resource migration; synchronous correctness backend, not a calibrated FlexGen schedule",
+      "execution": "Manual use only; stopped experiment is not resumed"
+    }
+  },
+  "evaluation": [
+    {
+      "id": "01",
+      "prompt": "A mother koala carrying her baby on her back, climbing trees effortlessly while making sure her baby is securely nestled against her.",
+      "seed": 389393757,
+      "order": [
+        "fixed_2x2",
+        "resources_ram"
+      ]
+    },
+    {
+      "id": "02",
+      "prompt": "A pedestal up through a spiral staircase, showing the intricate railings and the space opening up above.",
+      "seed": 183560678,
+      "order": [
+        "resources_ram",
+        "fixed_2x2"
+      ]
+    }
+  ],
+  "inference": "Descriptive only; two pairs; no significance test or calibrated policy search",
+  "preflight": "480x832,10 chunks per method; full cache plus Inductor compilation and bitwise gate"
+}

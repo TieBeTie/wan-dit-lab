@@ -2,7 +2,7 @@ import pytest
 import torch
 from safetensors.torch import save_file
 
-from wan_dit_lab import checkpoint
+from wan_dit_lab.models import checkpoint
 
 
 def test_block_loader_selects_only_requested_block(tmp_path, monkeypatch):

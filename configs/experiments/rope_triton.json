@@ -1,0 +1,131 @@
+{
+  "seed": 20261026,
+  "summary_case": "video_b1_bf16",
+  "output_dir": "C:/Users/ramaf/Documents/Experiments/DIT/outputs/experiments/2026-10-26/RoPE_Triton",
+  "cases": [
+    {
+      "name": "small_b1",
+      "grid": [
+        2,
+        8,
+        8
+      ],
+      "batch": 1,
+      "heads": 12,
+      "dim": 128,
+      "dtype": "bfloat16",
+      "repeat": 100
+    },
+    {
+      "name": "small_b4",
+      "grid": [
+        2,
+        8,
+        8
+      ],
+      "batch": 4,
+      "heads": 12,
+      "dim": 128,
+      "dtype": "bfloat16",
+      "repeat": 100
+    },
+    {
+      "name": "chunk_b1",
+      "grid": [
+        3,
+        30,
+        52
+      ],
+      "batch": 1,
+      "heads": 12,
+      "dim": 128,
+      "dtype": "bfloat16"
+    },
+    {
+      "name": "video_b1_fp16",
+      "grid": [
+        21,
+        30,
+        52
+      ],
+      "batch": 1,
+      "heads": 12,
+      "dim": 128,
+      "dtype": "float16"
+    },
+    {
+      "name": "video_b1_bf16",
+      "grid": [
+        21,
+        30,
+        52
+      ],
+      "batch": 1,
+      "heads": 12,
+      "dim": 128,
+      "dtype": "bfloat16"
+    },
+    {
+      "name": "video_b1_fp32",
+      "grid": [
+        21,
+        30,
+        52
+      ],
+      "batch": 1,
+      "heads": 12,
+      "dim": 128,
+      "dtype": "float32"
+    },
+    {
+      "name": "video_b2_bf16",
+      "grid": [
+        21,
+        30,
+        52
+      ],
+      "batch": 2,
+      "heads": 12,
+      "dim": 128,
+      "dtype": "bfloat16"
+    }
+  ],
+  "block": {
+    "grid": [
+      3,
+      30,
+      52
+    ],
+    "dim": 1536,
+    "ffn_dim": 8960,
+    "heads": 12,
+    "dtype": "bfloat16"
+  },
+  "harness": {
+    "warmup": 12,
+    "repeat": 3,
+    "number": 30,
+    "seed": 20261026,
+    "checks": {
+      "max_latency_regression": 0.05,
+      "max_block_relative_error_increase": 0.05,
+      "tests": [
+        "tests/test_rope_triton.py",
+        "tests/test_rope_metrics.py",
+        "tests/test_harness.py",
+        "tests/test_harness_config.py",
+        "tests/test_pipeline.py",
+        "tests/test_entrypoint.py",
+        "tests/test_rope_batch.py",
+        "tests/test_rope_report.py"
+      ]
+    }
+  },
+  "pipeline": [
+    {
+      "name": "compile",
+      "mode": "default",
+      "options": {}
+    }
+  ]
+}

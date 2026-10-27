@@ -1,0 +1,78 @@
+{
+  "question": "W4A4 with q, k, v of self-attention as one layer and the feed forward as Nunchaku's fused GELU MLP (block_w4a4_v2), RoPE tables in float32, Sage 2, 2-step LongLive 2.0 at 704x1280, against the W4A4 pack of a layer per linear (18) and BF16 (12)",
+  "common": {
+    "width": 1280,
+    "height": 704,
+    "fps": 24,
+    "weights": "LongLive-2.0-5B model_bf16.pt (LoRA merged)",
+    "weight_precision": "BF16",
+    "kv_precision": "FP8 per row",
+    "decoder": "TAEHV taew2_2 FP16",
+    "taehv": "reference/taehv/taew2_2.pth",
+    "model_config": "checkpoints/Wan2.2-TI2V-5B/config.json",
+    "chunk": 8,
+    "vae_stride": 16,
+    "sampler": "unipc",
+    "shift": 5.0,
+    "context_frames": 32,
+    "sink_frames": 8,
+    "positions": "video",
+    "pc_recent": null,
+    "cross_cache": true,
+    "context_noise": 0,
+    "attention": "cudnn",
+    "compile": "default",
+    "multi_shot_rope_offset": 8,
+    "latent_frames": 48,
+    "kv_fp8": true,
+    "rope_dtype": "float32"
+  },
+  "execution": {
+    "resource_budgets": {
+      "ram_gib": 14.0,
+      "vram_gib": 7.25
+    },
+    "require_compilation": true,
+    "warmup_chunks": 4
+  },
+  "policy": "configs/experiments/offloading_managed_cost_guarded_longlive2.json",
+  "policy_overrides": {
+    "resource_cost_model": {
+      "profile": "guarded",
+      "calibration": "configs/calibration/longlive2_5b_480p.json"
+    },
+    "resources": {
+      "mode": "managed",
+      "vram_cache_gib": 5.0,
+      "backing_ram_gib": 4.0,
+      "backing_disk_gib": 4.0,
+      "working_ram_mib": 512,
+      "working_vram_mib": 512,
+      "staging_mib": 16,
+      "system_ram_reserve_gib": 0.0,
+      "process_rss_limit_gib": null,
+      "disk_reserve_gib": 3.0,
+      "prefetch": true
+    }
+  },
+  "runs": [
+    {
+      "id": "w4a4_fused_sage2",
+      "prompts": [
+        "A bearded Asian man in his early thirties with short black hair, wearing a fitted heather-gray T-shirt and dark jeans, is working at his desk in a cozy home office, intensely typing on a portable laptop computer. A curious orange tabby cat with bright green eyes sits motionless beside him, attentively watching every keystroke. A steaming ceramic coffee mug rests near the laptop. Warm ambient lighting, bookshelves, and personal items create a lived-in feel. The man’s focused face and the cat’s relaxed posture share the scene. Medium shot capturing both the man and the cat in the same frame."
+      ],
+      "seed": 0,
+      "latent_frames": 48,
+      "common": {
+        "steps": 2,
+        "attention": "sage"
+      },
+      "policy": {
+        "checkpoint": "checkpoints/LongLive-2.0-5B-S2/model_te.pt",
+        "packed_dit_weights": "artifacts/longlive2_5b_s2_blocks_fused.w4a4"
+      }
+    }
+  ],
+  "output": "outputs/experiments/2026-10-20/19_LongLive2_W4A4_слитый_704x1280",
+  "calibration_note": "480p calibration reused: the 704x1280 probes spill every resource to disk and the disk is short while model_te.pt downloads"
+}

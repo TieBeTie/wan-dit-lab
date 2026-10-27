@@ -1,0 +1,9 @@
+{
+	"nodes":[
+		{"id":"scene-blackboard","type":"file","file":"Growth Space/Projects/wan-dit-lab/notes/research/Смена сцены.md","x":20,"y":-180,"width":1780,"height":3820},
+		{"id":"long-generation","type":"file","file":"Growth Space/Projects/wan-dit-lab/notes/research/Длительная генерация.md","x":-1920,"y":-180,"width":1780,"height":3400},
+		{"id":"runtime-optimization","type":"file","file":"Growth Space/Projects/wan-dit-lab/notes/research/Оптимизация.md","x":1960,"y":-180,"width":1780,"height":2200},
+		{"id":"pipeline-memory","type":"file","file":"Growth Space/Projects/wan-dit-lab/notes/research/Offloading.md","x":-3860,"y":-180,"width":1440,"height":3680}
+	],
+	"edges":[]
+}

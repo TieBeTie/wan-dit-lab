@@ -1,0 +1,50 @@
+{
+  "question": "Is the failed cut of the Live check (FP8, 480x832) due to FP8, or to its prompts and cut at chunk 5: the same in BF16",
+  "common": {
+    "width": 832,
+    "height": 480,
+    "fps": 24,
+    "weights": "LongLive-2.0-5B model_bf16.pt (LoRA merged)",
+    "weight_precision": "BF16",
+    "kv_precision": "BF16",
+    "decoder": "TAEHV taew2_2 FP16",
+    "taehv": "reference/taehv/taew2_2.pth",
+    "model_config": "checkpoints/Wan2.2-TI2V-5B/config.json",
+    "chunk": 8,
+    "vae_stride": 16,
+    "sampler": "unipc",
+    "shift": 3.3287,
+    "context_frames": 32,
+    "sink_frames": 8,
+    "positions": "video",
+    "pc_recent": null,
+    "cross_cache": true,
+    "context_noise": 0,
+    "attention": "cudnn",
+    "compile": "default",
+    "multi_shot_rope_offset": 8,
+    "latent_frames": 64
+  },
+  "execution": {
+    "resource_budgets": {
+      "ram_gib": 14.0,
+      "vram_gib": 7.25
+    },
+    "require_compilation": true,
+    "warmup_chunks": 4
+  },
+  "policy": "configs/experiments/offloading_managed_cost_guarded_longlive2.json",
+  "runs": [
+    {
+      "id": "live_prompts_bf16",
+      "seed": 0,
+      "switch": "shot",
+      "switch_every": 5,
+      "latent_frames": 64,
+      "prompts": [
+        "A red fox sits in a snowy pine forest, snowflakes drifting slowly, soft morning light.",
+        "The scene transitions. A sunny tropical beach, turquoise waves roll onto white sand under palm trees."
+      ]
+    }
+  ]
+}

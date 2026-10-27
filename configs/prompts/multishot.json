@@ -1,0 +1,29 @@
+{
+  "source": "scene cuts as LongLive 2.0 marks them (\"The scene transitions. \" before every shot after the first): the fox / beach / back set of notes/research/Промпты для демонстрации.md, and three example prompts of LongLive 2.0 (example/long_example.txt) as shots",
+  "prompts": [
+    {
+      "id": "fox_forest",
+      "text": "Static shot, static camera. A red fox sits in a snowy pine forest, snowflakes drifting slowly, soft morning light."
+    },
+    {
+      "id": "fox_beach",
+      "text": "The scene transitions. Static shot, static camera. Scene cut to a sunny tropical beach, turquoise waves roll onto white sand under palm trees."
+    },
+    {
+      "id": "fox_back",
+      "text": "The scene transitions. Static shot, static camera. Scene cut back to the snowy pine forest, the same red fox curls up beside a fallen log."
+    },
+    {
+      "id": "chain_teacup",
+      "text": "A close-up shot of a ceramic teacup slowly pouring water into a glass mug. The water flows smoothly from the spout of the teacup into the mug, creating gentle ripples as it fills up. Both cups have detailed textures, with the teacup having a matte finish and the glass mug showcasing clear transparency. The background is a blurred kitchen countertop, adding context without distracting from the central action. The pouring motion is fluid and natural, emphasizing the interaction between the two cups."
+    },
+    {
+      "id": "chain_sheep",
+      "text": "The scene transitions. A single white sheep bending down to drink water from a calm river. The sheep has fluffy wool, long curved horns, and soft brown eyes. It is positioned near the riverbank, with its front legs partially submerged in the clear water. The river flows gently, reflecting the surrounding greenery and blue sky. The background shows lush grass and trees along the riverbank, creating a serene pastoral landscape. The sheep's body is slightly tilted as it bends down to drink, emphasizing a natural and tranquil motion. Medium close-up shot focusing on the sheep and the river."
+    },
+    {
+      "id": "chain_rain",
+      "text": "The scene transitions. A dynamic and chaotic scene in a dense forest during a heavy rainstorm, capturing a real girl frantically running through the foliage. Her wild hair flows behind her as she sprints, her arms flailing and her face contorted in fear and desperation. Behind her, various animals—rabbits, deer, and birds—are also running, creating a frenzied atmosphere. The girl's clothes are soaked, clinging to her body, and she is screaming and shouting as she tries to escape. The background is a blur of greenery and rain-drenched trees, with occasional glimpses of the darkening sky. A wide-angle shot from a low angle, emphasizing the urgency and chaos of the moment."
+    }
+  ]
+}

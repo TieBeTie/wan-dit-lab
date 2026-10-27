@@ -1,0 +1,160 @@
+{
+  "base": "configs/base/longlive2_s2_480x864.json",
+  "question": "How far to stretch the RoPE positions of height and width at 480x864: 5 levels of the stretch toward the trained grid, scale (22/15 and 40/27) ** s for s = 0, 0.25, 0.5, 0.75, 1 (x1, x1.10, x1.21, x1.33, x1.47), on 3 example prompts, 48 latent frames, all else original. The blind test of E27 found the full stretch moves and frames like the reference but blurs faces in motion, and no stretch is sharp but nearly still.",
+  "common": {
+    "latent_frames": 48
+  },
+  "runs": [
+    {
+      "id": "rain_forest_run__stretch000",
+      "prompt_refs": [
+        "configs/prompts/longlive2_examples.json#rain_forest_run"
+      ],
+      "seed": 0,
+      "common": {
+        "rope_interpolate_strength": 0.0
+      }
+    },
+    {
+      "id": "rain_forest_run__stretch025",
+      "prompt_refs": [
+        "configs/prompts/longlive2_examples.json#rain_forest_run"
+      ],
+      "seed": 0,
+      "common": {
+        "rope_interpolate_strength": 0.25
+      }
+    },
+    {
+      "id": "rain_forest_run__stretch050",
+      "prompt_refs": [
+        "configs/prompts/longlive2_examples.json#rain_forest_run"
+      ],
+      "seed": 0,
+      "common": {
+        "rope_interpolate_strength": 0.5
+      }
+    },
+    {
+      "id": "rain_forest_run__stretch075",
+      "prompt_refs": [
+        "configs/prompts/longlive2_examples.json#rain_forest_run"
+      ],
+      "seed": 0,
+      "common": {
+        "rope_interpolate_strength": 0.75
+      }
+    },
+    {
+      "id": "rain_forest_run__stretch100",
+      "prompt_refs": [
+        "configs/prompts/longlive2_examples.json#rain_forest_run"
+      ],
+      "seed": 0,
+      "common": {
+        "rope_interpolate_strength": 1.0
+      }
+    },
+    {
+      "id": "teacup__stretch000",
+      "prompt_refs": [
+        "configs/prompts/longlive2_examples.json#teacup"
+      ],
+      "seed": 0,
+      "common": {
+        "rope_interpolate_strength": 0.0
+      }
+    },
+    {
+      "id": "teacup__stretch025",
+      "prompt_refs": [
+        "configs/prompts/longlive2_examples.json#teacup"
+      ],
+      "seed": 0,
+      "common": {
+        "rope_interpolate_strength": 0.25
+      }
+    },
+    {
+      "id": "teacup__stretch050",
+      "prompt_refs": [
+        "configs/prompts/longlive2_examples.json#teacup"
+      ],
+      "seed": 0,
+      "common": {
+        "rope_interpolate_strength": 0.5
+      }
+    },
+    {
+      "id": "teacup__stretch075",
+      "prompt_refs": [
+        "configs/prompts/longlive2_examples.json#teacup"
+      ],
+      "seed": 0,
+      "common": {
+        "rope_interpolate_strength": 0.75
+      }
+    },
+    {
+      "id": "teacup__stretch100",
+      "prompt_refs": [
+        "configs/prompts/longlive2_examples.json#teacup"
+      ],
+      "seed": 0,
+      "common": {
+        "rope_interpolate_strength": 1.0
+      }
+    },
+    {
+      "id": "raccoon_guitar__stretch000",
+      "prompt_refs": [
+        "configs/prompts/longlive2_examples.json#raccoon_guitar"
+      ],
+      "seed": 0,
+      "common": {
+        "rope_interpolate_strength": 0.0
+      }
+    },
+    {
+      "id": "raccoon_guitar__stretch025",
+      "prompt_refs": [
+        "configs/prompts/longlive2_examples.json#raccoon_guitar"
+      ],
+      "seed": 0,
+      "common": {
+        "rope_interpolate_strength": 0.25
+      }
+    },
+    {
+      "id": "raccoon_guitar__stretch050",
+      "prompt_refs": [
+        "configs/prompts/longlive2_examples.json#raccoon_guitar"
+      ],
+      "seed": 0,
+      "common": {
+        "rope_interpolate_strength": 0.5
+      }
+    },
+    {
+      "id": "raccoon_guitar__stretch075",
+      "prompt_refs": [
+        "configs/prompts/longlive2_examples.json#raccoon_guitar"
+      ],
+      "seed": 0,
+      "common": {
+        "rope_interpolate_strength": 0.75
+      }
+    },
+    {
+      "id": "raccoon_guitar__stretch100",
+      "prompt_refs": [
+        "configs/prompts/longlive2_examples.json#raccoon_guitar"
+      ],
+      "seed": 0,
+      "common": {
+        "rope_interpolate_strength": 1.0
+      }
+    }
+  ],
+  "output": "outputs/experiments/2026-10-21/04_Растяжение_RoPE_480x864"
+}

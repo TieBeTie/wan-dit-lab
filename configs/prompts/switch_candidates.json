@@ -1,0 +1,105 @@
+{
+  "source": "prompt-switch candidates (continuations within one scene), verbatim from LongLive 1.0's interactive examples: the first two prompts of each line",
+  "prompts": [
+    {
+      "id": "hacker_1",
+      "text": "A hacker, wearing dark sunglasses and a hoodie, sits in front of multiple computer screens with flashing codes and notifications. They type rapidly on a keyboard, fingers moving quickly over the keys. The room is dimly lit with neon lights casting eerie shadows. The hacker's face shows intense concentration and determination. The background features a cluttered workspace with various gadgets and wires. The scene is set in a modern, tech-savvy environment with a cyberpunk aesthetic. Medium close-up focusing on the hacker's hands typing and the screen displaying lines of code.",
+      "from": "LongLive1.0 example/interactive_example.jsonl, line 2, prompt 1"
+    },
+    {
+      "id": "hacker_2",
+      "text": "A hacker, wearing dark sunglasses and a hoodie, sits in front of multiple computer screens with flashing codes and notifications. They suddenly pause, leaning back in their chair to rub their eyes, while the screens continue to flicker with rapid updates. The room remains dimly lit with neon lights casting eerie shadows. The hacker’s face still shows intense concentration and determination. The background features a cluttered workspace with various gadgets and wires. The scene is set in a modern, tech-savvy environment with a cyberpunk aesthetic. Medium close-up focusing on the hacker's hands typing and the screen displaying lines of code.",
+      "from": "LongLive1.0 example/interactive_example.jsonl, line 2, prompt 2"
+    },
+    {
+      "id": "poker_1",
+      "text": "A realistic video of a Texas Hold'em poker event at a casino. A male player in his late 30s with a medium build, short dark hair, light stubble, and a sharp jawline wears a fitted navy blazer over a charcoal crew-neck tee, dark jeans, and a stainless-steel watch. He sits at a well-lit poker table and tightly grips his hole cards, wearing a tense, serious expression. The table is filled with chips of various colors, the dealer is seen dealing cards, and several rows of slot machines glow in the background. The camera focuses on the player's strained concentration. Wide shot to medium close-up.",
+      "from": "LongLive1.0 example/interactive_example.jsonl, line 3, prompt 1"
+    },
+    {
+      "id": "poker_2",
+      "text": "A realistic video of a Texas Hold'em poker event at a casino. The same male player—late 30s, medium build, short dark hair, light stubble, sharp jawline—dressed in a fitted navy blazer over a charcoal tee, dark jeans, and a stainless-steel watch—flicks his cards onto the felt, then leans back in the chair with arms spread wide in celebration. The dealer continues dealing to the table as stacks of multicolored chips crowd the surface; slot machines and nearby patrons fill the background. The camera locks onto the player’s exuberant reaction. Wide shot to medium close-up.",
+      "from": "LongLive1.0 example/interactive_example.jsonl, line 3, prompt 2"
+    },
+    {
+      "id": "birthday_1",
+      "text": "Interior night, a dim dining room in a Chinese family home. A six-year-old Chinese girl with straight black bangs in a neat bob, warm almond eyes, a soft pink party dress with a small white bow at the waist, white ankle socks, red Mary Jane shoes, and a small paper birthday hat with tiny gold stars sits at a wooden table. In front of her is a frosted round birthday cake topped with five lit slim candles; the candlelight casts warm, flickering highlights on her cheeks and softly illuminates nearby plates, forks, and a checked tablecloth. Her Chinese mother—early 30s, warm almond eyes, neat black ponytail, simple silver stud earrings, cream cardigan over a light blue blouse—sits on her left, and her Chinese father—early 30s, short side-parted black hair, clean-shaven, dark-rim rectangular glasses, navy button-down with sleeves lightly rolled—sits on her right; both lean in close. Background falls to darkness with gentle bokeh from distant fairy lights. Wide establishing three-shot, locked tripod, 16:9 1920x1080, 24 fps, duration 4 s; lens 35 mm at f4 for modest depth of field; exposure biased to candle flame, warm key from candles at ~2800 K with faint cool ambient 4800 K; natural motion blur; clean, realistic textures; no text, no watermark.",
+      "from": "LongLive1.0 example/interactive_example.jsonl, line 4, prompt 1"
+    },
+    {
+      "id": "birthday_2",
+      "text": "Mom and Dad grow quiet as the child closes her eyes and brings both hands together in front of her chest to make a silent wish; candle flames flutter in a faint air current and brighten momentarily. The girl is the same six-year-old Chinese child with straight black bangs, pink party dress with a white bow, white socks, red Mary Janes, and the starry paper hat. Her Chinese mother remains on her left, early 30s with a black ponytail, cream cardigan over a light blue blouse and silver studs; her Chinese father is on her right, early 30s with short side-parted black hair, clean-shaven, dark-rim glasses, and a navy button-down. Medium three-shot from across the table, slow 10 cm dolly-in, 16:9 1920x1080, 24 fps, duration 5 s; lens 50 mm at f2.8 for soft background; exposure locked to preserve candle detail; subtle handheld micro-shake; warm candle key with slight cool edge from a distant window; no text, no watermark.",
+      "from": "LongLive1.0 example/interactive_example.jsonl, line 4, prompt 2"
+    },
+    {
+      "id": "rio_1",
+      "text": "A vibrant Christmas celebration in Rio de Janeiro, Brazil. The scene features a lively street filled with colorful lights, festive decorations, and cheerful locals in casual summer attire. At the center of the street stands a slightly overweight Black adult man in a blue shirt, holding a small red ball in his hand. People are walking, dancing, and enjoying the festive atmosphere. In the background, there are tall buildings, palm trees, and a glimpse of the iconic Christ the Redeemer statue. The sun is setting, casting a warm golden glow over the scene. Medium shot capturing the bustling energy of the street.",
+      "from": "LongLive1.0 example/interactive_example.jsonl, line 5, prompt 1"
+    },
+    {
+      "id": "rio_2",
+      "text": "A vibrant Christmas celebration in Rio de Janeiro, Brazil. The scene features a lively street filled with colorful lights, festive decorations, and cheerful locals in casual summer attire. A slightly overweight Black adult man in a blue shirt tosses a small red ball into the air, drawing a small crowd of children and adults who watch in awe. The sun is setting, casting a warm golden glow over the scene. Medium shot capturing the bustling energy of the street.",
+      "from": "LongLive1.0 example/interactive_example.jsonl, line 5, prompt 2"
+    },
+    {
+      "id": "paul_1",
+      "text": "Apostle Paul from the Bible walking along a dusty path in ancient Roman times. He is wearing traditional biblical attire, including a tunic and cloak, and carries a walking stick in one hand. His facial expression conveys determination and wisdom. The background shows a serene countryside with rolling hills and farmland. The scene captures Apostle Paul in mid-stride, with a slight forward lean, emphasizing his journey. Medium shot, static camera.",
+      "from": "LongLive1.0 example/interactive_example.jsonl, line 6, prompt 1"
+    },
+    {
+      "id": "paul_2",
+      "text": "Apostle Paul from the Bible continues walking along a dusty path in ancient Roman times. He slowly walks into a patch of low shrubs and bush along the path. His facial expression remains determined and wise. The background shows a serene countryside with rolling hills and farmland. The scene captures Apostle Paul in mid-stride, with a slight forward lean, emphasizing his journey. Medium shot static camera.",
+      "from": "LongLive1.0 example/interactive_example.jsonl, line 6, prompt 2"
+    },
+    {
+      "id": "river_1",
+      "text": "A somber, gloomy atmosphere envelops the dimly lit, murky river beneath a crumbling overpass. Brownish silt churns through the water, diffusing the scant light leaking from distant streetlamps. In the foreground, a gaunt man in his mid-forties, his thin, greasy black hair plastered to his skull, struggles against the current; his sunken cheeks and bloodshot eyes betray years of drink. A tattered gray shirt and ripped trousers flap around his skeletal frame as he thrashes, desperate for air. Rusted cans, frayed plastic bags, and strands of river weed drift past, hinting at the surrounding urban decay. Shadows dance across his hollow features, deepening the suffocating mood. The shot never cuts, the lens trembling slightly with the current. medium close-up",
+      "from": "LongLive1.0 example/interactive_example.jsonl, line 7, prompt 1"
+    },
+    {
+      "id": "river_2",
+      "text": "A somber, gloomy atmosphere envelops the dimly lit, murky river beneath a crumbling overpass. Brownish silt churns through the water, diffusing the scant light leaking from distant streetlamps. In the foreground, the same gaunt man in his mid-forties, his thin, greasy black hair plastered to his skull, stretches a trembling hand upward, fingertips slicing the turbid flow as though searching for the surface. His tattered gray shirt and ripped trousers cling to his skeletal frame, accentuating the hollow of his collarbones. Rusted cans, frayed plastic bags, and tangled river weed drift past, testifying to the city’s neglect. Shadows oscillate across his drawn face, intensifying the oppressive dread, while the unbroken shot quivers gently with the current. medium close-up",
+      "from": "LongLive1.0 example/interactive_example.jsonl, line 7, prompt 2"
+    },
+    {
+      "id": "cat_desk_1",
+      "text": "A bearded Asian man in his early thirties with short black hair, wearing a fitted heather-gray T-shirt and dark jeans, is working at his desk in a cozy home office, intensely typing on a portable laptop computer. A curious orange tabby cat with bright green eyes sits motionless beside him, attentively watching every keystroke. A steaming ceramic coffee mug rests near the laptop. Warm ambient lighting, bookshelves, and personal items create a lived-in feel. The man’s focused face and the cat’s relaxed posture share the scene. Medium shot capturing both the man and the cat in the same frame.",
+      "from": "LongLive1.0 example/interactive_example.jsonl, line 8, prompt 1"
+    },
+    {
+      "id": "cat_desk_2",
+      "text": "Maintaining the same warm setting, the bearded Asian man in his early thirties with short black hair, wearing a fitted heather-gray T-shirt and dark jeans eases off the keyboard, using his left hand to lightly rub his right forearm as if relieving slight stiffness, while his gaze stays on the screen. The orange tabby cat remains seated, tail curling lazily, green eyes fixed on the subtle motion. Nothing else changes: the steaming coffee mug, soft lamplight, and orderly bookshelves continue to anchor the cozy evening mood. Medium shot capturing both the man and the cat in the same frame.",
+      "from": "LongLive1.0 example/interactive_example.jsonl, line 8, prompt 2"
+    },
+    {
+      "id": "politicians_1",
+      "text": "A dynamic TV promo-style video showcasing a group of politicians at a nighttime event illuminated by vibrant neon lights. The politicians, dressed in formal attire, engage in conversations, shake hands, and exchange smiles as they navigate through a bustling room filled with guests, each holding a glass of wine. The scene is set in a modern, urban environment with a mix of soft ambient lighting and bright neon signs, creating a sophisticated yet energetic atmosphere. The camera alternates between close-ups of expressive faces, capturing their focused and strategic discussions, and wider shots capturing the energetic atmosphere of the entire gathering. The visuals include fast-paced cuts and subtle zoom-ins to highlight key interactions and facial expressions, emphasizing the excitement and importance of the political networking event. close-ups wider shots fast-paced cuts subtle zoom-ins",
+      "from": "LongLive1.0 example/interactive_example.jsonl, line 9, prompt 1"
+    },
+    {
+      "id": "politicians_2",
+      "text": "A dynamic TV promo-style video showcasing a group of politicians at a nighttime event illuminated by vibrant neon lights. The politicians, dressed in formal attire, engage in conversations, shake hands, and exchange smiles as they navigate through a bustling room filled with guests, and they begin to raise their glasses for a toast. The scene is set in a modern, urban environment with a mix of soft ambient lighting and bright neon signs, creating a sophisticated yet energetic atmosphere. The camera alternates between close-ups of expressive faces, capturing their celebratory and united expressions, and wider shots capturing the energetic atmosphere of the entire gathering. The visuals include fast-paced cuts and subtle zoom-ins to highlight key interactions and facial expressions, emphasizing the excitement and importance of the political networking event. close-ups wider shots fast-paced cuts subtle zoom-ins",
+      "from": "LongLive1.0 example/interactive_example.jsonl, line 9, prompt 2"
+    },
+    {
+      "id": "couple_flower_1",
+      "text": "A woman walks slowly alongside her boyfriend on a picturesque suburban street at sunset. The woman—mid-20s, shoulder-length dark hair, soft features, light natural makeup—wears a pastel light spring coat over a white blouse, slim jeans, and simple white sneakers. The man—late-20s, short neatly styled dark hair with faint stubble and a warm smile—wears a sky-blue oxford shirt under a heather-gray sweater vest, tan chinos, and clean lace-up sneakers, with a slim leather watch. Both have relaxed expressions, holding hands as they stroll together. The background shows a row of houses with blooming flowers and lush green lawns. The sun casts a warm golden glow, creating long shadows behind them. Medium shot, focusing on their interaction and the serene environment around them.",
+      "from": "LongLive1.0 example/interactive_example.jsonl, line 10, prompt 1"
+    },
+    {
+      "id": "couple_flower_2",
+      "text": "A woman walks slowly alongside her boyfriend on a picturesque suburban street at sunset. The woman—mid-20s, pastel light spring coat, white blouse, slim jeans, white sneakers, stops to pick a white flower from a garden border; her coat sways slightly as she gently brings it to her nose to inhale its fragrance. The 20s-man—sky-blue oxford under a heather-gray sweater vest, tan chinos, clean sneakers, leather watch—waits patiently, smiling as she admires the bloom. The background remains a row of houses with blooming flowers and lush green lawns. The sun’s warm golden glow continues to cast long shadows behind them. Medium shot, focusing on their interaction and the serene environment.",
+      "from": "LongLive1.0 example/interactive_example.jsonl, line 10, prompt 2"
+    },
+    {
+      "id": "pink_model_1",
+      "text": "A beautiful model with long, flowing pink hair partially covered by swirling pink smoke. She has delicate features and a serene expression, standing gracefully against a backdrop of gently falling sakura petals. The petals float softly in the air, creating a dreamy and ethereal atmosphere. The model is dressed in a simple, elegant white gown that complements the soft pink hues of the smoke. The scene is captured in a medium close-up shot, emphasizing the intricate details of the pink smoke and the gentle beauty of the sakura petals.",
+      "from": "LongLive1.0 example/interactive_example.jsonl, line 12, prompt 1"
+    },
+    {
+      "id": "pink_model_2",
+      "text": "A beautiful model with long, flowing pink hair partially covered by swirling pink smoke. She has delicate features and a serene expression, standing gracefully against a backdrop of gently falling sakura petals. The petals float softly in the air, creating a dreamy and ethereal atmosphere. The model lifts her hand slowly, as if caressing a petal, her fingers barely touching the delicate pink smoke. The scene is captured in a medium close-up shot, emphasizing the intricate details of the pink smoke and the gentle beauty of the sakura petals.",
+      "from": "LongLive1.0 example/interactive_example.jsonl, line 12, prompt 2"
+    }
+  ]
+}

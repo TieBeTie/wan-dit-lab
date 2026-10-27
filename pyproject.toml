@@ -7,9 +7,11 @@ name = "wan-dit-lab"
 version = "0.1.0"
 description = "A learning implementation and inference optimization lab for Wan DiT"
 requires-python = ">=3.10"
-dependencies = ["torch>=2.10,<2.11", "safetensors>=0.8,<0.9", "huggingface-hub>=0.36,<1"]
+dependencies = ["torch>=2.10,<2.11", "safetensors>=0.8,<0.9", "huggingface-hub>=0.36,<1",
+                "pydantic>=2,<3", "psutil>=5.9,<8"]
 
 [project.optional-dependencies]
+offloading = ["scipy>=1.11,<2"]
 dev = ["pytest>=9,<10", "ruff>=0.12,<1"]
 
 [project.scripts]
@@ -20,7 +22,7 @@ where = ["src"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-markers = ["gpu: requires a CUDA GPU"]
+markers = ["gpu: requires a CUDA GPU", "slow: requires large checkpoints or an extended run"]
 
 [tool.ruff]
 target-version = "py310"

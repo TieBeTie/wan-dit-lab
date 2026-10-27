@@ -1,0 +1,20 @@
+{
+  "base": "configs/base/live_512x928.json",
+  "run": {
+    "mode": "live"
+  },
+  "pipeline": [
+    {
+      "name": "rope",
+      "backend": "triton"
+    },
+    {
+      "name": "kv_store",
+      "backend": "triton"
+    },
+    {
+      "name": "compile",
+      "mode": "default"
+    }
+  ]
+}

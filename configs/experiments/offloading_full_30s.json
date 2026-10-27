@@ -1,0 +1,517 @@
+{
+  "id": "offloading_full_pipeline_30s",
+  "status": "redesign_required",
+  "scope": "T5 -> causal DiT -> streaming TAEHV -> MP4; one ordered resource plan",
+  "output": "outputs/experiments/2026-10-18/12_Offloading_full_pipeline_30s",
+  "common": {
+    "prompt": "New York City submerged like Atlantis. Fish, whales, sea turtles and sharks swim through the streets of New York.",
+    "seed": 1704515217,
+    "width": 832,
+    "height": 480,
+    "fps": 16,
+    "latent_frames": 123,
+    "generated_video_frames": 489,
+    "saved_video_frames": 480,
+    "saved_video_seconds": 30,
+    "trim": "keep first 480 decoded frames; time all 41 generated chunks and final writer close",
+    "weights": "self_forcing_dmd.pt / generator_ema",
+    "weight_precision": "BF16",
+    "kv_precision": "BF16",
+    "decoder": "TAEHV FP16",
+    "shift": 5.0,
+    "context_frames": 21,
+    "sink_frames": 10,
+    "positions": "window",
+    "pc_recent": 1,
+    "cross_cache": true,
+    "context_noise": 0,
+    "attention": "cudnn",
+    "compile": "default"
+  },
+  "conditions": {
+    "fixed_2x2": {
+      "label": "2x2: weights",
+      "resource_lifetime": "same full explicit uses/first/last graph for both methods",
+      "pinned_ram_buffers": 2,
+      "vram_slots": 2,
+      "prefetch": "next block, wait for readiness; safe slot reuse"
+    },
+    "median": {
+      "resource_lifetime": "same full uses/first/last graph and same resource inventory for both profiles",
+      "scope": "all registered resources and nodes, T5 through MP4",
+      "not_implemented": "full-pipeline resource scheduler, calibration and trace integration",
+      "label": "FlexGen-inspired: median",
+      "estimates": "median preparation, transfer and compute duration per matching resource/node bucket",
+      "objective": "minimum predicted end-to-end time under fixed RAM/VRAM budgets",
+      "provenance": "our median-based FlexGen-inspired profile; FlexGen paper does not prescribe median timing",
+      "implementation_status": "requires resource placement/migration redesign; existing implementation only varies weight windows"
+    },
+    "guarded": {
+      "resource_lifetime": "same full uses/first/last graph and same resource inventory for both profiles",
+      "scope": "all registered resources and nodes, T5 through MP4",
+      "not_implemented": "full-pipeline resource scheduler, calibration and trace integration",
+      "label": "FlexGen-inspired + reserve: max observed transfer, min observed compute",
+      "estimates": "observed maximum preparation/transfer durations; observed minimum compute durations to estimate earliest demand; retain complete calibration traces",
+      "objective": "prioritize zero predicted resource deadline misses under observed calibration scenarios, then end-to-end latency; prefetch as early as legal when spare memory exists",
+      "constraints": "same memory budgets, safe slot reuse and dependency/lifetime constraints; mark candidate infeasible if lead time or capacity is insufficient",
+      "guarantee": "observed extrema are not bounds on future runtimes; readiness events remain mandatory; measure deadline misses and actual resource waits",
+      "implementation_status": "requires resource placement/migration redesign; existing implementation only varies weight windows"
+    }
+  },
+  "execution": {
+    "order": [
+      "fixed_2x2",
+      "median",
+      "guarded"
+    ],
+    "fresh_process_per_run": true,
+    "calibration": "Collect one shared dataset on diverse held-out-from-evaluation prompts at 480x832; report calibration cost once separately; derive and freeze both profiles before evaluation",
+    "compilation": "common prepared cache for both methods; record cache state and versions; no compilation mixed into steady statistics",
+    "resource_budgets": {
+      "ram_gib": 14.0,
+      "vram_gib": 7.25
+    },
+    "budget_rule": "choose and freeze numerical budgets before calibration/measurement; same budgets for both conditions",
+    "run_rule": "do not run until both integrations, telemetry, budgets and preflight validation are ready",
+    "repeats_per_method": 1,
+    "calibration_estimator": "phase/resource/node costs, median or max loading/min compute; same raw calibration dataset",
+    "calibration_tie_fraction": 0.01,
+    "readiness_wait_threshold_s": 0.0001,
+    "profile_fit": "DiT compute timing uses chunks >=8, excluding compile/first-full-cache samples; retain all raw rows",
+    "candidate_scope": "Independent pinned/GPU windows 1..4 for T5/DiT; other resource placements fixed by supported runtime. No arbitrary library/context/workspace swapping.",
+    "auto_resume": false
+  },
+  "measurement": {
+    "units": {
+      "memory": "GiB (2^30 bytes)",
+      "time": "seconds"
+    },
+    "end_to_end": "parent process launch timestamp -> child writer close, includes import/loading/T5/generation/decode/writer; calibration separate",
+    "time_to_first_frame": "process entry -> first decoded frame submitted to writer",
+    "chunk_delivery": "wall intervals between completed chunk deliveries including denoising, decoding and writer work; first chunk reported separately",
+    "steady_chunks": "zero-based chunk indices >= 7, identical in both profiles",
+    "quantiles": [
+      0.5,
+      0.9,
+      0.99
+    ],
+    "quantile_method": "linear within each run, median of per-run metrics across prompts; memory peak worst across runs; raw runs retained",
+    "memory_snapshots": [
+      "before_model_load",
+      "after_T5",
+      "after_each_chunk",
+      "after_final_resource_release_before_exit"
+    ],
+    "memory_sampling_ms": 100,
+    "vram_allocated": "PyTorch live tensor bytes, excludes allocator reserve and driver/library allocations",
+    "vram_reserved": "PyTorch allocator reserved bytes, separate from allocated",
+    "vram_device_used_free": "device total/free from NVML; includes other processes; record idle GPU before each run",
+    "vram_peak": "allocator maximum for entire run; do not reset at phase boundaries; supplement with sampled device-used peak",
+    "ram_process": "RSS and Windows private commit; sampled RSS peak labelled sampled; mmap pages included",
+    "ram_system": "available system RAM, baseline/minimum/after cleanup; not process-owned RAM",
+    "pinning": "current/peak active pinned bytes and reserved pinned bytes, if runtime exposes them; unknown is null",
+    "trace": "same instrumentation both methods; record acquire, prepare, transfer, ready, execute, release and timestamps",
+    "resource_deadlines": "record when resource was needed versus ready, miss count, total/max GPU dependency waiting; distinguish actual waits from CPU being ahead of queued GPU work",
+    "deadline_target": "zero observed resource-readiness stalls; not a guarantee for unseen runs"
+  },
+  "inventory": {
+    "categories": [
+      "weights",
+      "state",
+      "activations",
+      "data",
+      "code"
+    ],
+    "fields": [
+      "resource_id",
+      "category",
+      "owner",
+      "uses",
+      "first",
+      "last",
+      "shape",
+      "dtype",
+      "allocations"
+    ],
+    "allocation_fields": [
+      "storage_id",
+      "device",
+      "bytes",
+      "is_pinned",
+      "is_replica"
+    ],
+    "count_rule": "logical resources counted once; bytes deduplicated by backing storage; physical replicas counted separately",
+    "dynamic_rule": "record dynamic KV/workspace/decoder-state sizes over time; unknown library workspace is not zero"
+  },
+  "correctness": {
+    "compare": [
+      "all generated latent chunks",
+      "decoded frames before lossy MP4 encoding",
+      "frame counts and dimensions"
+    ],
+    "bitwise_first": true,
+    "fallback_tolerance": "must be fixed before measurement if exact equality is not expected; no post-hoc tolerance",
+    "forbid": [
+      "dropped resources still in use",
+      "read before transfer complete",
+      "slot overwrite before last CUDA user",
+      "silent change to precision/context/decoder/PC"
+    ]
+  },
+  "readiness": {
+    "full_pipeline_resource_plan": true,
+    "full_pipeline_cost_scheduler": false,
+    "telemetry_and_inventory_hooks": true,
+    "numerical_budgets_frozen": true,
+    "protocol_and_report_templates": true,
+    "calibration_profiles_frozen": false,
+    "full_resource_migration": false,
+    "resource_migration_correctness_backend": true
+  },
+  "limits": "24 distinct held-out prompt/seed triples, one run/condition, balanced condition order. Power assumes strong (.8 win probability) effect; no guarantee. Cost optimizer supports only legal staging windows; all other registered resources have fixed lifetimes/placements. Internal CUDA workspaces/library bytes remain untracked overhead.",
+  "hardware": {
+    "gpu": "NVIDIA GeForce RTX 4060 Laptop GPU",
+    "vram_total_mib": 8188,
+    "source": "nvidia-smi --query-gpu=name,memory.total --format=csv,noheader",
+    "vram_budget": "set below total after accounting for runtime and other consumers"
+  },
+  "calibration": {
+    "datasets": "one shared raw dataset, two derived profiles; evaluation prompt held out",
+    "resolution": [
+      480,
+      832
+    ],
+    "prompts": [
+      {
+        "id": "01",
+        "prompt": "Time lapse video of a city, shown from dusk until dawn, with traffic and light trails",
+        "seed": 757251961
+      },
+      {
+        "id": "03",
+        "prompt": "A cute furry monster is blowing on hot cocoa to cool it down.",
+        "seed": 766267953
+      },
+      {
+        "id": "05",
+        "prompt": "A surfer accelerating on a wave, carving through the water.",
+        "seed": 1352683390
+      },
+      {
+        "id": "06",
+        "prompt": "A lightning bolt strikes a turtle in the middle of a lake, immediately turning him into an alligator.",
+        "seed": 586420939
+      },
+      {
+        "id": "07",
+        "prompt": "Space shuttles dock and depart from a space station orbiting a distant, colorful nebula, with astronauts floating through the docking bays, attending to various tasks.",
+        "seed": 1403905850
+      },
+      {
+        "id": "09",
+        "prompt": "A pedestal up through a dense forest floor, rising to show the sunlight filtering through the treetops.",
+        "seed": 1548458155
+      },
+      {
+        "id": "12",
+        "prompt": "A tranquil island retreat features swaying palm trees and hammocks strung between them, inviting guests to relax and enjoy the serene beauty of the surroundings.",
+        "seed": 704952942
+      },
+      {
+        "id": "16",
+        "prompt": "an adorable kangaroo wearing purple overalls and cowboy boots taking a pleasant stroll in Antarctica during a beautiful sunset",
+        "seed": 1298582667
+      }
+    ],
+    "buckets": [
+      "resource/operation identity",
+      "shape",
+      "dtype",
+      "empty/filling/full KV",
+      "decode warm/cold",
+      "concurrent copy/compute state"
+    ],
+    "record": [
+      "all raw durations",
+      "sample count",
+      "median",
+      "p90",
+      "p99",
+      "minimum",
+      "maximum",
+      "full resource event traces"
+    ],
+    "warmup": "record first-use/compile separately; do not mix compilation into steady estimates",
+    "sample_plan": "Eight disjoint prompts; 10 chunks each; steady fitted chunks8,9, five DiT passes/chunk,24 T5 blocks/prompt; retain per-block sample counts",
+    "evaluation_isolation": "freeze both profiles before held-out evaluation; do not tune on measured evaluation results",
+    "latent_frames_per_prompt": 30
+  },
+  "evaluation": [
+    {
+      "id": "01",
+      "prompt": "A mother koala carrying her baby on her back, climbing trees effortlessly while making sure her baby is securely nestled against her.",
+      "seed": 389393757,
+      "order": [
+        "guarded",
+        "fixed_2x2",
+        "median"
+      ]
+    },
+    {
+      "id": "02",
+      "prompt": "A pedestal up through a spiral staircase, showing the intricate railings and the space opening up above.",
+      "seed": 183560678,
+      "order": [
+        "fixed_2x2",
+        "guarded",
+        "median"
+      ]
+    },
+    {
+      "id": "03",
+      "prompt": "A man is eating spaghetti",
+      "seed": 138345305,
+      "order": [
+        "median",
+        "guarded",
+        "fixed_2x2"
+      ]
+    },
+    {
+      "id": "04",
+      "prompt": "A man looked bewildered when he couldn't find his keys.",
+      "seed": 1448282788,
+      "order": [
+        "guarded",
+        "median",
+        "fixed_2x2"
+      ]
+    },
+    {
+      "id": "05",
+      "prompt": "A tilt-up from a city street, ascending to show the skyline with its mix of modern and historic architecture.",
+      "seed": 494644315,
+      "order": [
+        "fixed_2x2",
+        "median",
+        "guarded"
+      ]
+    },
+    {
+      "id": "06",
+      "prompt": "Panda playing the guitar",
+      "seed": 1264581093,
+      "order": [
+        "fixed_2x2",
+        "median",
+        "guarded"
+      ]
+    },
+    {
+      "id": "07",
+      "prompt": "a toy robot wearing blue jeans and a white t shirt taking a pleasant stroll in Mumbai India during a colorful festival",
+      "seed": 417950805,
+      "order": [
+        "fixed_2x2",
+        "median",
+        "guarded"
+      ]
+    },
+    {
+      "id": "08",
+      "prompt": "A mesmerizing video of a whirlpool forming in a sink as water drains.",
+      "seed": 248714765,
+      "order": [
+        "median",
+        "guarded",
+        "fixed_2x2"
+      ]
+    },
+    {
+      "id": "09",
+      "prompt": "Smoke rises from the chimney of a cozy log cabin nestled in the woods, with soft light glowing from the windows, suggesting a warm and inviting atmosphere.",
+      "seed": 339783545,
+      "order": [
+        "median",
+        "fixed_2x2",
+        "guarded"
+      ]
+    },
+    {
+      "id": "10",
+      "prompt": "an old man wearing purple overalls and cowboy boots taking a pleasant stroll in Johannesburg South Africa during a beautiful sunset",
+      "seed": 1974328729,
+      "order": [
+        "median",
+        "fixed_2x2",
+        "guarded"
+      ]
+    },
+    {
+      "id": "11",
+      "prompt": "A rabbit in a magician's outfit, pulling a human-sized carrot out of a top hat.",
+      "seed": 980741009,
+      "order": [
+        "guarded",
+        "median",
+        "fixed_2x2"
+      ]
+    },
+    {
+      "id": "12",
+      "prompt": "A pedestal down from the top of a waterfall, descending to show the pool of water and mist at its base.",
+      "seed": 2033881683,
+      "order": [
+        "median",
+        "fixed_2x2",
+        "guarded"
+      ]
+    },
+    {
+      "id": "13",
+      "prompt": "An empty warehouse where flowers start blooming from the concrete.",
+      "seed": 2109155903,
+      "order": [
+        "guarded",
+        "fixed_2x2",
+        "median"
+      ]
+    },
+    {
+      "id": "14",
+      "prompt": "Over the shoulder camera shot. A huge lizard creature sits in a midcentury orange swivel chair. The light is dim and volumetric, casting an eerie glow across the scene. The creature uses its arms to maniacally push buttons on a gigantic control panel. Above the control panel is a panoramic window looking out and down on 1940s new york city. The room should invoke midcentury science fiction aesthetics, like rusty orange colors, bright flashing control buttons, and space-age flair. As the creature continues to quickly push buttons, the New York City scene out of the window moves closer, as though the creature is in a gigantic robot stomping through the city. The scene should give the feeling of frantic action, highlighting the intensity of piloting a giant robot. The scene should take inspiration from midcentury japanese monster films.",
+      "seed": 1849700347,
+      "order": [
+        "fixed_2x2",
+        "median",
+        "guarded"
+      ]
+    },
+    {
+      "id": "15",
+      "prompt": "The person's mouth twisted in disgust as he tasted something bitter.",
+      "seed": 848692240,
+      "order": [
+        "median",
+        "guarded",
+        "fixed_2x2"
+      ]
+    },
+    {
+      "id": "16",
+      "prompt": "a toy robot wearing purple overalls and cowboy boots taking a pleasant stroll in Johannesburg South Africa during a winter storm",
+      "seed": 128610433,
+      "order": [
+        "fixed_2x2",
+        "guarded",
+        "median"
+      ]
+    },
+    {
+      "id": "17",
+      "prompt": "Give me a cappuccino.",
+      "seed": 2132818999,
+      "order": [
+        "median",
+        "fixed_2x2",
+        "guarded"
+      ]
+    },
+    {
+      "id": "18",
+      "prompt": "A person baking bread in an oven powered by dragon fire.",
+      "seed": 858047467,
+      "order": [
+        "median",
+        "guarded",
+        "fixed_2x2"
+      ]
+    },
+    {
+      "id": "19",
+      "prompt": "Whilst a man and woman are walking through a city street in a dream, the man shows the woman how to fold the entire street upwards at a 90-degree angle and connect it with the sky. This creates a visually stunning effect, with the buildings and road bending and defying gravity. The scene highlights the limitless possibilities and creativity within the dream world.",
+      "seed": 848355024,
+      "order": [
+        "guarded",
+        "fixed_2x2",
+        "median"
+      ]
+    },
+    {
+      "id": "20",
+      "prompt": "A miniature baby zebra walking on a fingertip",
+      "seed": 94132216,
+      "order": [
+        "fixed_2x2",
+        "guarded",
+        "median"
+      ]
+    },
+    {
+      "id": "21",
+      "prompt": "A person painting a sunset in the sky with a giant paintbrush.",
+      "seed": 574559313,
+      "order": [
+        "fixed_2x2",
+        "guarded",
+        "median"
+      ]
+    },
+    {
+      "id": "22",
+      "prompt": "A mother cat gently grooming her tiny kitten, using soft licks to clean and comfort the little one as it purrs contentedly in her embrace.",
+      "seed": 506945437,
+      "order": [
+        "guarded",
+        "fixed_2x2",
+        "median"
+      ]
+    },
+    {
+      "id": "23",
+      "prompt": "an adorable kangaroo wearing purple overalls and cowboy boots taking a pleasant stroll in Mumbai India during a beautiful sunset",
+      "seed": 1313303562,
+      "order": [
+        "guarded",
+        "median",
+        "fixed_2x2"
+      ]
+    },
+    {
+      "id": "24",
+      "prompt": "A bride and groom sharing a tender first dance.",
+      "seed": 1737507843,
+      "order": [
+        "guarded",
+        "median",
+        "fixed_2x2"
+      ]
+    }
+  ],
+  "statistics": {
+    "unit": "distinct held-out prompt and assigned seed",
+    "pairs": 24,
+    "primary": "end-to-end speedup fixed_2x2 / candidate > 1.05",
+    "hypotheses": [
+      "median vs fixed_2x2",
+      "guarded vs fixed_2x2"
+    ],
+    "test": "exact two-sided paired sign test around speedup 1.05; Holm adjustment for two contrasts",
+    "alpha": 0.05,
+    "ties": "abs(speedup - 1.05) <= 1e-6, omitted from sign test; report count",
+    "power_assumption": "independent units; probability of exceeding 1.05x speedup is .8, no ties",
+    "conservative_power_at_bonferroni_alpha_025": 0.8110710551188811,
+    "reject_rule": "all 24 triples complete; Holm-adjusted p<.05; more wins than losses",
+    "decision": "reject or do not reject; no guarantee of significant results",
+    "secondary": "guarded vs median, chunk quantiles, resource waits, memory, quality equality: descriptive",
+    "status": "not_performed_series_stopped_before_required_24_triples"
+  },
+  "resource_migration": {
+    "policy": "configs/experiments/offloading_resource_migration_policy.json",
+    "status": "synchronous transfer backend implemented; small CPU/CUDA correctness tests",
+    "scope": "self KV + tensor metadata, cross KV, decoder weights/state, recache window, latent archive",
+    "not_implemented": "cost-based placement search and asynchronous resource prefetch",
+    "full_resolution_validated": false,
+    "resume_stopped_experiment": false
+  }
+}

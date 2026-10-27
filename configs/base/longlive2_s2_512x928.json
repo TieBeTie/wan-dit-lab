@@ -1,0 +1,13 @@
+{
+  "base": "configs/base/longlive2_s2_original.json",
+  "about": "The original 2-step LongLive 2.0 at 512x928 (token grid 16x29, aspect 1.81 against the trained 22x40, 1.82), RoPE positions as they are (the stretch of E27/E28 blurred the long live stream), shift 5, everything else original.",
+  "common": {
+    "height": 512,
+    "width": 928
+  },
+  "policy_overrides": {
+    "resource_cost_model": {
+      "calibration": "configs/calibration/longlive2_s2_512x928_kv_bf16.json"
+    }
+  }
+}

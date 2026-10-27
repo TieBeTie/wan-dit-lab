@@ -1,0 +1,535 @@
+{
+  "base": "configs/base/longlive2_s2_512x928.json",
+  "question": "Our speed-ups one by one and together at 512x928, RoPE as it is (the point of Live): a full 3x2x2 factorial of the weights (BF16, FP8 W8A8 pack, W4A4 v2 pack), the attention (SDPA, SageAttention 2) and the KV cache (BF16, FP8), on 3 example prompts of LongLive 2.0, 48 latent frames; the cell BF16 / SDPA / BF16 is the original at this resolution and the reference of the others",
+  "common": {
+    "latent_frames": 48
+  },
+  "runs": [
+    {
+      "id": "rain_forest_run__wbf16__asdpa__kvbf16",
+      "prompt_refs": [
+        "configs/prompts/longlive2_examples.json#rain_forest_run"
+      ],
+      "seed": 0,
+      "common": {
+        "attention": "cudnn",
+        "kv_fp8": false
+      },
+      "policy": {
+        "packed_dit_weights": null
+      }
+    },
+    {
+      "id": "rain_forest_run__wbf16__asdpa__kvfp8",
+      "prompt_refs": [
+        "configs/prompts/longlive2_examples.json#rain_forest_run"
+      ],
+      "seed": 0,
+      "common": {
+        "attention": "cudnn",
+        "kv_fp8": true
+      },
+      "policy": {
+        "packed_dit_weights": null
+      }
+    },
+    {
+      "id": "rain_forest_run__wbf16__asage__kvbf16",
+      "prompt_refs": [
+        "configs/prompts/longlive2_examples.json#rain_forest_run"
+      ],
+      "seed": 0,
+      "common": {
+        "attention": "sage",
+        "kv_fp8": false
+      },
+      "policy": {
+        "packed_dit_weights": null
+      }
+    },
+    {
+      "id": "rain_forest_run__wbf16__asage__kvfp8",
+      "prompt_refs": [
+        "configs/prompts/longlive2_examples.json#rain_forest_run"
+      ],
+      "seed": 0,
+      "common": {
+        "attention": "sage",
+        "kv_fp8": true
+      },
+      "policy": {
+        "packed_dit_weights": null
+      }
+    },
+    {
+      "id": "rain_forest_run__wfp8__asdpa__kvbf16",
+      "prompt_refs": [
+        "configs/prompts/longlive2_examples.json#rain_forest_run"
+      ],
+      "seed": 0,
+      "common": {
+        "attention": "cudnn",
+        "kv_fp8": false
+      },
+      "policy": {
+        "packed_dit_weights": "artifacts/longlive2_5b_s2_blocks.fp8"
+      }
+    },
+    {
+      "id": "rain_forest_run__wfp8__asdpa__kvfp8",
+      "prompt_refs": [
+        "configs/prompts/longlive2_examples.json#rain_forest_run"
+      ],
+      "seed": 0,
+      "common": {
+        "attention": "cudnn",
+        "kv_fp8": true
+      },
+      "policy": {
+        "packed_dit_weights": "artifacts/longlive2_5b_s2_blocks.fp8"
+      }
+    },
+    {
+      "id": "rain_forest_run__wfp8__asage__kvbf16",
+      "prompt_refs": [
+        "configs/prompts/longlive2_examples.json#rain_forest_run"
+      ],
+      "seed": 0,
+      "common": {
+        "attention": "sage",
+        "kv_fp8": false
+      },
+      "policy": {
+        "packed_dit_weights": "artifacts/longlive2_5b_s2_blocks.fp8"
+      }
+    },
+    {
+      "id": "rain_forest_run__wfp8__asage__kvfp8",
+      "prompt_refs": [
+        "configs/prompts/longlive2_examples.json#rain_forest_run"
+      ],
+      "seed": 0,
+      "common": {
+        "attention": "sage",
+        "kv_fp8": true
+      },
+      "policy": {
+        "packed_dit_weights": "artifacts/longlive2_5b_s2_blocks.fp8"
+      }
+    },
+    {
+      "id": "rain_forest_run__ww4a4__asdpa__kvbf16",
+      "prompt_refs": [
+        "configs/prompts/longlive2_examples.json#rain_forest_run"
+      ],
+      "seed": 0,
+      "common": {
+        "attention": "cudnn",
+        "kv_fp8": false
+      },
+      "policy": {
+        "packed_dit_weights": "artifacts/longlive2_5b_s2_blocks_fused.w4a4"
+      }
+    },
+    {
+      "id": "rain_forest_run__ww4a4__asdpa__kvfp8",
+      "prompt_refs": [
+        "configs/prompts/longlive2_examples.json#rain_forest_run"
+      ],
+      "seed": 0,
+      "common": {
+        "attention": "cudnn",
+        "kv_fp8": true
+      },
+      "policy": {
+        "packed_dit_weights": "artifacts/longlive2_5b_s2_blocks_fused.w4a4"
+      }
+    },
+    {
+      "id": "rain_forest_run__ww4a4__asage__kvbf16",
+      "prompt_refs": [
+        "configs/prompts/longlive2_examples.json#rain_forest_run"
+      ],
+      "seed": 0,
+      "common": {
+        "attention": "sage",
+        "kv_fp8": false
+      },
+      "policy": {
+        "packed_dit_weights": "artifacts/longlive2_5b_s2_blocks_fused.w4a4"
+      }
+    },
+    {
+      "id": "rain_forest_run__ww4a4__asage__kvfp8",
+      "prompt_refs": [
+        "configs/prompts/longlive2_examples.json#rain_forest_run"
+      ],
+      "seed": 0,
+      "common": {
+        "attention": "sage",
+        "kv_fp8": true
+      },
+      "policy": {
+        "packed_dit_weights": "artifacts/longlive2_5b_s2_blocks_fused.w4a4"
+      }
+    },
+    {
+      "id": "teacup__wbf16__asdpa__kvbf16",
+      "prompt_refs": [
+        "configs/prompts/longlive2_examples.json#teacup"
+      ],
+      "seed": 0,
+      "common": {
+        "attention": "cudnn",
+        "kv_fp8": false
+      },
+      "policy": {
+        "packed_dit_weights": null
+      }
+    },
+    {
+      "id": "teacup__wbf16__asdpa__kvfp8",
+      "prompt_refs": [
+        "configs/prompts/longlive2_examples.json#teacup"
+      ],
+      "seed": 0,
+      "common": {
+        "attention": "cudnn",
+        "kv_fp8": true
+      },
+      "policy": {
+        "packed_dit_weights": null
+      }
+    },
+    {
+      "id": "teacup__wbf16__asage__kvbf16",
+      "prompt_refs": [
+        "configs/prompts/longlive2_examples.json#teacup"
+      ],
+      "seed": 0,
+      "common": {
+        "attention": "sage",
+        "kv_fp8": false
+      },
+      "policy": {
+        "packed_dit_weights": null
+      }
+    },
+    {
+      "id": "teacup__wbf16__asage__kvfp8",
+      "prompt_refs": [
+        "configs/prompts/longlive2_examples.json#teacup"
+      ],
+      "seed": 0,
+      "common": {
+        "attention": "sage",
+        "kv_fp8": true
+      },
+      "policy": {
+        "packed_dit_weights": null
+      }
+    },
+    {
+      "id": "teacup__wfp8__asdpa__kvbf16",
+      "prompt_refs": [
+        "configs/prompts/longlive2_examples.json#teacup"
+      ],
+      "seed": 0,
+      "common": {
+        "attention": "cudnn",
+        "kv_fp8": false
+      },
+      "policy": {
+        "packed_dit_weights": "artifacts/longlive2_5b_s2_blocks.fp8"
+      }
+    },
+    {
+      "id": "teacup__wfp8__asdpa__kvfp8",
+      "prompt_refs": [
+        "configs/prompts/longlive2_examples.json#teacup"
+      ],
+      "seed": 0,
+      "common": {
+        "attention": "cudnn",
+        "kv_fp8": true
+      },
+      "policy": {
+        "packed_dit_weights": "artifacts/longlive2_5b_s2_blocks.fp8"
+      }
+    },
+    {
+      "id": "teacup__wfp8__asage__kvbf16",
+      "prompt_refs": [
+        "configs/prompts/longlive2_examples.json#teacup"
+      ],
+      "seed": 0,
+      "common": {
+        "attention": "sage",
+        "kv_fp8": false
+      },
+      "policy": {
+        "packed_dit_weights": "artifacts/longlive2_5b_s2_blocks.fp8"
+      }
+    },
+    {
+      "id": "teacup__wfp8__asage__kvfp8",
+      "prompt_refs": [
+        "configs/prompts/longlive2_examples.json#teacup"
+      ],
+      "seed": 0,
+      "common": {
+        "attention": "sage",
+        "kv_fp8": true
+      },
+      "policy": {
+        "packed_dit_weights": "artifacts/longlive2_5b_s2_blocks.fp8"
+      }
+    },
+    {
+      "id": "teacup__ww4a4__asdpa__kvbf16",
+      "prompt_refs": [
+        "configs/prompts/longlive2_examples.json#teacup"
+      ],
+      "seed": 0,
+      "common": {
+        "attention": "cudnn",
+        "kv_fp8": false
+      },
+      "policy": {
+        "packed_dit_weights": "artifacts/longlive2_5b_s2_blocks_fused.w4a4"
+      }
+    },
+    {
+      "id": "teacup__ww4a4__asdpa__kvfp8",
+      "prompt_refs": [
+        "configs/prompts/longlive2_examples.json#teacup"
+      ],
+      "seed": 0,
+      "common": {
+        "attention": "cudnn",
+        "kv_fp8": true
+      },
+      "policy": {
+        "packed_dit_weights": "artifacts/longlive2_5b_s2_blocks_fused.w4a4"
+      }
+    },
+    {
+      "id": "teacup__ww4a4__asage__kvbf16",
+      "prompt_refs": [
+        "configs/prompts/longlive2_examples.json#teacup"
+      ],
+      "seed": 0,
+      "common": {
+        "attention": "sage",
+        "kv_fp8": false
+      },
+      "policy": {
+        "packed_dit_weights": "artifacts/longlive2_5b_s2_blocks_fused.w4a4"
+      }
+    },
+    {
+      "id": "teacup__ww4a4__asage__kvfp8",
+      "prompt_refs": [
+        "configs/prompts/longlive2_examples.json#teacup"
+      ],
+      "seed": 0,
+      "common": {
+        "attention": "sage",
+        "kv_fp8": true
+      },
+      "policy": {
+        "packed_dit_weights": "artifacts/longlive2_5b_s2_blocks_fused.w4a4"
+      }
+    },
+    {
+      "id": "raccoon_guitar__wbf16__asdpa__kvbf16",
+      "prompt_refs": [
+        "configs/prompts/longlive2_examples.json#raccoon_guitar"
+      ],
+      "seed": 0,
+      "common": {
+        "attention": "cudnn",
+        "kv_fp8": false
+      },
+      "policy": {
+        "packed_dit_weights": null
+      }
+    },
+    {
+      "id": "raccoon_guitar__wbf16__asdpa__kvfp8",
+      "prompt_refs": [
+        "configs/prompts/longlive2_examples.json#raccoon_guitar"
+      ],
+      "seed": 0,
+      "common": {
+        "attention": "cudnn",
+        "kv_fp8": true
+      },
+      "policy": {
+        "packed_dit_weights": null
+      }
+    },
+    {
+      "id": "raccoon_guitar__wbf16__asage__kvbf16",
+      "prompt_refs": [
+        "configs/prompts/longlive2_examples.json#raccoon_guitar"
+      ],
+      "seed": 0,
+      "common": {
+        "attention": "sage",
+        "kv_fp8": false
+      },
+      "policy": {
+        "packed_dit_weights": null
+      }
+    },
+    {
+      "id": "raccoon_guitar__wbf16__asage__kvfp8",
+      "prompt_refs": [
+        "configs/prompts/longlive2_examples.json#raccoon_guitar"
+      ],
+      "seed": 0,
+      "common": {
+        "attention": "sage",
+        "kv_fp8": true
+      },
+      "policy": {
+        "packed_dit_weights": null
+      }
+    },
+    {
+      "id": "raccoon_guitar__wfp8__asdpa__kvbf16",
+      "prompt_refs": [
+        "configs/prompts/longlive2_examples.json#raccoon_guitar"
+      ],
+      "seed": 0,
+      "common": {
+        "attention": "cudnn",
+        "kv_fp8": false
+      },
+      "policy": {
+        "packed_dit_weights": "artifacts/longlive2_5b_s2_blocks.fp8"
+      }
+    },
+    {
+      "id": "raccoon_guitar__wfp8__asdpa__kvfp8",
+      "prompt_refs": [
+        "configs/prompts/longlive2_examples.json#raccoon_guitar"
+      ],
+      "seed": 0,
+      "common": {
+        "attention": "cudnn",
+        "kv_fp8": true
+      },
+      "policy": {
+        "packed_dit_weights": "artifacts/longlive2_5b_s2_blocks.fp8"
+      }
+    },
+    {
+      "id": "raccoon_guitar__wfp8__asage__kvbf16",
+      "prompt_refs": [
+        "configs/prompts/longlive2_examples.json#raccoon_guitar"
+      ],
+      "seed": 0,
+      "common": {
+        "attention": "sage",
+        "kv_fp8": false
+      },
+      "policy": {
+        "packed_dit_weights": "artifacts/longlive2_5b_s2_blocks.fp8"
+      }
+    },
+    {
+      "id": "raccoon_guitar__wfp8__asage__kvfp8",
+      "prompt_refs": [
+        "configs/prompts/longlive2_examples.json#raccoon_guitar"
+      ],
+      "seed": 0,
+      "common": {
+        "attention": "sage",
+        "kv_fp8": true
+      },
+      "policy": {
+        "packed_dit_weights": "artifacts/longlive2_5b_s2_blocks.fp8"
+      }
+    },
+    {
+      "id": "raccoon_guitar__ww4a4__asdpa__kvbf16",
+      "prompt_refs": [
+        "configs/prompts/longlive2_examples.json#raccoon_guitar"
+      ],
+      "seed": 0,
+      "common": {
+        "attention": "cudnn",
+        "kv_fp8": false
+      },
+      "policy": {
+        "packed_dit_weights": "artifacts/longlive2_5b_s2_blocks_fused.w4a4"
+      }
+    },
+    {
+      "id": "raccoon_guitar__ww4a4__asdpa__kvfp8",
+      "prompt_refs": [
+        "configs/prompts/longlive2_examples.json#raccoon_guitar"
+      ],
+      "seed": 0,
+      "common": {
+        "attention": "cudnn",
+        "kv_fp8": true
+      },
+      "policy": {
+        "packed_dit_weights": "artifacts/longlive2_5b_s2_blocks_fused.w4a4"
+      }
+    },
+    {
+      "id": "raccoon_guitar__ww4a4__asage__kvbf16",
+      "prompt_refs": [
+        "configs/prompts/longlive2_examples.json#raccoon_guitar"
+      ],
+      "seed": 0,
+      "common": {
+        "attention": "sage",
+        "kv_fp8": false
+      },
+      "policy": {
+        "packed_dit_weights": "artifacts/longlive2_5b_s2_blocks_fused.w4a4"
+      }
+    },
+    {
+      "id": "raccoon_guitar__ww4a4__asage__kvfp8",
+      "prompt_refs": [
+        "configs/prompts/longlive2_examples.json#raccoon_guitar"
+      ],
+      "seed": 0,
+      "common": {
+        "attention": "sage",
+        "kv_fp8": true
+      },
+      "policy": {
+        "packed_dit_weights": "artifacts/longlive2_5b_s2_blocks_fused.w4a4"
+      }
+    }
+  ],
+  "output": "outputs/experiments/2026-10-22/01_Ускорения_факторный_512x928",
+  "execution": {
+    "resource_budgets": {
+      "ram_gib": 9.0,
+      "vram_gib": 7.25
+    }
+  },
+  "policy_overrides": {
+    "resources": {
+      "mode": "managed",
+      "vram_cache_gib": 5.0,
+      "backing_ram_gib": 3.0,
+      "backing_disk_gib": 18.0,
+      "working_ram_mib": 512,
+      "working_vram_mib": 512,
+      "staging_mib": 16,
+      "system_ram_reserve_gib": 0.0,
+      "process_rss_limit_gib": null,
+      "disk_reserve_gib": 3.0,
+      "prefetch": true
+    }
+  }
+}

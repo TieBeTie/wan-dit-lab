@@ -1,0 +1,246 @@
+{
+  "base": "configs/base/longlive2_s2_512x928.json",
+  "question": "Original against Live (W4A4 v2, SageAttention 2 over the FP8 cache) at 512x928 on the screened prompts: 7 single shots and 4 sequences (the originals of the sequences are in 03_Отбор_склеек, the teacup in 01_Ускорения)",
+  "common": {
+    "latent_frames": 48
+  },
+  "execution": {
+    "resource_budgets": {
+      "ram_gib": 9.0,
+      "vram_gib": 7.25
+    }
+  },
+  "policy_overrides": {
+    "resources": {
+      "mode": "managed",
+      "vram_cache_gib": 5.0,
+      "backing_ram_gib": 3.0,
+      "backing_disk_gib": 18.0,
+      "working_ram_mib": 512,
+      "working_vram_mib": 512,
+      "staging_mib": 16,
+      "system_ram_reserve_gib": 0.0,
+      "process_rss_limit_gib": null,
+      "disk_reserve_gib": 3.0,
+      "prefetch": true
+    }
+  },
+  "runs": [
+    {
+      "id": "tokyo_walk__orig",
+      "prompt_refs": [
+        "configs/prompts/showcase_candidates.json#tokyo_walk"
+      ],
+      "seed": 0
+    },
+    {
+      "id": "tokyo_walk__live",
+      "prompt_refs": [
+        "configs/prompts/showcase_candidates.json#tokyo_walk"
+      ],
+      "seed": 0,
+      "common": {
+        "attention": "sage",
+        "kv_fp8": true
+      },
+      "policy": {
+        "packed_dit_weights": "artifacts/longlive2_5b_s2_blocks_fused.w4a4"
+      }
+    },
+    {
+      "id": "big_sur_waves__orig",
+      "prompt_refs": [
+        "configs/prompts/showcase_candidates.json#big_sur_waves"
+      ],
+      "seed": 0
+    },
+    {
+      "id": "big_sur_waves__live",
+      "prompt_refs": [
+        "configs/prompts/showcase_candidates.json#big_sur_waves"
+      ],
+      "seed": 0,
+      "common": {
+        "attention": "sage",
+        "kv_fp8": true
+      },
+      "policy": {
+        "packed_dit_weights": "artifacts/longlive2_5b_s2_blocks_fused.w4a4"
+      }
+    },
+    {
+      "id": "waterfall__orig",
+      "prompt_refs": [
+        "configs/prompts/showcase_candidates.json#waterfall"
+      ],
+      "seed": 0
+    },
+    {
+      "id": "waterfall__live",
+      "prompt_refs": [
+        "configs/prompts/showcase_candidates.json#waterfall"
+      ],
+      "seed": 0,
+      "common": {
+        "attention": "sage",
+        "kv_fp8": true
+      },
+      "policy": {
+        "packed_dit_weights": "artifacts/longlive2_5b_s2_blocks_fused.w4a4"
+      }
+    },
+    {
+      "id": "sea_turtle__orig",
+      "prompt_refs": [
+        "configs/prompts/showcase_candidates.json#sea_turtle"
+      ],
+      "seed": 0
+    },
+    {
+      "id": "sea_turtle__live",
+      "prompt_refs": [
+        "configs/prompts/showcase_candidates.json#sea_turtle"
+      ],
+      "seed": 0,
+      "common": {
+        "attention": "sage",
+        "kv_fp8": true
+      },
+      "policy": {
+        "packed_dit_weights": "artifacts/longlive2_5b_s2_blocks_fused.w4a4"
+      }
+    },
+    {
+      "id": "tsunami_alley__orig",
+      "prompt_refs": [
+        "configs/prompts/showcase_candidates.json#tsunami_alley"
+      ],
+      "seed": 0
+    },
+    {
+      "id": "tsunami_alley__live",
+      "prompt_refs": [
+        "configs/prompts/showcase_candidates.json#tsunami_alley"
+      ],
+      "seed": 0,
+      "common": {
+        "attention": "sage",
+        "kv_fp8": true
+      },
+      "policy": {
+        "packed_dit_weights": "artifacts/longlive2_5b_s2_blocks_fused.w4a4"
+      }
+    },
+    {
+      "id": "retriever_car__orig",
+      "prompt_refs": [
+        "configs/prompts/showcase_candidates.json#retriever_car"
+      ],
+      "seed": 0
+    },
+    {
+      "id": "retriever_car__live",
+      "prompt_refs": [
+        "configs/prompts/showcase_candidates.json#retriever_car"
+      ],
+      "seed": 0,
+      "common": {
+        "attention": "sage",
+        "kv_fp8": true
+      },
+      "policy": {
+        "packed_dit_weights": "artifacts/longlive2_5b_s2_blocks_fused.w4a4"
+      }
+    },
+    {
+      "id": "chef_plating__orig",
+      "prompt_refs": [
+        "configs/prompts/showcase_candidates.json#chef_plating"
+      ],
+      "seed": 0
+    },
+    {
+      "id": "chef_plating__live",
+      "prompt_refs": [
+        "configs/prompts/showcase_candidates.json#chef_plating"
+      ],
+      "seed": 0,
+      "common": {
+        "attention": "sage",
+        "kv_fp8": true
+      },
+      "policy": {
+        "packed_dit_weights": "artifacts/longlive2_5b_s2_blocks_fused.w4a4"
+      }
+    },
+    {
+      "id": "roof_shot__live",
+      "prompt_refs": [
+        "configs/prompts/multishot_candidates.json#roof_1",
+        "configs/prompts/multishot_candidates.json#roof_2"
+      ],
+      "switch": "shot",
+      "switch_every": 3,
+      "seed": 0,
+      "common": {
+        "attention": "sage",
+        "kv_fp8": true
+      },
+      "policy": {
+        "packed_dit_weights": "artifacts/longlive2_5b_s2_blocks_fused.w4a4"
+      }
+    },
+    {
+      "id": "titanic_shot__live",
+      "prompt_refs": [
+        "configs/prompts/multishot_candidates.json#titanic_1",
+        "configs/prompts/multishot_candidates.json#titanic_2"
+      ],
+      "switch": "shot",
+      "switch_every": 3,
+      "seed": 0,
+      "common": {
+        "attention": "sage",
+        "kv_fp8": true
+      },
+      "policy": {
+        "packed_dit_weights": "artifacts/longlive2_5b_s2_blocks_fused.w4a4"
+      }
+    },
+    {
+      "id": "fox_shot__live",
+      "prompt_refs": [
+        "configs/prompts/multishot_candidates.json#fox_1",
+        "configs/prompts/multishot_candidates.json#fox_2"
+      ],
+      "switch": "shot",
+      "switch_every": 3,
+      "seed": 0,
+      "common": {
+        "attention": "sage",
+        "kv_fp8": true
+      },
+      "policy": {
+        "packed_dit_weights": "artifacts/longlive2_5b_s2_blocks_fused.w4a4"
+      }
+    },
+    {
+      "id": "loft_swap__live",
+      "prompt_refs": [
+        "configs/prompts/multishot_candidates.json#loft_1",
+        "configs/prompts/multishot_candidates.json#loft_2"
+      ],
+      "switch": "swap",
+      "switch_every": 3,
+      "seed": 0,
+      "common": {
+        "attention": "sage",
+        "kv_fp8": true
+      },
+      "policy": {
+        "packed_dit_weights": "artifacts/longlive2_5b_s2_blocks_fused.w4a4"
+      }
+    }
+  ],
+  "output": "outputs/experiments/2026-10-22/04_Оригинал_против_Live_512x928"
+}

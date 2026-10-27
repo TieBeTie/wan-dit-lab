@@ -1,0 +1,18 @@
+{
+  "profile": "resource_migration_correctness",
+  "t5": {"ram": 2, "gpu": 2},
+  "dit": {"ram": 2, "gpu": 2},
+  "resources": {
+    "self_kv": "ram",
+    "cross_kv": "ram",
+    "decoder_weights": "ram",
+    "decoder_state": "ram",
+    "history": "ram",
+    "latents": "disk",
+    "backing_ram_gib": 7.0,
+    "backing_disk_gib": 32.0,
+    "staging_mib": 16
+  },
+  "scope": "Explicit resource migration; synchronous correctness backend, not a calibrated FlexGen schedule",
+  "execution": "Manual use only; stopped experiment is not resumed"
+}

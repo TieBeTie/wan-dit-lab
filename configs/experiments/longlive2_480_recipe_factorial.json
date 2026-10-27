@@ -1,0 +1,353 @@
+{
+  "base": "configs/base/longlive2_s2_original.json",
+  "question": "How to bring the 2-step LongLive 2.0 (trained at 704x1280 only) down to 480x864 (token grid 15x27, aspect 1.80 as near the trained 22x40, 1.82, as a height of 480 allows) without training: a full 2x2x2 factorial of the timestep shift (5, or 5 * sqrt of the area ratio = 3.392, SD3 Sec. 5.3.2), the attention scale (1/sqrt(d), or sqrt(log_T N / d) of Jin et al. NeurIPS 2023) and the RoPE positions of height and width (as they are, or spread over the trained grid), all else as the original (BF16), 3 example prompts of LongLive 2.0, 48 latent frames",
+  "common": {
+    "height": 480,
+    "width": 864,
+    "latent_frames": 48
+  },
+  "policy_overrides": {
+    "resource_cost_model": {
+      "calibration": "configs/calibration/longlive2_s2_480x864_kv_bf16.json"
+    }
+  },
+  "runs": [
+    {
+      "id": "rain_forest_run__shift5__attn0__rope0",
+      "prompt_refs": [
+        "configs/prompts/longlive2_examples.json#rain_forest_run"
+      ],
+      "seed": 0,
+      "common": {
+        "shift": 5.0
+      }
+    },
+    {
+      "id": "rain_forest_run__shift5__attn0__rope_interp",
+      "prompt_refs": [
+        "configs/prompts/longlive2_examples.json#rain_forest_run"
+      ],
+      "seed": 0,
+      "common": {
+        "shift": 5.0,
+        "rope_interpolate_from": [
+          704,
+          1280
+        ]
+      }
+    },
+    {
+      "id": "rain_forest_run__shift5__attn_jin__rope0",
+      "prompt_refs": [
+        "configs/prompts/longlive2_examples.json#rain_forest_run"
+      ],
+      "seed": 0,
+      "common": {
+        "shift": 5.0,
+        "attention_entropy_from": [
+          704,
+          1280
+        ]
+      }
+    },
+    {
+      "id": "rain_forest_run__shift5__attn_jin__rope_interp",
+      "prompt_refs": [
+        "configs/prompts/longlive2_examples.json#rain_forest_run"
+      ],
+      "seed": 0,
+      "common": {
+        "shift": 5.0,
+        "attention_entropy_from": [
+          704,
+          1280
+        ],
+        "rope_interpolate_from": [
+          704,
+          1280
+        ]
+      }
+    },
+    {
+      "id": "rain_forest_run__shift_area__attn0__rope0",
+      "prompt_refs": [
+        "configs/prompts/longlive2_examples.json#rain_forest_run"
+      ],
+      "seed": 0,
+      "common": {
+        "shift": 3.392
+      }
+    },
+    {
+      "id": "rain_forest_run__shift_area__attn0__rope_interp",
+      "prompt_refs": [
+        "configs/prompts/longlive2_examples.json#rain_forest_run"
+      ],
+      "seed": 0,
+      "common": {
+        "shift": 3.392,
+        "rope_interpolate_from": [
+          704,
+          1280
+        ]
+      }
+    },
+    {
+      "id": "rain_forest_run__shift_area__attn_jin__rope0",
+      "prompt_refs": [
+        "configs/prompts/longlive2_examples.json#rain_forest_run"
+      ],
+      "seed": 0,
+      "common": {
+        "shift": 3.392,
+        "attention_entropy_from": [
+          704,
+          1280
+        ]
+      }
+    },
+    {
+      "id": "rain_forest_run__shift_area__attn_jin__rope_interp",
+      "prompt_refs": [
+        "configs/prompts/longlive2_examples.json#rain_forest_run"
+      ],
+      "seed": 0,
+      "common": {
+        "shift": 3.392,
+        "attention_entropy_from": [
+          704,
+          1280
+        ],
+        "rope_interpolate_from": [
+          704,
+          1280
+        ]
+      }
+    },
+    {
+      "id": "teacup__shift5__attn0__rope0",
+      "prompt_refs": [
+        "configs/prompts/longlive2_examples.json#teacup"
+      ],
+      "seed": 0,
+      "common": {
+        "shift": 5.0
+      }
+    },
+    {
+      "id": "teacup__shift5__attn0__rope_interp",
+      "prompt_refs": [
+        "configs/prompts/longlive2_examples.json#teacup"
+      ],
+      "seed": 0,
+      "common": {
+        "shift": 5.0,
+        "rope_interpolate_from": [
+          704,
+          1280
+        ]
+      }
+    },
+    {
+      "id": "teacup__shift5__attn_jin__rope0",
+      "prompt_refs": [
+        "configs/prompts/longlive2_examples.json#teacup"
+      ],
+      "seed": 0,
+      "common": {
+        "shift": 5.0,
+        "attention_entropy_from": [
+          704,
+          1280
+        ]
+      }
+    },
+    {
+      "id": "teacup__shift5__attn_jin__rope_interp",
+      "prompt_refs": [
+        "configs/prompts/longlive2_examples.json#teacup"
+      ],
+      "seed": 0,
+      "common": {
+        "shift": 5.0,
+        "attention_entropy_from": [
+          704,
+          1280
+        ],
+        "rope_interpolate_from": [
+          704,
+          1280
+        ]
+      }
+    },
+    {
+      "id": "teacup__shift_area__attn0__rope0",
+      "prompt_refs": [
+        "configs/prompts/longlive2_examples.json#teacup"
+      ],
+      "seed": 0,
+      "common": {
+        "shift": 3.392
+      }
+    },
+    {
+      "id": "teacup__shift_area__attn0__rope_interp",
+      "prompt_refs": [
+        "configs/prompts/longlive2_examples.json#teacup"
+      ],
+      "seed": 0,
+      "common": {
+        "shift": 3.392,
+        "rope_interpolate_from": [
+          704,
+          1280
+        ]
+      }
+    },
+    {
+      "id": "teacup__shift_area__attn_jin__rope0",
+      "prompt_refs": [
+        "configs/prompts/longlive2_examples.json#teacup"
+      ],
+      "seed": 0,
+      "common": {
+        "shift": 3.392,
+        "attention_entropy_from": [
+          704,
+          1280
+        ]
+      }
+    },
+    {
+      "id": "teacup__shift_area__attn_jin__rope_interp",
+      "prompt_refs": [
+        "configs/prompts/longlive2_examples.json#teacup"
+      ],
+      "seed": 0,
+      "common": {
+        "shift": 3.392,
+        "attention_entropy_from": [
+          704,
+          1280
+        ],
+        "rope_interpolate_from": [
+          704,
+          1280
+        ]
+      }
+    },
+    {
+      "id": "raccoon_guitar__shift5__attn0__rope0",
+      "prompt_refs": [
+        "configs/prompts/longlive2_examples.json#raccoon_guitar"
+      ],
+      "seed": 0,
+      "common": {
+        "shift": 5.0
+      }
+    },
+    {
+      "id": "raccoon_guitar__shift5__attn0__rope_interp",
+      "prompt_refs": [
+        "configs/prompts/longlive2_examples.json#raccoon_guitar"
+      ],
+      "seed": 0,
+      "common": {
+        "shift": 5.0,
+        "rope_interpolate_from": [
+          704,
+          1280
+        ]
+      }
+    },
+    {
+      "id": "raccoon_guitar__shift5__attn_jin__rope0",
+      "prompt_refs": [
+        "configs/prompts/longlive2_examples.json#raccoon_guitar"
+      ],
+      "seed": 0,
+      "common": {
+        "shift": 5.0,
+        "attention_entropy_from": [
+          704,
+          1280
+        ]
+      }
+    },
+    {
+      "id": "raccoon_guitar__shift5__attn_jin__rope_interp",
+      "prompt_refs": [
+        "configs/prompts/longlive2_examples.json#raccoon_guitar"
+      ],
+      "seed": 0,
+      "common": {
+        "shift": 5.0,
+        "attention_entropy_from": [
+          704,
+          1280
+        ],
+        "rope_interpolate_from": [
+          704,
+          1280
+        ]
+      }
+    },
+    {
+      "id": "raccoon_guitar__shift_area__attn0__rope0",
+      "prompt_refs": [
+        "configs/prompts/longlive2_examples.json#raccoon_guitar"
+      ],
+      "seed": 0,
+      "common": {
+        "shift": 3.392
+      }
+    },
+    {
+      "id": "raccoon_guitar__shift_area__attn0__rope_interp",
+      "prompt_refs": [
+        "configs/prompts/longlive2_examples.json#raccoon_guitar"
+      ],
+      "seed": 0,
+      "common": {
+        "shift": 3.392,
+        "rope_interpolate_from": [
+          704,
+          1280
+        ]
+      }
+    },
+    {
+      "id": "raccoon_guitar__shift_area__attn_jin__rope0",
+      "prompt_refs": [
+        "configs/prompts/longlive2_examples.json#raccoon_guitar"
+      ],
+      "seed": 0,
+      "common": {
+        "shift": 3.392,
+        "attention_entropy_from": [
+          704,
+          1280
+        ]
+      }
+    },
+    {
+      "id": "raccoon_guitar__shift_area__attn_jin__rope_interp",
+      "prompt_refs": [
+        "configs/prompts/longlive2_examples.json#raccoon_guitar"
+      ],
+      "seed": 0,
+      "common": {
+        "shift": 3.392,
+        "attention_entropy_from": [
+          704,
+          1280
+        ],
+        "rope_interpolate_from": [
+          704,
+          1280
+        ]
+      }
+    }
+  ],
+  "output": "outputs/experiments/2026-10-21/02_Рецепт_480x864_сдвиг_attention_RoPE"
+}

@@ -1,0 +1,96 @@
+{
+  "question": "FP8 W8A8 of the linear layers on the 2-step LongLive 2.0 at 704x1280: one scale per tensor against one per row, both against the BF16 run 12_LongLive2_шаги_704x1280/steps2 (same prompt, seed, KV FP8)",
+  "common": {
+    "width": 1280,
+    "height": 704,
+    "fps": 24,
+    "weights": "LongLive-2.0-5B model_bf16.pt (LoRA merged)",
+    "weight_precision": "BF16",
+    "kv_precision": "FP8 per row",
+    "decoder": "TAEHV taew2_2 FP16",
+    "taehv": "reference/taehv/taew2_2.pth",
+    "model_config": "checkpoints/Wan2.2-TI2V-5B/config.json",
+    "chunk": 8,
+    "vae_stride": 16,
+    "sampler": "unipc",
+    "shift": 5.0,
+    "context_frames": 32,
+    "sink_frames": 8,
+    "positions": "video",
+    "pc_recent": null,
+    "cross_cache": true,
+    "context_noise": 0,
+    "attention": "cudnn",
+    "compile": "default",
+    "multi_shot_rope_offset": 8,
+    "latent_frames": 48,
+    "kv_fp8": true
+  },
+  "execution": {
+    "resource_budgets": {
+      "ram_gib": 14.0,
+      "vram_gib": 7.25
+    },
+    "require_compilation": true,
+    "warmup_chunks": 4
+  },
+  "policy": "configs/experiments/offloading_managed_cost_guarded_longlive2.json",
+  "policy_overrides": {
+    "resource_cost_model": {
+      "profile": "guarded",
+      "calibration": "configs/calibration/longlive2_5b_480p.json"
+    },
+    "resources": {
+      "mode": "managed",
+      "vram_cache_gib": 5.0,
+      "backing_ram_gib": 4.0,
+      "backing_disk_gib": 4.0,
+      "working_ram_mib": 512,
+      "working_vram_mib": 512,
+      "staging_mib": 16,
+      "system_ram_reserve_gib": 0.0,
+      "process_rss_limit_gib": null,
+      "disk_reserve_gib": 3.0,
+      "prefetch": true
+    }
+  },
+  "runs": [
+    {
+      "id": "fp8_tensor",
+      "prompts": [
+        "A bearded Asian man in his early thirties with short black hair, wearing a fitted heather-gray T-shirt and dark jeans, is working at his desk in a cozy home office, intensely typing on a portable laptop computer. A curious orange tabby cat with bright green eyes sits motionless beside him, attentively watching every keystroke. A steaming ceramic coffee mug rests near the laptop. Warm ambient lighting, bookshelves, and personal items create a lived-in feel. The man’s focused face and the cat’s relaxed posture share the scene. Medium shot capturing both the man and the cat in the same frame."
+      ],
+      "seed": 0,
+      "latent_frames": 48,
+      "common": {
+        "steps": 2,
+        "linear_fp8": "tensor"
+      },
+      "policy": {
+        "checkpoint": "checkpoints/LongLive-2.0-5B-S2/model_te.pt",
+        "packed_dit_weights": null
+      }
+    },
+    {
+      "id": "fp8_row",
+      "prompts": [
+        "A bearded Asian man in his early thirties with short black hair, wearing a fitted heather-gray T-shirt and dark jeans, is working at his desk in a cozy home office, intensely typing on a portable laptop computer. A curious orange tabby cat with bright green eyes sits motionless beside him, attentively watching every keystroke. A steaming ceramic coffee mug rests near the laptop. Warm ambient lighting, bookshelves, and personal items create a lived-in feel. The man’s focused face and the cat’s relaxed posture share the scene. Medium shot capturing both the man and the cat in the same frame."
+      ],
+      "seed": 0,
+      "latent_frames": 48,
+      "common": {
+        "steps": 2,
+        "linear_fp8": "row"
+      },
+      "policy": {
+        "checkpoint": "checkpoints/LongLive-2.0-5B-S2/model_te.pt",
+        "packed_dit_weights": null
+      }
+    }
+  ],
+  "compare": {
+    "name": "fp8_tensor_vs_row"
+  },
+  "output": "outputs/experiments/2026-10-20/13_LongLive2_FP8_704x1280",
+  "calibration_note": "480p calibration reused: the 704x1280 probes spill every resource to disk and the disk is short while model_te.pt downloads"
+}

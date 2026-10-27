@@ -34,7 +34,7 @@
 Ревизии теперь закреплены в `configs/upstream.json`. Полная загрузка/возобновление и проверка:
 
 ```powershell
-./.venv/Scripts/python.exe scripts/prepare_weights.py
+./.venv/Scripts/python.exe scripts/conversion/prepare_weights.py
 ```
 
 Комплект включает DiT, VAE, UMT5 encoder и tokenizer, около 17.6 ГБ. После загрузки создаётся `artifacts/weights-manifest.json` с размерами, SHA256 и формами тензоров DiT. Для LFS-файлов SHA256 сверяется с официальными метаданными Hub. Файлы `.pth` пока не исполняются и не загружаются в GPU: загрузку их state_dict следует делать через `torch.load(..., weights_only=True, map_location="cpu")`.
@@ -44,7 +44,7 @@
 Начать работу с весами собственного блока:
 
 ```python
-from wan_dit_lab.checkpoint import model_config, load_block_weights
+from wan_dit_lab.models.checkpoint import model_config, load_block_weights
 
 config = model_config()
 weights = load_block_weights(0)  # CPU, только первый блок

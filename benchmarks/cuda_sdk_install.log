@@ -1,0 +1,14 @@
+Collecting nvidia-cuda-runtime-cu12==12.8.57
+  Downloading nvidia_cuda_runtime_cu12-12.8.57-py3-none-win_amd64.whl.metadata (1.7 kB)
+Collecting nvidia-cuda-nvcc-cu12==12.8.61
+  Downloading nvidia_cuda_nvcc_cu12-12.8.61-py3-none-win_amd64.whl.metadata (1.7 kB)
+Downloading nvidia_cuda_runtime_cu12-12.8.57-py3-none-win_amd64.whl (944 kB)
+   ---------------------------------------- 944.3/944.3 kB 3.0 MB/s  0:00:00
+Downloading nvidia_cuda_nvcc_cu12-12.8.61-py3-none-win_amd64.whl (33.4 MB)
+   ---------------------------------------- 33.4/33.4 MB 3.9 MB/s  0:00:08
+Installing collected packages: nvidia-cuda-runtime-cu12, nvidia-cuda-nvcc-cu12
+
+Successfully installed nvidia-cuda-nvcc-cu12-12.8.61 nvidia-cuda-runtime-cu12-12.8.57
+
+[notice] A new release of pip is available: 25.3 -> 26.2.1
+[notice] To update, run: C:\Inner Firmament\Growth Space\Projects\wan-dit-lab\.venv\Scripts\python.exe -m pip install --upgrade pip

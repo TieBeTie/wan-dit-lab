@@ -6,7 +6,7 @@ from pathlib import Path
 import torch
 
 from wan_dit_lab.harness import run
-from wan_dit_lab.rope import rope, rope_apply
+from wan_dit_lab.models.rope import rope, rope_apply
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "reference" / "INT8-DiT" / "wan_block"))
 from wan.modules.model import rope_apply as reference_rope_apply, rope_params

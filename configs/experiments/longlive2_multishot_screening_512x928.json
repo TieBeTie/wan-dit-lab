@@ -1,0 +1,82 @@
+{
+  "base": "configs/base/longlive2_s2_512x928.json",
+  "question": "Which multi-shot and continuation sequences are representative: Echo-Forcing's recall, hard cut and smooth examples, LongLive 1's boy on a lawn and our fox cut, 2-3 prompts of 2-3 chunks, the original at 512x928",
+  "common": {
+    "latent_frames": 48
+  },
+  "execution": {
+    "resource_budgets": {
+      "ram_gib": 9.0,
+      "vram_gib": 7.25
+    }
+  },
+  "policy_overrides": {
+    "resources": {
+      "mode": "managed",
+      "vram_cache_gib": 5.0,
+      "backing_ram_gib": 3.0,
+      "backing_disk_gib": 18.0,
+      "working_ram_mib": 512,
+      "working_vram_mib": 512,
+      "staging_mib": 16,
+      "system_ram_reserve_gib": 0.0,
+      "process_rss_limit_gib": null,
+      "disk_reserve_gib": 3.0,
+      "prefetch": true
+    }
+  },
+  "runs": [
+    {
+      "id": "roof_shot",
+      "prompt_refs": [
+        "configs/prompts/multishot_candidates.json#roof_1",
+        "configs/prompts/multishot_candidates.json#roof_2"
+      ],
+      "switch": "shot",
+      "switch_every": 3,
+      "seed": 0
+    },
+    {
+      "id": "titanic_shot",
+      "prompt_refs": [
+        "configs/prompts/multishot_candidates.json#titanic_1",
+        "configs/prompts/multishot_candidates.json#titanic_2"
+      ],
+      "switch": "shot",
+      "switch_every": 3,
+      "seed": 0
+    },
+    {
+      "id": "fox_shot",
+      "prompt_refs": [
+        "configs/prompts/multishot_candidates.json#fox_1",
+        "configs/prompts/multishot_candidates.json#fox_2"
+      ],
+      "switch": "shot",
+      "switch_every": 3,
+      "seed": 0
+    },
+    {
+      "id": "loft_swap",
+      "prompt_refs": [
+        "configs/prompts/multishot_candidates.json#loft_1",
+        "configs/prompts/multishot_candidates.json#loft_2"
+      ],
+      "switch": "swap",
+      "switch_every": 3,
+      "seed": 0
+    },
+    {
+      "id": "boy_swap",
+      "prompt_refs": [
+        "configs/prompts/multishot_candidates.json#boy_1",
+        "configs/prompts/multishot_candidates.json#boy_2",
+        "configs/prompts/multishot_candidates.json#boy_3"
+      ],
+      "switch": "swap",
+      "switch_every": 2,
+      "seed": 0
+    }
+  ],
+  "output": "outputs/experiments/2026-10-22/03_Отбор_склеек_512x928"
+}

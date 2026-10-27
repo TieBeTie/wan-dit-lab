@@ -1,0 +1,137 @@
+{
+  "nodes": [
+    {
+      "id": "text",
+      "type": "text",
+      "text": "<span class=\"wan-scene-style wan-scene-math\"></span>\n\n## Новый текст\n\n$$\np_1\\xrightarrow{\\mathrm{UMT5}}c_1\\xrightarrow{\\mathrm{text\\ embedding}}U_1\n$$\nДля каждого блока из U₁ вычисляются его K и V **cross-attention**.",
+      "x": 360,
+      "y": 0,
+      "width": 1260,
+      "height": 185,
+      "color": "3"
+    },
+    {
+      "id": "history",
+      "type": "text",
+      "text": "<span class=\"wan-scene-style wan-scene-math\"></span>\n\n## Готовая история\n\n$$\nZ=(z_1,\\ldots,z_m),\\qquad t=0\n$$\nТе же сохранённые латенты. Не RGB, не старые K/V. Без добавленного шума.",
+      "x": 0,
+      "y": 235,
+      "width": 300,
+      "height": 365
+    },
+    {
+      "id": "block1",
+      "type": "text",
+      "text": "<span class=\"wan-scene-style wan-scene-math\"></span>\n\n## Блок 1\n\n$$\nh_0=\\operatorname{Patch}(Z)\n$$\n$$\nh_0\\xrightarrow{\\rm self}u_1\\xrightarrow{\\rm cross\\,(c_1)}v_1\\xrightarrow{\\rm FFN}h_1\n$$\nЗаписываем K₁ˢ, V₁ˢ из self-attention. Новый текст входит **после** self-attention этого блока.",
+      "x": 360,
+      "y": 235,
+      "width": 600,
+      "height": 365
+    },
+    {
+      "id": "block2",
+      "type": "text",
+      "text": "<span class=\"wan-scene-style wan-scene-math\"></span>\n\n## Блок 2, затем остальные\n\n$$\nh_1\\xrightarrow{\\rm self}u_2\\xrightarrow{\\rm cross\\,(c_1)}v_2\\xrightarrow{\\rm FFN}h_2\n$$\nЗдесь h₁ уже зависит от нового текста. Поэтому K₂ˢ, V₂ˢ и память следующих блоков могут измениться. Повторяем до блока 30.",
+      "x": 1020,
+      "y": 235,
+      "width": 600,
+      "height": 365
+    },
+    {
+      "id": "cache",
+      "type": "text",
+      "text": "<span class=\"wan-scene-style wan-scene-math\"></span>\n\n## Заново собранный self-attention KV\n\n$$\n\\mathcal S_1=\\bigl\\{K^{\\rm self}_{\\ell,1},V^{\\rm self}_{\\ell,1}\\bigr\\}_{\\ell=1}^{30}\n$$\nСтарую память заменяет новая. В нашей реализации история проходит модель по чанкам при t=0 с причинным вниманием.",
+      "x": 360,
+      "y": 665,
+      "width": 1260,
+      "height": 200,
+      "color": "5"
+    },
+    {
+      "id": "noise",
+      "type": "text",
+      "text": "<span class=\"wan-scene-style wan-scene-math\"></span>\n\n## Что значит t = 0\n\n$$\nz_\\sigma=(1-\\sigma)z_{\\rm clean}+\\sigma\\varepsilon,\\qquad t=1000\\sigma\n$$\n$$\nt=0\\ \\Longrightarrow\\ \\sigma=0\\ \\Longrightarrow\\ z_\\sigma=z_{\\rm clean}\n$$\nЭто уровень диффузионного шума. **Не** номер кадра, не начало видео и не группа матриц 𝒯.",
+      "x": 0,
+      "y": 925,
+      "width": 780,
+      "height": 260,
+      "color": "3"
+    },
+    {
+      "id": "rope",
+      "type": "text",
+      "text": "<span class=\"wan-scene-style wan-scene-math\"></span>\n\n## RoPE и текст входят разными путями\n\n$$\n(Q^{\\rm self},K^{\\rm self})\\mapsto(R_{f,h,w}Q^{\\rm self},R_{f,h,w}K^{\\rm self})\n$$\nRoPE задаёт позицию видео. Текст c₁ входит через cross-attention. В нашем коде к текстовым K/V RoPE не применяется.\n\nНормировки, модуляция и residual здесь опущены, показаны зависимости.",
+      "x": 840,
+      "y": 925,
+      "width": 780,
+      "height": 260
+    },
+    {
+      "id": "parent-navigation",
+      "type": "text",
+      "text": "<span class=\"wan-scene-style wan-scene-math\"></span>\n\n## Уровень схемы\n\n[[Growth Space/Projects/wan-dit-lab/Исследование.canvas|Гибрид]] → [[Growth Space/Projects/wan-dit-lab/notes/research/Продолжение сцены.canvas|Продолжение сцены]] → **Recache**",
+      "x": 0,
+      "y": -170,
+      "width": 1620,
+      "height": 115
+    }
+  ],
+  "edges": [
+    {
+      "id": "text-block1",
+      "fromNode": "text",
+      "fromSide": "bottom",
+      "toNode": "block1",
+      "toSide": "top",
+      "fromEnd": "none",
+      "toEnd": "arrow"
+    },
+    {
+      "id": "text-block2",
+      "fromNode": "text",
+      "fromSide": "bottom",
+      "toNode": "block2",
+      "toSide": "top",
+      "fromEnd": "none",
+      "toEnd": "arrow"
+    },
+    {
+      "id": "history-block1",
+      "fromNode": "history",
+      "fromSide": "right",
+      "toNode": "block1",
+      "toSide": "left",
+      "fromEnd": "none",
+      "toEnd": "arrow"
+    },
+    {
+      "id": "block1-block2",
+      "fromNode": "block1",
+      "fromSide": "right",
+      "toNode": "block2",
+      "toSide": "left",
+      "fromEnd": "none",
+      "toEnd": "arrow"
+    },
+    {
+      "id": "block1-cache",
+      "fromNode": "block1",
+      "fromSide": "bottom",
+      "toNode": "cache",
+      "toSide": "top",
+      "fromEnd": "none",
+      "toEnd": "arrow",
+      "label": "write self KV"
+    },
+    {
+      "id": "block2-cache",
+      "fromNode": "block2",
+      "fromSide": "bottom",
+      "toNode": "cache",
+      "toSide": "top",
+      "fromEnd": "none",
+      "toEnd": "arrow",
+      "label": "write self KV"
+    }
+  ]
+}

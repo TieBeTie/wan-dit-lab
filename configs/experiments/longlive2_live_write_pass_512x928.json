@@ -1,0 +1,307 @@
+{
+  "base": "configs/base/longlive2_s2_512x928.json",
+  "execution": {
+    "resource_budgets": {
+      "ram_gib": 9.0,
+      "vram_gib": 7.25
+    }
+  },
+  "policy_overrides": {
+    "resources": {
+      "mode": "managed",
+      "vram_cache_gib": 5.0,
+      "backing_ram_gib": 3.0,
+      "backing_disk_gib": 18.0,
+      "working_ram_mib": 512,
+      "working_vram_mib": 512,
+      "staging_mib": 16,
+      "system_ram_reserve_gib": 0.0,
+      "process_rss_limit_gib": null,
+      "disk_reserve_gib": 3.0,
+      "prefetch": true
+    }
+  },
+  "common": {
+    "latent_frames": 96
+  },
+  "question": "Live (W4A4 v2, SageAttention 2 over the FP8 cache) with the pass that writes each chunk to the cache at t = 0 (written, as trained) against without it, the cache keeping the keys and values of the last step (kept, 13 -> 18 fps): 16 s videos, to see drift build up; 8 screened single prompts and the loft continuation, seed 0",
+  "runs": [
+    {
+      "prompt_refs": [
+        "configs/prompts/showcase_candidates.json#tokyo_walk"
+      ],
+      "seed": 0,
+      "id": "tokyo_walk__written",
+      "common": {
+        "attention": "sage",
+        "kv_fp8": true,
+        "write_pass": true
+      },
+      "policy": {
+        "packed_dit_weights": "artifacts/longlive2_5b_s2_blocks_fused.w4a4"
+      }
+    },
+    {
+      "prompt_refs": [
+        "configs/prompts/showcase_candidates.json#tokyo_walk"
+      ],
+      "seed": 0,
+      "id": "tokyo_walk__kept",
+      "common": {
+        "attention": "sage",
+        "kv_fp8": true,
+        "write_pass": false
+      },
+      "policy": {
+        "packed_dit_weights": "artifacts/longlive2_5b_s2_blocks_fused.w4a4"
+      }
+    },
+    {
+      "prompt_refs": [
+        "configs/prompts/showcase_candidates.json#big_sur_waves"
+      ],
+      "seed": 0,
+      "id": "big_sur_waves__written",
+      "common": {
+        "attention": "sage",
+        "kv_fp8": true,
+        "write_pass": true
+      },
+      "policy": {
+        "packed_dit_weights": "artifacts/longlive2_5b_s2_blocks_fused.w4a4"
+      }
+    },
+    {
+      "prompt_refs": [
+        "configs/prompts/showcase_candidates.json#big_sur_waves"
+      ],
+      "seed": 0,
+      "id": "big_sur_waves__kept",
+      "common": {
+        "attention": "sage",
+        "kv_fp8": true,
+        "write_pass": false
+      },
+      "policy": {
+        "packed_dit_weights": "artifacts/longlive2_5b_s2_blocks_fused.w4a4"
+      }
+    },
+    {
+      "prompt_refs": [
+        "configs/prompts/showcase_candidates.json#waterfall"
+      ],
+      "seed": 0,
+      "id": "waterfall__written",
+      "common": {
+        "attention": "sage",
+        "kv_fp8": true,
+        "write_pass": true
+      },
+      "policy": {
+        "packed_dit_weights": "artifacts/longlive2_5b_s2_blocks_fused.w4a4"
+      }
+    },
+    {
+      "prompt_refs": [
+        "configs/prompts/showcase_candidates.json#waterfall"
+      ],
+      "seed": 0,
+      "id": "waterfall__kept",
+      "common": {
+        "attention": "sage",
+        "kv_fp8": true,
+        "write_pass": false
+      },
+      "policy": {
+        "packed_dit_weights": "artifacts/longlive2_5b_s2_blocks_fused.w4a4"
+      }
+    },
+    {
+      "prompt_refs": [
+        "configs/prompts/showcase_candidates.json#sea_turtle"
+      ],
+      "seed": 0,
+      "id": "sea_turtle__written",
+      "common": {
+        "attention": "sage",
+        "kv_fp8": true,
+        "write_pass": true
+      },
+      "policy": {
+        "packed_dit_weights": "artifacts/longlive2_5b_s2_blocks_fused.w4a4"
+      }
+    },
+    {
+      "prompt_refs": [
+        "configs/prompts/showcase_candidates.json#sea_turtle"
+      ],
+      "seed": 0,
+      "id": "sea_turtle__kept",
+      "common": {
+        "attention": "sage",
+        "kv_fp8": true,
+        "write_pass": false
+      },
+      "policy": {
+        "packed_dit_weights": "artifacts/longlive2_5b_s2_blocks_fused.w4a4"
+      }
+    },
+    {
+      "prompt_refs": [
+        "configs/prompts/showcase_candidates.json#tsunami_alley"
+      ],
+      "seed": 0,
+      "id": "tsunami_alley__written",
+      "common": {
+        "attention": "sage",
+        "kv_fp8": true,
+        "write_pass": true
+      },
+      "policy": {
+        "packed_dit_weights": "artifacts/longlive2_5b_s2_blocks_fused.w4a4"
+      }
+    },
+    {
+      "prompt_refs": [
+        "configs/prompts/showcase_candidates.json#tsunami_alley"
+      ],
+      "seed": 0,
+      "id": "tsunami_alley__kept",
+      "common": {
+        "attention": "sage",
+        "kv_fp8": true,
+        "write_pass": false
+      },
+      "policy": {
+        "packed_dit_weights": "artifacts/longlive2_5b_s2_blocks_fused.w4a4"
+      }
+    },
+    {
+      "prompt_refs": [
+        "configs/prompts/showcase_candidates.json#retriever_car"
+      ],
+      "seed": 0,
+      "id": "retriever_car__written",
+      "common": {
+        "attention": "sage",
+        "kv_fp8": true,
+        "write_pass": true
+      },
+      "policy": {
+        "packed_dit_weights": "artifacts/longlive2_5b_s2_blocks_fused.w4a4"
+      }
+    },
+    {
+      "prompt_refs": [
+        "configs/prompts/showcase_candidates.json#retriever_car"
+      ],
+      "seed": 0,
+      "id": "retriever_car__kept",
+      "common": {
+        "attention": "sage",
+        "kv_fp8": true,
+        "write_pass": false
+      },
+      "policy": {
+        "packed_dit_weights": "artifacts/longlive2_5b_s2_blocks_fused.w4a4"
+      }
+    },
+    {
+      "prompt_refs": [
+        "configs/prompts/showcase_candidates.json#chef_plating"
+      ],
+      "seed": 0,
+      "id": "chef_plating__written",
+      "common": {
+        "attention": "sage",
+        "kv_fp8": true,
+        "write_pass": true
+      },
+      "policy": {
+        "packed_dit_weights": "artifacts/longlive2_5b_s2_blocks_fused.w4a4"
+      }
+    },
+    {
+      "prompt_refs": [
+        "configs/prompts/showcase_candidates.json#chef_plating"
+      ],
+      "seed": 0,
+      "id": "chef_plating__kept",
+      "common": {
+        "attention": "sage",
+        "kv_fp8": true,
+        "write_pass": false
+      },
+      "policy": {
+        "packed_dit_weights": "artifacts/longlive2_5b_s2_blocks_fused.w4a4"
+      }
+    },
+    {
+      "prompt_refs": [
+        "configs/prompts/longlive2_examples.json#teacup"
+      ],
+      "seed": 0,
+      "id": "teacup__written",
+      "common": {
+        "attention": "sage",
+        "kv_fp8": true,
+        "write_pass": true
+      },
+      "policy": {
+        "packed_dit_weights": "artifacts/longlive2_5b_s2_blocks_fused.w4a4"
+      }
+    },
+    {
+      "prompt_refs": [
+        "configs/prompts/longlive2_examples.json#teacup"
+      ],
+      "seed": 0,
+      "id": "teacup__kept",
+      "common": {
+        "attention": "sage",
+        "kv_fp8": true,
+        "write_pass": false
+      },
+      "policy": {
+        "packed_dit_weights": "artifacts/longlive2_5b_s2_blocks_fused.w4a4"
+      }
+    },
+    {
+      "prompt_refs": [
+        "configs/prompts/multishot_candidates.json#loft_1",
+        "configs/prompts/multishot_candidates.json#loft_2"
+      ],
+      "switch": "swap",
+      "switch_every": 6,
+      "seed": 0,
+      "id": "loft_swap__written",
+      "common": {
+        "attention": "sage",
+        "kv_fp8": true,
+        "write_pass": true
+      },
+      "policy": {
+        "packed_dit_weights": "artifacts/longlive2_5b_s2_blocks_fused.w4a4"
+      }
+    },
+    {
+      "prompt_refs": [
+        "configs/prompts/multishot_candidates.json#loft_1",
+        "configs/prompts/multishot_candidates.json#loft_2"
+      ],
+      "switch": "swap",
+      "switch_every": 6,
+      "seed": 0,
+      "id": "loft_swap__kept",
+      "common": {
+        "attention": "sage",
+        "kv_fp8": true,
+        "write_pass": false
+      },
+      "policy": {
+        "packed_dit_weights": "artifacts/longlive2_5b_s2_blocks_fused.w4a4"
+      }
+    }
+  ],
+  "output": "outputs/experiments/2026-10-23/01_Live_без_прохода_записи_кэша_512x928"
+}

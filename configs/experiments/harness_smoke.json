@@ -1,0 +1,9 @@
+{
+  "base": "configs/experiments/live.json",
+  "run": {"mode": "benchmark"},
+  "harness": {
+    "warmup_chunks": 6,
+    "measured_chunks": 2,
+    "checks": {"tests": []}
+  }
+}

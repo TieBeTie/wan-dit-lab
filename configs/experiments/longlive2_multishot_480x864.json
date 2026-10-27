@@ -1,0 +1,70 @@
+{
+  "base": "configs/base/longlive2_s2_480x864.json",
+  "question": "Scene cuts (LongLive 2.0 multi-shot: shot sink and RoPE offset) at 480x864 by the recipe of E27/E28: 3 shots of 8 chunks, the original (BF16, SDPA, KV BF16) against the speed-ups of Live (W4A4 v2, SageAttention 2 over the FP8 cache, RoPE tables in float32)",
+  "common": {
+    "latent_frames": 192
+  },
+  "runs": [
+    {
+      "id": "fox__orig",
+      "prompt_refs": [
+        "configs/prompts/multishot.json#fox_forest",
+        "configs/prompts/multishot.json#fox_beach",
+        "configs/prompts/multishot.json#fox_back"
+      ],
+      "seed": 0,
+      "switch": "shot",
+      "switch_every": 8
+    },
+    {
+      "id": "fox__fast",
+      "prompt_refs": [
+        "configs/prompts/multishot.json#fox_forest",
+        "configs/prompts/multishot.json#fox_beach",
+        "configs/prompts/multishot.json#fox_back"
+      ],
+      "seed": 0,
+      "switch": "shot",
+      "switch_every": 8,
+      "common": {
+        "attention": "sage",
+        "kv_fp8": true,
+        "rope_dtype": "float32"
+      },
+      "policy": {
+        "packed_dit_weights": "artifacts/longlive2_5b_s2_blocks_fused.w4a4"
+      }
+    },
+    {
+      "id": "chain__orig",
+      "prompt_refs": [
+        "configs/prompts/multishot.json#chain_teacup",
+        "configs/prompts/multishot.json#chain_sheep",
+        "configs/prompts/multishot.json#chain_rain"
+      ],
+      "seed": 0,
+      "switch": "shot",
+      "switch_every": 8
+    },
+    {
+      "id": "chain__fast",
+      "prompt_refs": [
+        "configs/prompts/multishot.json#chain_teacup",
+        "configs/prompts/multishot.json#chain_sheep",
+        "configs/prompts/multishot.json#chain_rain"
+      ],
+      "seed": 0,
+      "switch": "shot",
+      "switch_every": 8,
+      "common": {
+        "attention": "sage",
+        "kv_fp8": true,
+        "rope_dtype": "float32"
+      },
+      "policy": {
+        "packed_dit_weights": "artifacts/longlive2_5b_s2_blocks_fused.w4a4"
+      }
+    }
+  ],
+  "output": "outputs/experiments/2026-10-21/05_Склейки_480x864"
+}

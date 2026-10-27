@@ -1,0 +1,9 @@
+Collecting nvidia-cuda-cccl-cu12==12.8.55
+  Downloading nvidia_cuda_cccl_cu12-12.8.55-py3-none-win_amd64.whl.metadata (1.5 kB)
+Downloading nvidia_cuda_cccl_cu12-12.8.55-py3-none-win_amd64.whl (2.9 MB)
+   ---------------------------------------- 2.9/2.9 MB 2.4 MB/s  0:00:01
+Installing collected packages: nvidia-cuda-cccl-cu12
+Successfully installed nvidia-cuda-cccl-cu12-12.8.55
+
+[notice] A new release of pip is available: 25.3 -> 26.2.1
+[notice] To update, run: C:\Inner Firmament\Growth Space\Projects\wan-dit-lab\.venv\Scripts\python.exe -m pip install --upgrade pip

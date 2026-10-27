@@ -1,0 +1,32 @@
+{
+  "profile": "managed_cost_median",
+  "t5": {
+    "ram": 1,
+    "gpu": 2
+  },
+  "dit": {
+    "ram": 1,
+    "gpu": 2
+  },
+  "resources": {
+    "mode": "managed",
+    "vram_cache_gib": 6.1875,
+    "backing_ram_gib": 0.8125,
+    "backing_disk_gib": 8.0,
+    "working_ram_mib": 256,
+    "working_vram_mib": 512,
+    "staging_mib": 16,
+    "system_ram_reserve_gib": 0.0,
+    "process_rss_limit_gib": null,
+    "disk_reserve_gib": 3.0,
+    "prefetch": true
+  },
+  "scope": "Calibrated common resource cache; queue-aware VRAM prefetch, stale backing retirement, RAM admission, immutable BF16 block source",
+  "execution": "Same current resource mechanisms and calibration; median performance not benchmarked in this revision. Guarded profile is the validated working configuration.",
+  "resource_cost_model": {
+    "profile": "median",
+    "calibration": "outputs/experiments/2026-10-19/22_Calibrated_prefetch_5s/calibration_uniform_live.json"
+  },
+  "packed_dit_weights": "artifacts/self_forcing_dit_blocks.bf16",
+  "commit_in_attention": true
+}

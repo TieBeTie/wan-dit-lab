@@ -1,0 +1,33 @@
+{
+  "profile": "managed_cost_guarded_longlive2_5b",
+  "t5": {
+    "ram": 1,
+    "gpu": 2
+  },
+  "dit": {
+    "ram": 1,
+    "gpu": 2
+  },
+  "resources": {
+    "mode": "managed",
+    "vram_cache_gib": 6.1875,
+    "backing_ram_gib": 0.8125,
+    "backing_disk_gib": 8.0,
+    "working_ram_mib": 256,
+    "working_vram_mib": 512,
+    "staging_mib": 16,
+    "system_ram_reserve_gib": 0.0,
+    "process_rss_limit_gib": null,
+    "disk_reserve_gib": 3.0,
+    "prefetch": true
+  },
+  "scope": "Calibrated common resource cache; queue-aware VRAM prefetch, stale backing retirement, RAM admission, immutable BF16 block source; LongLive-2.0-5B (Wan2.2-TI2V-5B, LoRA merged), blocks streamed from the mapped BF16 checkpoint",
+  "execution": "Calibrated on LongLive-2.0-5B itself, 480x832 BF16 (outputs/experiments/2026-10-20/10_LongLive2_5B_калибровка_offloading)",
+  "resource_cost_model": {
+    "profile": "guarded",
+    "calibration": "configs/calibration/longlive2_5b_480p.json"
+  },
+  "commit_in_attention": true,
+  "checkpoint": "checkpoints/LongLive-2.0-5B/model_bf16.pt",
+  "packed_dit_weights": "artifacts/longlive2_5b_dit_blocks.bf16"
+}

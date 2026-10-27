@@ -1,0 +1,63 @@
+{
+  "base": "configs/base/longlive2_s2_original.json",
+  "question": "Reference videos: the 2-step LongLive 2.0 as its authors run it (the base config, nothing changed), on the 8 example prompts of its repository; the base of the factor experiments of FP8, W4A4, SageAttention, KV in FP8 and resolution.",
+  "runs": [
+    {
+      "id": "rain_forest_run",
+      "prompt_refs": [
+        "configs/prompts/longlive2_examples.json#rain_forest_run"
+      ],
+      "seed": 0
+    },
+    {
+      "id": "teacup",
+      "prompt_refs": [
+        "configs/prompts/longlive2_examples.json#teacup"
+      ],
+      "seed": 0
+    },
+    {
+      "id": "raccoon_guitar",
+      "prompt_refs": [
+        "configs/prompts/longlive2_examples.json#raccoon_guitar"
+      ],
+      "seed": 0
+    },
+    {
+      "id": "tsunami_alley",
+      "prompt_refs": [
+        "configs/prompts/longlive2_examples.json#tsunami_alley"
+      ],
+      "seed": 0
+    },
+    {
+      "id": "sheep_river",
+      "prompt_refs": [
+        "configs/prompts/longlive2_examples.json#sheep_river"
+      ],
+      "seed": 0
+    },
+    {
+      "id": "chef_plating",
+      "prompt_refs": [
+        "configs/prompts/longlive2_examples.json#chef_plating"
+      ],
+      "seed": 0
+    },
+    {
+      "id": "forest_creature",
+      "prompt_refs": [
+        "configs/prompts/longlive2_examples.json#forest_creature"
+      ],
+      "seed": 0
+    },
+    {
+      "id": "candle_monster",
+      "prompt_refs": [
+        "configs/prompts/longlive2_examples.json#candle_monster"
+      ],
+      "seed": 0
+    }
+  ],
+  "output": "outputs/experiments/2026-10-21/01_Эталон_LongLive2_S2_BF16_704x1280"
+}

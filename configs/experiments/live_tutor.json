@@ -1,0 +1,46 @@
+{
+  "base": "configs/base/live_512x928.json",
+  "run": {
+    "mode": "live",
+    "keep_open": false
+  },
+  "pipeline": [
+    {
+      "name": "rope",
+      "backend": "triton"
+    },
+    {
+      "name": "kv_store",
+      "backend": "triton"
+    },
+    {
+      "name": "compile",
+      "mode": "default"
+    }
+  ],
+  "harness": {
+    "warmup_chunks": 6,
+    "measured_chunks": 80,
+    "metrics": {
+      "readiness_steady": true,
+      "display": true,
+      "stages": true
+    },
+    "memory": {
+      "sample_interval_s": 0.25
+    },
+    "checks": {
+      "tests": []
+    }
+  },
+  "bench": {
+    "baseline_s": 60,
+    "sample_interval_s": 0.5,
+    "prompts": [
+      {"after_s": 40, "text": "Snow starts to fall softly over the kitchen countertop"},
+      {"after_s": 100, "text": "/scene A red fox walks through a snowy forest at dawn"},
+      {"after_s": 150, "text": "The fox stops and looks straight at the camera"}
+    ],
+    "tutor": "../tutor-mcp/voice"
+  }
+}

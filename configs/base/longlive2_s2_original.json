@@ -1,0 +1,61 @@
+{
+  "about": "LongLive 2.0, 2 steps (LongLive-2.0-5B-S2 model_te.pt), as its authors run it (LongLive2.0/configs/inference.yaml): BF16 weights, BF16 KV cache, SDPA attention, RoPE tables in float64, UniPC with shift 5 at the trained 704x1280, chunk 8, window 32 with a sink of 8, 128 latent frames. None of our speed-ups: an experiment that uses one says so in its own config (\"base\": this file, then what it changes).",
+  "common": {
+    "width": 1280,
+    "height": 704,
+    "fps": 24,
+    "weights": "LongLive-2.0-5B-S2 model_te.pt (2 steps, LoRA merged), BF16",
+    "weight_precision": "BF16",
+    "kv_precision": "BF16",
+    "decoder": "TAEHV taew2_2 FP16",
+    "taehv": "reference/taehv/taew2_2.pth",
+    "model_config": "checkpoints/Wan2.2-TI2V-5B/config.json",
+    "chunk": 8,
+    "vae_stride": 16,
+    "sampler": "unipc",
+    "steps": 2,
+    "shift": 5.0,
+    "context_frames": 32,
+    "sink_frames": 8,
+    "positions": "video",
+    "pc_recent": null,
+    "cross_cache": true,
+    "context_noise": 0,
+    "attention": "cudnn",
+    "compile": "default",
+    "multi_shot_rope_offset": 8,
+    "rope_dtype": "float64",
+    "latent_frames": 128,
+    "kv_fp8": false
+  },
+  "execution": {
+    "resource_budgets": {
+      "ram_gib": 13.0,
+      "vram_gib": 7.25
+    },
+    "require_compilation": true,
+    "warmup_chunks": 4
+  },
+  "policy": "configs/experiments/offloading_managed_cost_guarded_longlive2.json",
+  "policy_overrides": {
+    "checkpoint": "checkpoints/LongLive-2.0-5B-S2/model_te.pt",
+    "packed_dit_weights": null,
+    "resource_cost_model": {
+      "profile": "guarded",
+      "calibration": "configs/calibration/longlive2_s2_704p_kv_bf16.json"
+    },
+    "resources": {
+      "mode": "managed",
+      "vram_cache_gib": 5.0,
+      "backing_ram_gib": 4.0,
+      "backing_disk_gib": 18.0,
+      "working_ram_mib": 512,
+      "working_vram_mib": 512,
+      "staging_mib": 16,
+      "system_ram_reserve_gib": 0.0,
+      "process_rss_limit_gib": null,
+      "disk_reserve_gib": 3.0,
+      "prefetch": true
+    }
+  }
+}

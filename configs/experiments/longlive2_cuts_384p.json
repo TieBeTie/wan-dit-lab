@@ -1,0 +1,61 @@
+{
+  "id": "longlive2_cuts_384p",
+  "question": "LongLive-2.0-5B scene cuts at 384x672 BF16 through the single entry point, calibration made on the spot",
+  "common": {
+    "width": 672,
+    "height": 384,
+    "fps": 24,
+    "weights": "LongLive-2.0-5B model_bf16.pt (LoRA merged)",
+    "weight_precision": "BF16",
+    "kv_precision": "BF16",
+    "decoder": "TAEHV taew2_2 FP16",
+    "taehv": "reference/taehv/taew2_2.pth",
+    "model_config": "checkpoints/Wan2.2-TI2V-5B/config.json",
+    "chunk": 8,
+    "vae_stride": 16,
+    "sampler": "unipc",
+    "shift": 2.6756477550475344,
+    "context_frames": 32,
+    "sink_frames": 8,
+    "positions": "video",
+    "pc_recent": null,
+    "cross_cache": true,
+    "context_noise": 0,
+    "attention": "cudnn",
+    "compile": "default",
+    "multi_shot_rope_offset": 8,
+    "latent_frames": 192
+  },
+  "execution": {
+    "resource_budgets": {
+      "ram_gib": 14.0,
+      "vram_gib": 7.25
+    },
+    "require_compilation": true,
+    "warmup_chunks": 4
+  },
+  "policy": "configs/experiments/offloading_managed_cost_guarded_longlive2.json",
+  "policy_overrides": {
+    "resource_cost_model": {
+      "profile": "guarded",
+      "calibration": "configs/calibration/longlive2_5b_384x672.json"
+    }
+  },
+  "calibration": {
+    "probe_repeats": 3
+  },
+  "runs": [
+    {
+      "id": "cut30_shot",
+      "prompts": [
+        "Static shot, static camera. A red fox sits in a snowy pine forest, snowflakes drifting slowly, soft morning light.",
+        "The scene transitions. Static shot, static camera. Scene cut to a sunny tropical beach, turquoise waves roll onto white sand under palm trees.",
+        "The scene transitions. Static shot, static camera. Scene cut back to the snowy pine forest, the same red fox curls up beside a fallen log."
+      ],
+      "seed": 0,
+      "switch": "shot",
+      "switch_every": 8,
+      "latent_frames": 192
+    }
+  ]
+}

@@ -1,0 +1,68 @@
+{
+  "base": "configs/base/longlive2_s2_480x864.json",
+  "question": "Resolution alone with the speed-ups of Live (W4A4 v2, Sage 2 over the FP8 cache, RoPE tables float32), RoPE positions as they are, shift 5: 480x864, 512x928 and the trained 704x1280, one prompt, 96 latent frames",
+  "common": {
+    "latent_frames": 96
+  },
+  "runs": [
+    {
+      "id": "raccoon__480x864",
+      "prompt_refs": [
+        "configs/prompts/longlive2_examples.json#raccoon_guitar"
+      ],
+      "seed": 0,
+      "common": {
+        "attention": "sage",
+        "kv_fp8": true,
+        "rope_dtype": "float32",
+        "rope_interpolate_from": null,
+        "height": 480,
+        "width": 864
+      },
+      "policy": {
+        "packed_dit_weights": "artifacts/longlive2_5b_s2_blocks_fused.w4a4"
+      }
+    },
+    {
+      "id": "raccoon__512x928",
+      "prompt_refs": [
+        "configs/prompts/longlive2_examples.json#raccoon_guitar"
+      ],
+      "seed": 0,
+      "common": {
+        "attention": "sage",
+        "kv_fp8": true,
+        "rope_dtype": "float32",
+        "rope_interpolate_from": null,
+        "height": 512,
+        "width": 928
+      },
+      "policy": {
+        "packed_dit_weights": "artifacts/longlive2_5b_s2_blocks_fused.w4a4"
+      }
+    },
+    {
+      "id": "raccoon__704x1280",
+      "prompt_refs": [
+        "configs/prompts/longlive2_examples.json#raccoon_guitar"
+      ],
+      "seed": 0,
+      "common": {
+        "attention": "sage",
+        "kv_fp8": true,
+        "rope_dtype": "float32",
+        "rope_interpolate_from": null,
+        "height": 704,
+        "width": 1280
+      },
+      "policy": {
+        "packed_dit_weights": "artifacts/longlive2_5b_s2_blocks_fused.w4a4",
+        "resource_cost_model": {
+          "profile": "guarded",
+          "calibration": "configs/calibration/longlive2_5b_480p.json"
+        }
+      }
+    }
+  ],
+  "output": "outputs/experiments/2026-10-21/07_Разрешение_с_ускорениями"
+}

@@ -1,0 +1,60 @@
+{
+  "source": "multi-shot and continuation candidates, verbatim from the files named; shots after the first carry LongLive 2.0's cut prefix where the switch is shot",
+  "prompts": [
+    {
+      "id": "roof_1",
+      "text": "Static shot, cinematic realism. On a windswept rooftop garden at sunset high above a dense modern city, a young East Asian woman stands facing the camera and tightens the belt of her coat",
+      "from": "Echo-Forcing README, scene recall, scene 1"
+    },
+    {
+      "id": "roof_2",
+      "text": "The scene transitions. Static shot, cinematic realism. Back on the same windswept rooftop garden at sunset, the same woman crouches beside a planter and picks up a vibrating phone",
+      "from": "Echo-Forcing README, scene recall, scene 2"
+    },
+    {
+      "id": "titanic_1",
+      "text": "Static shot, static camera. Scene cut to the sunny, crowded Southampton docks with the massive black hull of the Titanic towering in the background. Jack Dawson sprints excitedly toward the gangway",
+      "from": "Echo-Forcing README, hard cut, scene 1"
+    },
+    {
+      "id": "titanic_2",
+      "text": "The scene transitions. Static shot, static camera. Scene cut to the ornate Grand Staircase under the glass dome. Jack Dawson stands at the bottom step and gently kisses Rose DeWitt Bukater's hand",
+      "from": "Echo-Forcing README, hard cut, scene 2"
+    },
+    {
+      "id": "loft_1",
+      "text": "Static shot, static camera. In a sunlit artist loft with tall industrial windows, a young woman studies an unfinished canvas beside the easel",
+      "from": "Echo-Forcing README, smooth transition, scene 1"
+    },
+    {
+      "id": "loft_2",
+      "text": "Static shot, static camera. In the same sunlit artist loft, the same woman begins to paint with smooth confident strokes while warm morning light falls across the room",
+      "from": "Echo-Forcing README, smooth transition, scene 2"
+    },
+    {
+      "id": "boy_1",
+      "text": "A little boy in a blue T-shirt stands on a lush green lawn, arms relaxed at his sides, smiling at the camera, natural fresh realistic style.",
+      "from": "LongLive1.0 example/interactive_example.jsonl, line 1, prompt 1"
+    },
+    {
+      "id": "boy_2",
+      "text": "A little boy in a blue T-shirt starts to step forward, lightly running, with his arms swinging naturally. The grass and blue sky remain unchanged.",
+      "from": "same, prompt 2"
+    },
+    {
+      "id": "boy_3",
+      "text": "A little boy in a blue T-shirt runs faster, leaning slightly forward, arms swinging naturally, feet lightly off the ground. The background remains the same grassy lawn.",
+      "from": "same, prompt 3"
+    },
+    {
+      "id": "fox_1",
+      "text": "Static shot, static camera. A red fox sits in a snowy pine forest, snowflakes drifting slowly, soft morning light.",
+      "from": "notes/research/Промпты для демонстрации.md, set 3"
+    },
+    {
+      "id": "fox_2",
+      "text": "The scene transitions. Static shot, static camera. Scene cut to a sunny tropical beach, turquoise waves roll onto white sand under palm trees.",
+      "from": "same"
+    }
+  ]
+}

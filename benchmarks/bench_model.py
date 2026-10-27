@@ -24,10 +24,10 @@ import torch
 if "--aot-memory" in sys.argv:
     record_memory("torch_imported")
 
-from wan_dit_lab.checkpoint import load_weights, mapped_weights, model_config
+from wan_dit_lab.models.checkpoint import load_weights, mapped_weights, model_config
 from wan_dit_lab.harness import run
-from wan_dit_lab.model import WanModel
-from wan_dit_lab.rope import rope
+from wan_dit_lab.models.model import WanModel
+from wan_dit_lab.models.rope import rope
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "reference" / "INT8-DiT" / "wan_block"))
 from wan.modules.model import WanModel as ReferenceWanModel
@@ -59,7 +59,7 @@ def probe_aot_memory():
     """
     # This diagnostic takes the torch.export -> AOTInductor path; it does not call measure().
     import traceback
-    from wan_dit_lab.offload import BlockOffloader
+    from wan_dit_lab.offloading.offload import BlockOffloader
 
     offloader = None
     try:
