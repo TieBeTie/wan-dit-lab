@@ -4,8 +4,10 @@ import argparse
 import importlib.metadata
 import json
 import platform
-import statistics
-import time
+import subprocess
+import sys
+from datetime import datetime, timezone
+from pathlib import Path
 
 import torch
 
@@ -32,51 +34,47 @@ def environment():
     return info
 
 
-def benchmark():
+def benchmark(config=None):
     if not torch.cuda.is_available():
         raise SystemExit("CUDA GPU required for bench-smoke")
+    from wan_dit_lab.harness.runner import run
+
     torch.manual_seed(0)
     x = torch.randn((256, 512), device="cuda", dtype=torch.float16)
     w = torch.randn((512, 1024), device="cuda", dtype=torch.float16)
-    with torch.inference_mode():
-        for _ in range(10):
-            torch.mm(x, w)
-        torch.cuda.synchronize()
-        torch.cuda.reset_peak_memory_stats()
-        times = []
-        start = torch.cuda.Event(enable_timing=True)
-        end = torch.cuda.Event(enable_timing=True)
-        for _ in range(20):
-            start.record()
-            for _ in range(20):
-                y = torch.mm(x, w)
-            end.record()
-            end.synchronize()
-            times.append(start.elapsed_time(end) / 20)
-        before = time.perf_counter()
-        for _ in range(100):
-            y = torch.mm(x, w)
-        torch.cuda.synchronize()
-        wall_ms = (time.perf_counter() - before) * 1000 / 100
-        finite = torch.isfinite(y).all().item()
-    return {
-        "environment": environment(),
-        "operation": "synthetic FP16 matmul; not Wan performance",
-        "shapes": [[256, 512], [512, 1024]],
-        "gpu_median_ms": statistics.median(times),
-        "gpu_min_ms": min(times),
-        "gpu_max_ms": max(times),
-        "wall_mean_ms": wall_ms,
-        "peak_allocated_bytes": torch.cuda.max_memory_allocated(),
-        "finite": finite,
-    }
+    return run("synthetic_fp16_matmul", torch.mm, x, w, config=config) | dict(
+        operation="synthetic FP16 matmul, not Wan performance", shapes=[[256, 512], [512, 1024]])
 
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("command", choices=("doctor", "bench-smoke"))
+    parser.add_argument("command", choices=("doctor", "bench-smoke", "run"))
+    parser.add_argument("--config", type=Path)
     args = parser.parse_args()
-    result = environment() if args.command == "doctor" else benchmark()
+    if args.command == "run":
+        if args.config is None:
+            parser.error("run needs --config")
+        from wan_dit_lab.runtime.pipeline import resolve_experiment
+
+        config = resolve_experiment(json.loads(args.config.read_text(encoding="utf-8")))
+        root = Path(__file__).resolve().parents[2]
+        from wan_dit_lab.harness.checks import run_tests
+        from wan_dit_lab.runtime.environment import gpu_environment
+
+        env = gpu_environment()
+        directory = Path.home() / "Documents/Experiments/DIT/outputs/runs" / datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+        tests = run_tests(config["harness"], directory / "tests.log", env=env)
+        print(f"Local checks: {tests['status']}", flush=True)
+        # Live is the Rust host over the packages of export_live.py: the window, or chunks timed without one
+        command = [str(root / "native/target/release/live.exe")]
+        if config["run"]["mode"] != "live":
+            command += ["bench", "--chunks", str(config["run"].get("chunks", 14))]
+        if config["run"].get("prompt"):
+            command += ["--prompt", config["run"]["prompt"]]
+        directory.mkdir(parents=True, exist_ok=True)
+        with open(directory / "live.log", "w", encoding="utf-8") as log:
+            raise SystemExit(subprocess.run(command, cwd=root, env=env, stdout=log, stderr=subprocess.STDOUT).returncode)
+    result = environment() if args.command == "doctor" else benchmark(args.config)
     print(json.dumps(result, indent=2))
 
 

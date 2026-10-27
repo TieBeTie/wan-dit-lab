@@ -1,0 +1,47 @@
+{
+  "warmup": 12,
+  "number": 30,
+  "repeat": 3,
+  "seed": 0,
+  "warmup_chunks": 6,
+  "measured_chunks": 24,
+  "timing": {
+    "mode": "cuda_graph",
+    "settle_ms": 200
+  },
+  "metrics": {
+    "latency": true,
+    "fps": true,
+    "wall": true,
+    "memory": true,
+    "metadata": true,
+    "kernels": true,
+    "disk_io": true,
+    "readiness": true,
+    "compilation": true
+  },
+  "checks": {
+    "require_compilation": true,
+    "max_latency_regression": 0.05,
+    "max_block_relative_error_increase": 0.05,
+    "tests": [
+      "tests/test_harness.py",
+      "tests/test_harness_config.py",
+      "tests/test_pipeline.py",
+      "tests/test_cache_fp8.py",
+      "tests/test_live_prefetch.py",
+      "tests/test_rope_triton.py",
+      "tests/test_rope_metrics.py",
+      "tests/test_rope_report.py",
+      "tests/test_entrypoint.py"
+    ],
+    "profiler_attempts": 2
+  },
+  "memory": {
+    "sample_interval_s": 0.1,
+    "vram_fraction": null
+  },
+  "output": {
+    "path": "~/Documents/Experiments/DIT/outputs/harness/results.jsonl"
+  }
+}
