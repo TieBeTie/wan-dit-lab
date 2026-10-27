@@ -1,0 +1,6 @@
+[package]
+name = "live-protocol"
+description = "The line a prompt crosses to the Live video in, shared by Live and the voice tutor"
+edition.workspace = true
+version.workspace = true
+publish.workspace = true

@@ -1,0 +1,12 @@
+[package]
+name = "aoti"
+description = "AOTInductor packages run from Rust, through a C shim over AOTIModelPackageLoader"
+edition.workspace = true
+version.workspace = true
+publish.workspace = true
+
+[dependencies]
+libloading = "0.8"
+
+[build-dependencies]
+cc = "1"

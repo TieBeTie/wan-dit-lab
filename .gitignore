@@ -17,3 +17,17 @@ reference/
 *.safetensors
 *.pt
 *.pth
+# Rust host and operator libraries: built, not kept
+target/
+native/ops/build/
+# binaries anywhere, the archive included (its packages, runner, extension builds)
+*.pt2
+*.obj
+*.lib
+*.exp
+*.pyd
+*.dll
+*.exe
+*.pdb
+*.so
+archive/**/build/

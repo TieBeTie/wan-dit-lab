@@ -1,0 +1,4 @@
+[env]
+# LibTorch of the Python environment the packages are exported from: the shim links it, the host loads its DLLs
+LIBTORCH = "C:/Users/ramaf/AppData/Local/Python/pythoncore-3.14-64/Lib/site-packages/torch"
+CUDA_HOME = { value = "../artifacts/cuda-12.8", relative = true }

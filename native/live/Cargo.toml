@@ -1,0 +1,19 @@
+[package]
+name = "live"
+description = "The Live video of wan-dit-lab: LongLive 2.0 chunk by chunk from AOTInductor packages, shown in a window"
+edition.workspace = true
+version.workspace = true
+publish.workspace = true
+
+[dependencies]
+aoti = { path = "../aoti" }
+live-protocol = { path = "../live-protocol" }
+cudarc = { version = "0.19", default-features = false, features = ["std", "driver", "cuda-12080", "dynamic-loading"] }
+memmap2 = "0.9"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+eframe = { version = "0.37", default-features = false, features = ["default_fonts", "glow", "wayland", "x11"] }
+rand = "0.9"
+rand_distr = "0.5"
+safetensors = "0.6"
+tokenizers = { version = "0.22", default-features = false, features = ["fancy-regex"] }
