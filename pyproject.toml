@@ -23,6 +23,7 @@ where = ["src"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 markers = ["gpu: requires a CUDA GPU", "slow: requires large checkpoints or an extended run"]
+tmp_path_retention_policy = "failed"
 
 [tool.ruff]
 target-version = "py310"
