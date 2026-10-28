@@ -187,6 +187,16 @@ impl Event {
         Ok(Event(result::event::create(sys::CUevent_flags::CU_EVENT_DISABLE_TIMING)?))
     }
 
+    /// An event that keeps the time it was reached at, for elapsed_ms.
+    pub fn timed() -> Result<Event> {
+        Ok(Event(result::event::create(sys::CUevent_flags::CU_EVENT_DEFAULT)?))
+    }
+
+    /// Milliseconds of GPU time from this event to `end`, both timed and reached.
+    pub fn elapsed_ms(&self, end: &Event) -> Result<f32> {
+        unsafe { result::event::elapsed(self.0, end.0) }
+    }
+
     pub fn record(&self, stream: &Stream) -> Result<()> {
         unsafe { result::event::record(self.0, stream.0) }
     }

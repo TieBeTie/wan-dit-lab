@@ -324,13 +324,25 @@ class Decoder(torch.nn.Module):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("--out", type=Path, default=ROOT / "artifacts" / "live")
+    parser.add_argument("--out", type=Path, default=None, help="artifacts/live/<height>x<width> by default")
+    parser.add_argument("--height", type=int, default=None, help="pixels, a multiple of 32; the preset's by default")
+    parser.add_argument("--width", type=int, default=None)
+    parser.add_argument("--rope-interpolate", action=argparse.BooleanOptionalAction, default=None,
+                        help="height and width of RoPE stretched over the trained grid (the preset's choice by default)")
+    parser.add_argument("--stream-blocks", type=int, default=None,
+                        help="blocks the host streams from pinned RAM (the preset's 24 by default; 30 where the cache is large)")
     parser.add_argument("--only", nargs="*", default=None, help="names of the packages to export (all by default)")
     parser.add_argument("--seed", type=int, default=0)
     args = parser.parse_args()
+    spec = dict(MODELS["longlive2"])
+    for key in ("height", "width", "rope_interpolate", "stream_blocks"):
+        if getattr(args, key) is not None:
+            spec[key] = getattr(args, key)
+    assert spec["height"] % 32 == 0 and spec["width"] % 32 == 0, "a token is 32x32 pixels"
+    if args.out is None:  # one directory per resolution: live.exe --size picks it
+        args.out = ROOT / "artifacts" / "live" / f"{spec['height']}x{spec['width']}"
     args.out.mkdir(parents=True, exist_ok=True)
     load_operators()
-    spec = MODELS["longlive2"]
     height, width, chunk, stride = spec["height"], spec["width"], spec["chunk"], spec["vae_stride"]
     lat_h, lat_w = height // stride, width // stride
     grid = (chunk, lat_h // 2, lat_w // 2)

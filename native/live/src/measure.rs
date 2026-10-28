@@ -1,10 +1,12 @@
 //! `live check`: the chunks of the host against Live's Python path on the same noise and prompts
 //! (scripts/conversion/live_reference.py); `live bench`: the time of a chunk and the memory of the process.
 
+#[cfg(feature = "debug-tools")]
 use std::path::Path;
 use std::time::Instant;
 
 use live_protocol::Cut;
+#[cfg(feature = "debug-tools")]
 use safetensors::SafeTensors;
 
 use crate::gpu::DeviceBuffer;
@@ -52,11 +54,12 @@ pub fn memory_line(video: &Video) -> String {
     let (private, working) = process_memory();
     let (free, total) = crate::gpu::Gpu::new().and_then(|g| g.memory()).unwrap_or((0, 0));
     let (allocated, reserved) = video.runtime().memory(crate::gpu::DEVICE);
-    format!("RAM private {:.2} GiB, working set {:.2} GiB, pinned rows {:.2} GiB | GPU used {:.2} GiB, torch allocated {:.2} reserved {:.2} GiB",
+    format!("RAM private {:.2} GiB, working set {:.2} GiB, pinned (offloaded) {:.2} GiB | GPU used {:.2} GiB, torch allocated {:.2} reserved {:.2} GiB",
             private as f64 / GIB, working as f64 / GIB, video.pinned_bytes() as f64 / GIB,
             (total - free) as f64 / GIB, allocated as f64 / GIB, reserved as f64 / GIB)
 }
 
+#[cfg(feature = "debug-tools")]
 fn relative(a: &[f32], b: &[f32]) -> f64 {
     let (mut d, mut n) = (0f64, 0f64);
     for (x, y) in a.iter().zip(b) {
@@ -66,15 +69,18 @@ fn relative(a: &[f32], b: &[f32]) -> f64 {
     (d / n.max(1e-30)).sqrt()
 }
 
+#[cfg(feature = "debug-tools")]
 fn floats(bytes: &[u8]) -> Vec<f32> {
     bytes.chunks_exact(4).map(|b| f32::from_le_bytes(b.try_into().unwrap())).collect()
 }
 
+#[cfg(feature = "debug-tools")]
 fn psnr(a: &[u8], b: &[u8]) -> f64 {
     let mse = a.iter().zip(b).map(|(x, y)| ((*x as f64) - (*y as f64)).powi(2)).sum::<f64>() / a.len() as f64;
     if mse == 0.0 { f64::INFINITY } else { 10.0 * (255.0 * 255.0 / mse).log10() }
 }
 
+#[cfg(feature = "debug-tools")]
 /// The host on the reference's script: T5 against FastTextEncoder, then chunk by chunk the clean latents and the
 /// frames against the Python path's.
 pub fn check(reference: &Path, (mut video, mut t5, embeddings): (Video, T5, DeviceBuffer)) -> Result<()> {
@@ -152,20 +158,43 @@ pub fn check(reference: &Path, (mut video, mut t5, embeddings): (Video, T5, Devi
     Ok(())
 }
 
-/// Chunks of one prompt without a window: seconds of each, fps, memory.
-pub fn bench((mut video, mut t5, embeddings): (Video, T5, DeviceBuffer), prompt: &str, chunks: usize) -> Result<()> {
+/// Chunks of one prompt without a window: seconds from one chunk's frames to the next's, fps, memory. As the window
+/// runs it, the next chunk queued behind the decoding of this one; `serial`: each chunk waited for before the next.
+pub fn bench((mut video, mut t5, embeddings): (Video, T5, DeviceBuffer), prompt: &str, chunks: usize, serial: bool)
+    -> Result<()> {
     let p = Prompt { cut: Cut::Same, text: prompt.into() };
     let t = crate::set_prompt(&mut video, &mut t5, &embeddings, &p)?;
     println!("{}", memory_line(&video));
     println!("T5 and cross-attention: {t:.2} s");
     let mut times = Vec::new();
-    for i in 0..chunks {
-        let start = Instant::now();
+    let mut start = Instant::now();
+    if !serial {
         let x0 = video.next_chunk(None)?;
-        let frames = video.decode(&x0)?;
+        video.start_decode(&x0)?;
+    }
+    for i in 0..chunks {
+        #[cfg(feature = "debug-tools")]
+        if i == 4 {
+            video.copy_waits()?; // the waits from here on: after the calibration, the cache full
+        }
+        let frames = if serial {
+            let x0 = video.next_chunk(None)?;
+            video.decode(&x0)?
+        } else {
+            let x0 = video.next_chunk(None)?;
+            let frames = video.finish_decode()?;
+            video.start_decode(&x0)?;
+            frames
+        };
         let seconds = start.elapsed().as_secs_f64();
+        start = Instant::now();
         println!("chunk {i}: {seconds:.3} s, {} frames, {:.1} fps", frames.len(), frames.len() as f64 / seconds);
         times.push((seconds, frames.len()));
+    }
+    #[cfg(feature = "debug-tools")]
+    {
+        let (late, waits, ms) = video.copy_waits()?;
+        println!("copies of streamed rows from chunk 4 on: {late} late of {waits}, the GPU stood {ms:.1} ms for them");
     }
     let steady: Vec<_> = times.iter().skip(4).collect(); // the ring is full from the fourth chunk on
     if !steady.is_empty() {
@@ -176,10 +205,12 @@ pub fn bench((mut video, mut t5, embeddings): (Video, T5, DeviceBuffer), prompt:
     Ok(())
 }
 
+#[cfg(feature = "debug-tools")]
 fn bytes_mut<T>(values: &mut [T]) -> &mut [u8] {
     unsafe { std::slice::from_raw_parts_mut(values.as_mut_ptr() as *mut u8, std::mem::size_of_val(values)) }
 }
 
+#[cfg(feature = "debug-tools")]
 /// For every video_<prompt>_<seed>.safetensors of `directory` (live_reference.py --render): the same video by the
 /// host, a new video of its prompt on its noise, its frames into rust_<prompt>_<seed>.bin (uint8 [T, H, W, 3]).
 pub fn render(directory: &Path, (mut video, mut t5, embeddings): (Video, T5, DeviceBuffer)) -> Result<()> {

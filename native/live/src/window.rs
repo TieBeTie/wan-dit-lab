@@ -38,32 +38,53 @@ fn generate(args: Args, load: Load, inbox: Inbox, frames: std::sync::mpsc::SyncS
     let t = crate::set_prompt(&mut video, &mut t5, &embeddings, &first)?;
     println!("{}x{}, chunk {}, {} blocks ({} streamed), prompt encoded in {t:.1} s", video.m.height, video.m.width,
              video.m.chunk, video.m.blocks, video.m.stream_blocks);
+    #[cfg(feature = "debug-tools")]
     println!("{}", crate::measure::memory_line(&video));
     status.lock().unwrap().prompt = first.text;
+    // the next chunk is queued behind the decoding of this one, before the host waits for its pixels: the GPU goes
+    // from one to the other without waiting for the host
+    let mut start = Instant::now();
+    let x0 = video.next_chunk(None)?;
+    video.start_decode(&x0)?;
     loop {
         if let Some(p) = inbox.take() {
+            let chunk = video.finish_decode()?; // the prompt changes between two chunks, the frames made go on
+            if send(&frames, chunk).is_err() {
+                return Ok(());
+            }
             let t = crate::set_prompt(&mut video, &mut t5, &embeddings, &p)?;
             let kind = match p.cut { Cut::New => " (new video)", Cut::Scene => " (new shot)", Cut::Same => "" };
             println!("prompt encoded in {t:.1} s{kind}");
             status.lock().unwrap().prompt = p.text;
+            let x0 = video.next_chunk(None)?;
+            video.start_decode(&x0)?;
+            start = Instant::now();
+            continue;
         }
-        let start = Instant::now();
         let x0 = video.next_chunk(None)?;
-        let chunk = video.decode(&x0)?;
+        let chunk = video.finish_decode()?;
+        video.start_decode(&x0)?;
         let seconds = start.elapsed().as_secs_f64();
+        start = Instant::now();
         {
             let mut s = status.lock().unwrap();
             s.chunk_s = Some(seconds);
             s.frames_per_chunk = 4 * video.m.chunk;
         }
-        println!("chunk {}: {seconds:.2} s", video.start / video.m.chunk - 1);
-        for frame in chunk {
-            if frames.send(frame).is_err() {
-                return Ok(()); // the window is closed
-            }
+        #[cfg(feature = "debug-tools")]
+        println!("chunk {}: {seconds:.2} s", video.start / video.m.chunk - 2);
+        if send(&frames, chunk).is_err() {
+            return Ok(()); // the window is closed
         }
         repaint.request_repaint();
     }
+}
+
+fn send(frames: &std::sync::mpsc::SyncSender<Vec<u8>>, chunk: Vec<Vec<u8>>) -> Result<()> {
+    for frame in chunk {
+        frames.send(frame).map_err(|_| "the window is closed")?;
+    }
+    Ok(())
 }
 
 struct App {

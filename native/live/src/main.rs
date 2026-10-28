@@ -2,11 +2,13 @@
 //! turns it, from the frames already shown. The Rust host of scripts/live/live_video.py (preset longlive2): the model
 //! is the AOTInductor packages of scripts/conversion/export_live.py, everything around it is here.
 //!
-//!     live --prompt "A lone oak tree on a grassy hill sways in the wind"
+//!     live --prompt "A lone oak tree on a grassy hill sways in the wind" [--size 512x928]
 //!     live --send "Snow starts to fall on the oak tree" [--scene | --new]
-//!     live check [--reference artifacts/live/reference.safetensors]   the chunks against the Python path
+//!     live check [--reference artifacts/live/480x864/reference.safetensors]   the chunks against the Python path (*)
 //!     live bench --chunks 12                                          time and memory, no window
-//!     live render --reference <directory>                             the videos of live_reference.py --render
+//!     live render --reference <directory>                             the videos of live_reference.py --render (*)
+//!
+//! (*) only in a build with `--features debug-tools`; the release build keeps the hot path alone.
 //!
 //! Two threads. The main one shows the frames at the rate they are made (24 fps at most), so that the video slows
 //! down rather than stops; the other encodes a waiting prompt (the newest), generates a chunk, decodes it and queues
@@ -14,6 +16,8 @@
 //! "/new ..." (a new video). Esc or closing the window stops it.
 
 mod cache;
+mod config;
+mod disk;
 mod gpu;
 mod manifest;
 mod measure;
@@ -43,6 +47,9 @@ struct Args {
     seed: u64,
     chunks: usize,
     reference: PathBuf,
+    serial: bool,
+    offloading: config::Offloading,
+    recalibrate: bool,
     scale: f32,
     right: bool,
 }
@@ -53,16 +60,21 @@ fn root() -> PathBuf {
 }
 
 fn parse() -> Args {
+    // configs/live.json first, the flags over it
+    let c = config::Config::read(&root().join("configs").join("live.json")).unwrap_or_else(|e| panic!("{e}"));
     let mut a = Args {
         command: "run".into(),
-        packages: root().join("artifacts").join("live"),
-        prompt: None,
+        packages: root().join("artifacts").join("live").join(&c.size),
+        prompt: Some(c.prompt.clone()),
         send: None,
         cut: Cut::Same,
-        seed: 0,
+        seed: c.seed,
         chunks: 12,
-        reference: root().join("artifacts").join("live").join("reference.safetensors"),
+        reference: root().join("artifacts").join("live").join("480x864").join("reference.safetensors"),
         scale: 1.0,
+        serial: false,
+        offloading: c.offloading.clone(),
+        recalibrate: false,
         right: false,
     };
     let mut it = std::env::args().skip(1);
@@ -71,6 +83,8 @@ fn parse() -> Args {
         match arg.as_str() {
             "check" | "bench" | "run" | "render" => a.command = arg.clone(),
             "--packages" => a.packages = value().into(),
+            // the packages of one resolution, exported by export_live.py --height --width into artifacts/live/HxW
+            "--size" => a.packages = root().join("artifacts").join("live").join(value()),
             "--prompt" => a.prompt = Some(value()),
             "--send" => a.send = Some(value()),
             "--scene" => a.cut = Cut::Scene,
@@ -80,6 +94,20 @@ fn parse() -> Args {
             "--reference" => a.reference = value().into(),
             "--scale" => a.scale = value().parse().expect("--scale"),
             "--right" => a.right = true,
+            "--serial" => a.serial = true,
+            // a resource's tier over configs/live.json: --tier kv_cache=vram, --tier block_weights=disk
+            "--tier" => {
+                let v = value();
+                let (resource, tier) = v.split_once('=').unwrap_or_else(|| panic!("--tier resource=tier, not {v}"));
+                let quoted = |s: &str| format!("\"{s}\"");
+                let resource: config::Resource = serde_json::from_str(&quoted(resource)).expect("--tier: a resource");
+                let tier: config::Tier = serde_json::from_str(&quoted(tier)).expect("--tier: vram, ram, disk or auto");
+                a.offloading.resources.insert(resource, tier);
+                a.offloading.validate().unwrap_or_else(|e| panic!("--tier {v}: {e}"));
+            }
+            "--no-offloading" => a.offloading.enabled = false,
+            // calibrate again, not taking the placement kept in <packages>/calibration.json
+            "--recalibrate" => a.recalibrate = true,
             "-h" | "--help" => {
                 println!("{}", include_str!("main.rs").lines().take_while(|l| l.starts_with("//!"))
                     .map(|l| l.trim_start_matches("//!").trim_start_matches(' ')).collect::<Vec<_>>().join("\n"));
@@ -98,7 +126,7 @@ fn load(args: &Args) -> Result<(Video, T5, DeviceBuffer)> {
     let runtime = aoti::Runtime::load(&aoti::Runtime::default_torch_lib(), &operators)?;
     let gpu = Gpu::new()?;
     gpu.bind()?;
-    let video = Video::load(&args.packages, runtime.clone(), args.seed)?;
+    let video = Video::load(&args.packages, runtime.clone(), args.seed, &args.offloading, args.recalibrate)?;
     let spec = video.m.t5.clone().ok_or("live.json has no T5: export it with export_live.py")?;
     let t5 = T5::load(&spec, video.m.text_len, video.m.text_dim, &runtime, &args.packages, &video.compute)?;
     let embeddings = DeviceBuffer::new(video.m.text_len * video.m.text_dim * 4)?;
@@ -125,9 +153,14 @@ fn main() -> Result<()> {
         return Ok(());
     }
     match args.command.as_str() {
+        #[cfg(feature = "debug-tools")]
         "check" => measure::check(&args.reference, load(&args)?),
+        #[cfg(feature = "debug-tools")]
         "render" => measure::render(&args.reference, load(&args)?),
-        "bench" => measure::bench(load(&args)?, args.prompt.as_deref().unwrap_or(window::DEFAULT_PROMPT), args.chunks),
+        #[cfg(not(feature = "debug-tools"))]
+        "check" | "render" => Err("check and render are built with --features debug-tools".into()),
+        "bench" => measure::bench(load(&args)?, args.prompt.as_deref().unwrap_or(window::DEFAULT_PROMPT), args.chunks,
+                                  args.serial),
         _ => window::run(args, load),
     }
 }

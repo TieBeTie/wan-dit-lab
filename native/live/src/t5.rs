@@ -12,12 +12,12 @@ use std::path::Path;
 use aoti::{DType, Output, Runtime, Tensor};
 use tokenizers::Tokenizer;
 
+use crate::disk::{open_unbuffered, read_row};
 use crate::gpu::{DeviceBuffer, Event, PinnedBuffer, Stream};
 use crate::manifest::T5 as Spec;
 use crate::packages::{self, Loaded};
 use crate::video::Result;
 
-const SECTOR: usize = 4096;
 const KEEP: usize = 8; // embeddings of the last prompts kept (FastTextEncoder keeps 16)
 
 pub struct T5 {
@@ -34,41 +34,6 @@ pub struct T5 {
 /// The prompt as HuggingfaceTokenizer(clean="whitespace") cleans it: whitespace collapsed, ends stripped.
 pub fn clean(text: &str) -> String {
     text.split_whitespace().collect::<Vec<_>>().join(" ")
-}
-
-#[cfg(windows)]
-fn open_unbuffered(path: &Path) -> std::io::Result<File> {
-    use std::os::windows::fs::OpenOptionsExt;
-    const FILE_FLAG_NO_BUFFERING: u32 = 0x2000_0000;
-    const FILE_FLAG_SEQUENTIAL_SCAN: u32 = 0x0800_0000;
-    std::fs::OpenOptions::new().read(true).custom_flags(FILE_FLAG_NO_BUFFERING | FILE_FLAG_SEQUENTIAL_SCAN).open(path)
-}
-
-#[cfg(not(windows))]
-fn open_unbuffered(path: &Path) -> std::io::Result<File> {
-    File::open(path)
-}
-
-/// Reads row `index` of `row_bytes` of `file` into `buffer` (sector-aligned reads of whole sectors around it);
-/// returns where the row starts in the buffer.
-fn read_row(file: &File, index: usize, row_bytes: usize, buffer: &mut [u8]) -> std::io::Result<usize> {
-    #[cfg(windows)]
-    use std::os::windows::fs::FileExt;
-    let start = index * row_bytes;
-    let low = start / SECTOR * SECTOR;
-    let size = (start + row_bytes - low).div_ceil(SECTOR) * SECTOR;
-    let mut done = 0;
-    while done < size {
-        #[cfg(windows)]
-        let got = file.seek_read(&mut buffer[done..size], (low + done) as u64)?;
-        #[cfg(not(windows))]
-        let got = std::os::unix::fs::FileExt::read_at(file, &mut buffer[done..size], (low + done) as u64)?;
-        if got == 0 {
-            break; // the end of the file: its last sector was not whole
-        }
-        done += got;
-    }
-    Ok(start - low)
 }
 
 impl T5 {
@@ -127,7 +92,7 @@ impl T5 {
         let mut hidden = x_device.tensor(0, DType::BF16, &[1, n as i64, dim as i64]);
 
         let row_bytes = self.spec.row_bytes;
-        let span = (row_bytes + 2 * SECTOR).div_ceil(SECTOR) * SECTOR;
+        let span = crate::disk::span(row_bytes);
         let file = open_unbuffered(&self.spec.rows)?;
         let copy = Stream::new()?;
         let mut staging = [PinnedBuffer::new(span)?, PinnedBuffer::new(span)?];

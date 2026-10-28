@@ -5,6 +5,11 @@ edition.workspace = true
 version.workspace = true
 publish.workspace = true
 
+[features]
+# what only debugging and measuring need, out of the release build: live check and live render (the chunks against
+# Live's Python path), the memory line and a line per chunk in the window's log
+debug-tools = []
+
 [dependencies]
 aoti = { path = "../aoti" }
 live-protocol = { path = "../live-protocol" }
