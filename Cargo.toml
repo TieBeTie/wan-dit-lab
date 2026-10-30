@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["aoti", "live", "live-protocol"]
+members = ["crates/aoti", "crates/wan", "crates/live-protocol"]
 
 [workspace.package]
 edition = "2021"

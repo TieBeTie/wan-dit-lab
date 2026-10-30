@@ -1,5 +1,5 @@
 """Exports Live (preset longlive2 of runtime/live_presets.py) into AOTInductor packages for the Rust host
-(native/live). The host keeps the state (the KV caches, the weights in pinned RAM, the prompt, the window); every
+(crates/wan, wan.exe). The host keeps the state (the KV caches, the weights in pinned RAM, the prompt, the window); every
 computation of a chunk is one of these packages, with no Python in the process that runs them.
 
     python scripts/conversion/export_live.py                 # all of them, into artifacts/live
@@ -19,7 +19,7 @@ What a chunk is made of, the packages named as in the manifest (live.json):
 The weights of a block are an input (its row of the W4A4 pack), so that one package serves all of them; the host
 streams the rows as StreamedRows does. The time rows of RoPE (the only part that moves with the frame) are an
 input too; the host reads them from time_rope.bin. The operators of the W4A4 layers and of Sage's attention are
-live::* (native/ops), which the host loads beside the packages.
+live::* (ops/), which the host loads beside the packages.
 
 Every package is checked against the eager model it is exported from before it is written, on the inputs the
 previous package gives, and the check goes into the manifest."""
@@ -339,7 +339,7 @@ def main():
         if getattr(args, key) is not None:
             spec[key] = getattr(args, key)
     assert spec["height"] % 32 == 0 and spec["width"] % 32 == 0, "a token is 32x32 pixels"
-    if args.out is None:  # one directory per resolution: live.exe --size picks it
+    if args.out is None:  # one directory per resolution: wan.exe --size picks it
         args.out = ROOT / "artifacts" / "live" / f"{spec['height']}x{spec['width']}"
     args.out.mkdir(parents=True, exist_ok=True)
     load_operators()

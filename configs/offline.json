@@ -1,6 +1,5 @@
 {
   "mode": "offline",
-  "build": "release",
   "recalibrate": false,
   "size": "512x928",
   "prompt": "A lone oak tree on a grassy hill sways in the wind",

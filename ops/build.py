@@ -3,7 +3,7 @@ SageAttention (sm89) behind TORCH_LIBRARY operators live::*, linked to LibTorch 
 model loads them with torch.ops.load_library (wan_dit_lab.kernels.operators), the Rust host before its
 AOTInductor packages.
 
-    python native/ops/build.py [live_w4a4 live_sage]
+    python ops/build.py [live_w4a4 live_sage]
 
 Needs MSVC (vcvars64) and nvcc: artifacts/cuda-12.8 by default, or CUDA_HOME. The flags of each library are
 those of its upstream setup.py, for sm_89 only."""

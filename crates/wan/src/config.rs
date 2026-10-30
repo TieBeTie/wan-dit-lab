@@ -21,6 +21,8 @@ use serde::{Deserialize, Serialize};
 pub struct Config {
     /// "live": the window and prompts over the socket; "offline": the chains of demo_chains.json into mp4 files
     pub mode: Mode,
+    /// calibrate the offloading again, not taking the placement kept in <packages>/calibration.json
+    pub recalibrate: bool,
     /// the packages of artifacts/live/<size>
     pub size: String,
     pub prompt: String,
@@ -113,6 +115,7 @@ impl Default for Config {
     fn default() -> Config {
         Config {
             mode: Mode::Live,
+            recalibrate: false,
             size: "480x864".into(),
             prompt: "A lone oak tree on a grassy hill sways in the wind".into(),
             seed: 0,
@@ -331,6 +334,14 @@ mod tests {
         live.as_object_mut().unwrap().remove("mode");
         offline.as_object_mut().unwrap().remove("mode");
         assert_eq!(live, offline);
+    }
+
+    /// wan.exe reads the whole configuration itself: the starting script passes only the file and the prompt.
+    #[test]
+    fn recalibrate_is_read_from_the_config() {
+        assert!(!repository().recalibrate);
+        assert!(Config::parse(r#"{"recalibrate": true}"#).unwrap().recalibrate);
+        assert!(!Config::parse("{}").unwrap().recalibrate);
     }
 
     #[test]

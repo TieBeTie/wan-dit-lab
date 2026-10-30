@@ -159,7 +159,7 @@ mod tests {
     fn t5_through_the_rows_gives_the_embeddings_of_fast_text_encoder() {
         static GPU: std::sync::OnceLock<crate::gpu::Gpu> = std::sync::OnceLock::new();
         let operators: Vec<std::path::PathBuf> = ["live_w4a4", "live_sage"].iter()
-            .map(|n| crate::root().join("native").join("ops").join("build").join(format!("{n}.dll"))).collect();
+            .map(|n| crate::root().join("ops").join("build").join(format!("{n}.dll"))).collect();
         let runtime = aoti::Runtime::load(&aoti::Runtime::default_torch_lib(), &operators).unwrap();
         GPU.get_or_init(|| crate::gpu::Gpu::new().unwrap()).bind().unwrap();
         let directory = crate::root().join("artifacts").join("live").join("480x864");

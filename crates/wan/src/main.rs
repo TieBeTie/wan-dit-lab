@@ -1,13 +1,14 @@
-//! Live: a video generated without end, chunk by chunk, and a prompt over a local socket (or typed in the window)
-//! turns it, from the frames already shown. The Rust host of scripts/live/live_video.py (preset longlive2): the model
-//! is the AOTInductor packages of scripts/conversion/export_live.py, everything around it is here.
+//! wan.exe, the one entry point of wan-dit-lab (built into bin/ by build.ps1). Live: a video generated without end,
+//! chunk by chunk, and a prompt over a local socket (or typed in the window) turns it, from the frames already shown;
+//! offline: the same video into files. The model is the AOTInductor packages of scripts/conversion/export_live.py
+//! (preset longlive2), everything around it is here.
 //!
-//!     live --prompt "A lone oak tree on a grassy hill sways in the wind" [--size 512x928]
-//!     live --send "Snow starts to fall on the oak tree" [--scene | --new]
-//!     live check [--reference artifacts/live/480x864/reference.safetensors]   the chunks against the Python path (*)
-//!     live bench --chunks 12                                          time and memory, no window
-//!     live --config configs/offline.json [--chains fox_cabin,sea_turtle]  chains of demo_chains.json into mp4 files
-//!     live render --reference <directory>                             the videos of live_reference.py --render (*)
+//!     wan --prompt "A lone oak tree on a grassy hill sways in the wind" [--size 512x928]
+//!     wan --send "Snow starts to fall on the oak tree" [--scene | --new]
+//!     wan check [--reference artifacts/live/480x864/reference.safetensors]   the chunks against the Python path (*)
+//!     wan bench --chunks 12                                          time and memory, no window
+//!     wan --config configs/offline.json [--chains fox_cabin,sea_turtle]  chains of demo_chains.json into mp4 files
+//!     wan render --reference <directory>                             the videos of live_reference.py --render (*)
 //!
 //! (*) only in a build with `--features debug-tools`; the release build keeps the hot path alone.
 //!
@@ -63,7 +64,7 @@ struct Args {
 }
 
 fn root() -> PathBuf {
-    // native/live -> wan-dit-lab
+    // crates/wan -> wan-dit-lab
     Path::new(env!("CARGO_MANIFEST_DIR")).parent().unwrap().parent().unwrap().to_path_buf()
 }
 
@@ -96,7 +97,7 @@ fn defaults(path: &Path) -> Args {
         scale: 1.0,
         serial: false,
         offloading: c.offloading.clone(),
-        recalibrate: false,
+        recalibrate: c.recalibrate,
         right: false,
     }
 }
@@ -148,7 +149,7 @@ fn flags(a: &mut Args, it: &mut impl Iterator<Item = String>) {
 /// LibTorch, the operators live::* and the GPU, then the video and T5 over the packages.
 fn load(args: &Args) -> Result<(Video, T5, DeviceBuffer)> {
     let operators: Vec<PathBuf> = ["live_w4a4", "live_sage"].iter()
-        .map(|n| root().join("native").join("ops").join("build").join(format!("{n}.dll"))).collect();
+        .map(|n| root().join("ops").join("build").join(format!("{n}.dll"))).collect();
     let runtime = aoti::Runtime::load(&aoti::Runtime::default_torch_lib(), &operators)?;
     let gpu = Gpu::new()?;
     gpu.bind()?;

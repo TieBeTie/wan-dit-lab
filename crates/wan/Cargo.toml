@@ -1,6 +1,6 @@
 [package]
-name = "live"
-description = "The Live video of wan-dit-lab: LongLive 2.0 chunk by chunk from AOTInductor packages, shown in a window"
+name = "wan"
+description = "The one entry point of wan-dit-lab: LongLive 2.0 chunk by chunk from AOTInductor packages, live in a window or offline into files"
 edition.workspace = true
 version.workspace = true
 publish.workspace = true

@@ -1320,23 +1320,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "4744e383959f0db86ede514b809b1c53251889093803c05267acc7d4e7030d70"
 
 [[package]]
-name = "live"
-version = "0.1.0"
-dependencies = [
- "aoti",
- "cudarc",
- "eframe",
- "live-protocol",
- "memmap2",
- "rand",
- "rand_distr",
- "safetensors",
- "serde",
- "serde_json",
- "tokenizers",
-]
-
-[[package]]
 name = "live-protocol"
 version = "0.1.0"
 
@@ -2801,6 +2784,23 @@ checksum = "29790946404f91d9c5d06f9874efddea1dc06c5efe94541a7d6863108e3a5e4b"
 dependencies = [
  "same-file",
  "winapi-util",
+]
+
+[[package]]
+name = "wan"
+version = "0.1.0"
+dependencies = [
+ "aoti",
+ "cudarc",
+ "eframe",
+ "live-protocol",
+ "memmap2",
+ "rand",
+ "rand_distr",
+ "safetensors",
+ "serde",
+ "serde_json",
+ "tokenizers",
 ]
 
 [[package]]

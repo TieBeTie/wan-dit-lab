@@ -1,4 +1,4 @@
-"""Fixtures of the Rust host's tests (native/live/tests/fixtures), made by the Python code it replaces.
+"""Fixtures of the Rust host's tests (crates/wan/tests/fixtures), made by the Python code it replaces.
 
     python scripts/conversion/live_fixtures.py
 
@@ -18,7 +18,7 @@ import torch
 
 from wan_dit_lab.generation.causal import KVCache
 
-OUT = ROOT / "native" / "live" / "tests" / "fixtures"
+OUT = ROOT / "crates" / "wan" / "tests" / "fixtures"
 
 
 def ring():

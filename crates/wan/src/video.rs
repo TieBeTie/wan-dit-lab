@@ -578,7 +578,7 @@ mod tests {
     /// The video of the packages of 480x864, the operators and LibTorch loaded once per test.
     fn video(offloading: &Offloading) -> Video {
         let operators: Vec<std::path::PathBuf> = ["live_w4a4", "live_sage"].iter()
-            .map(|n| crate::root().join("native").join("ops").join("build").join(format!("{n}.dll"))).collect();
+            .map(|n| crate::root().join("ops").join("build").join(format!("{n}.dll"))).collect();
         let runtime = aoti::Runtime::load(&aoti::Runtime::default_torch_lib(), &operators).unwrap();
         // the primary context lives as long as the test process (a Gpu dropped would release it)
         static GPU: std::sync::OnceLock<crate::gpu::Gpu> = std::sync::OnceLock::new();

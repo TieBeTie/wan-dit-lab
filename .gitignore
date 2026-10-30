@@ -19,7 +19,9 @@ reference/
 *.pth
 # Rust host and operator libraries: built, not kept
 target/
-native/ops/build/
+ops/build/
+/target/
+/bin/
 # binaries anywhere, the archive included (its packages, runner, extension builds)
 *.pt2
 *.obj

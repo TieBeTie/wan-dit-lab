@@ -1,4 +1,4 @@
-"""The reference of the Rust host (native/live): Live's old Python path, the preset longlive2 as it was built,
+"""The reference of the Rust host (crates/wan): Live's old Python path, the preset longlive2 as it was built,
 over a script of prompts and cuts, with the noise of every chunk kept, so that the host can be run on the same
 noise and compared chunk by chunk.
 
