@@ -133,8 +133,13 @@ EXPORT int32_t aoti_load_constants(void* package, const char* const* names, cons
 EXPORT void aoti_empty_cache() { c10::cuda::CUDACachingAllocator::emptyCache(); }
 
 // Allocated and reserved bytes of the CUDA allocator on `device`, for the measurements.
-EXPORT void aoti_memory(int32_t device, int64_t* allocated, int64_t* reserved) {
-    auto stats = c10::cuda::CUDACachingAllocator::getDeviceStats(static_cast<c10::DeviceIndex>(device));
-    *allocated = stats.allocated_bytes[0].current;
-    *reserved = stats.reserved_bytes[0].current;
+EXPORT void aoti_memory(int32_t device, int64_t* allocated, int64_t* reserved, int64_t* peak) {
+    *allocated = *reserved = *peak = 0;
+    try {  // the allocator throws before LibTorch's first allocation
+        auto stats = c10::cuda::CUDACachingAllocator::getDeviceStats(static_cast<c10::DeviceIndex>(device));
+        *allocated = stats.allocated_bytes[0].current;
+        *reserved = stats.reserved_bytes[0].current;
+        *peak = stats.reserved_bytes[0].peak;
+    } catch (...) {
+    }
 }

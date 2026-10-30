@@ -125,7 +125,7 @@ struct RawOutput {
 type Load = unsafe extern "C" fn(*const c_char, i32, *mut c_char, usize) -> *mut c_void;
 type Free = unsafe extern "C" fn(*mut c_void);
 type Run = unsafe extern "C" fn(*mut c_void, *const Tensor, i32, *mut c_void, *mut RawOutput, i32, *mut c_char, usize) -> i32;
-type Memory = unsafe extern "C" fn(i32, *mut i64, *mut i64);
+type Memory = unsafe extern "C" fn(i32, *mut i64, *mut i64, *mut i64);
 type ConstantNames = unsafe extern "C" fn(*mut c_void, *mut c_char, usize, *mut c_char, usize) -> i64;
 type LoadConstants = unsafe extern "C" fn(*mut c_void, *const *const c_char, *const Tensor, i32, *mut c_char, usize) -> i32;
 type EmptyCache = unsafe extern "C" fn();
@@ -228,9 +228,15 @@ impl Runtime {
 
     /// Bytes allocated and reserved by LibTorch's CUDA allocator on `device`.
     pub fn memory(&self, device: i32) -> (i64, i64) {
-        let (mut allocated, mut reserved) = (0, 0);
-        unsafe { (self.0.memory)(device, &mut allocated, &mut reserved) };
-        (allocated, reserved)
+        let m = self.memory_peak(device);
+        (m.0, m.1)
+    }
+
+    /// Bytes allocated and reserved now, and the most reserved so far.
+    pub fn memory_peak(&self, device: i32) -> (i64, i64, i64) {
+        let (mut allocated, mut reserved, mut peak) = (0, 0, 0);
+        unsafe { (self.0.memory)(device, &mut allocated, &mut reserved, &mut peak) };
+        (allocated, reserved, peak)
     }
 
     /// The cached free blocks of LibTorch's CUDA allocator back to the driver.

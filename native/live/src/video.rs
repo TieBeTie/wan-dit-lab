@@ -142,7 +142,7 @@ impl Video {
         let compute = Stream::new()?;
         let package = |name: &str| packages::load(&runtime, directory, name, &compute);
         let p = Packages {
-            text: package("text")?,
+            text: { let mut t = package("text")?; t.park(&compute)?; t },
             cross: package("cross")?,
             pre: package("pre")?,
             blocks: (0..m.block_steps).map(|k| package(&format!("block_{k}"))).collect::<Result<_>>()?,
@@ -316,8 +316,13 @@ impl Video {
         Ok(self.rows.copy_waits(&self.compute)?)
     }
 
-    /// GPU bytes the KV caches take: all of them when resident, two slots when offloaded (tests).
-    #[cfg(test)]
+    /// debug-tools: the waits for copies of streamed rows the GPU has passed since the last call, without waiting.
+    #[cfg(feature = "debug-tools")]
+    pub fn passed_copy_waits(&self) -> Result<crate::rows::CopyWaits> {
+        Ok(self.rows.passed_copy_waits()?)
+    }
+
+    /// GPU bytes the KV caches take: all of them when resident, two slots when offloaded (bench).
     pub fn kv_device_bytes(&self) -> usize {
         let bytes = |c: &Buffers| c.k.bytes + c.ks.bytes + c.v.bytes + c.vs.bytes;
         match &self.kv {
@@ -342,6 +347,8 @@ impl Video {
     /// The prompt from its T5 embeddings [1, text_len, text_dim] float32 on the GPU, changed in the way of `cut`.
     pub fn set_prompt(&mut self, embeddings: &Tensor, cut: Cut) -> Result<()> {
         let s = self.compute.raw();
+        // the text package is used only here: parked between prompts
+        self.p.text.unpark(&self.compute)?;
         let text = self.p.text.run(&[*embeddings], s)?.remove(0);
         let mut cross = Vec::with_capacity(self.m.blocks);
         for b in 0..self.m.blocks {
@@ -350,6 +357,8 @@ impl Video {
             self.rows.release(b, &self.compute)?;
         }
         self.cross = cross;
+        drop(text);
+        self.p.text.park(&self.compute)?;
         match cut {
             Cut::Same => {}
             Cut::Scene => {
@@ -499,7 +508,6 @@ impl Video {
     }
 
     /// The decoder from the start of a video again: no memory, the first frames trimmed.
-    #[cfg(feature = "debug-tools")]
     pub fn reset_decoder(&mut self) {
         self.memory.clear();
         self.trim = self.m.decoder_trim;
@@ -610,6 +618,31 @@ mod tests {
         o.resources.insert(Resource::BlockWeights, weights);
         o.resources.insert(Resource::KvCache, kv);
         o
+    }
+
+    /// The text package is used only when a prompt is set: between prompts its weights are off the GPU, and with
+    /// them back from the disk it gives the text embedding it gave, bit for bit (the cross-attention keys after it
+    /// differ in about one byte in a million between any two runs: the W4A4 GEMM is not deterministic).
+    /// Needs the GPU and artifacts/live/480x864: cargo test -- --ignored
+    #[test]
+    #[ignore]
+    fn the_text_package_is_off_the_gpu_between_prompts() {
+        let mut v = video(&Config::default().offloading);
+        assert_eq!(v.p.text.device_bytes(), 0, "the text package's weights stay on the GPU after the prompt");
+        let embeddings = DeviceBuffer::zeroed(v.m.text_len * v.m.text_dim * 4, &v.compute).unwrap();
+        let tensor = embeddings.tensor(0, DType::F32, &[1, v.m.text_len as i64, v.m.text_dim as i64]);
+        let mut text = || {
+            v.p.text.unpark(&v.compute).unwrap();
+            let t = v.p.text.run(&[tensor], v.compute.raw()).unwrap().remove(0);
+            let mut host = vec![0u8; t.bytes()];
+            v.compute.copy_to_host(&mut host, t.data as u64).unwrap();
+            v.p.text.park(&v.compute).unwrap();
+            host
+        };
+        let (first, again) = (text(), text());
+        assert!(!first.is_empty() && first == again, "the text embedding differs once the weights came back");
+        v.set_prompt(&tensor, Cut::Same).unwrap();
+        assert_eq!(v.p.text.device_bytes(), 0);
     }
 
     /// The KV cache in RAM gives chunks as close to those of the cache on the GPU as two runs of the cache on the GPU

@@ -342,7 +342,6 @@ impl Offloaded {
     }
 
     /// GPU bytes of the two slots.
-    #[cfg(test)]
     pub fn slot_bytes(&self) -> usize {
         self.slots.iter().map(|s| s.k.bytes + s.ks.bytes + s.v.bytes + s.vs.bytes).sum()
     }

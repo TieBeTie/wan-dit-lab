@@ -9,7 +9,8 @@ use std::time::{Duration, Instant};
 use eframe::egui;
 use live_protocol::Cut;
 
-use crate::gpu::DeviceBuffer;
+use crate::encoder::Encoder;
+use crate::gpu::{DeviceBuffer, Event};
 use crate::prompts::{Inbox, Prompt};
 use crate::t5::T5;
 use crate::video::{Result, Video};
@@ -30,14 +31,36 @@ struct Status {
 
 type Load = fn(&Args) -> Result<(Video, T5, DeviceBuffer)>;
 
-/// Generates chunk after chunk until the window is gone, a waiting prompt first.
+/// The prompt whose embeddings T5 has made: the video takes it between two chunks (the text embedding and the
+/// cross-attention keys of every block); then the newest prompt that came meanwhile goes to T5.
+fn take_prompt(video: &mut Video, encoder: &mut Encoder, wait: bool) -> Result<Option<Prompt>> {
+    let Some(p) = encoder.ready(wait)? else { return Ok(None) };
+    video.set_prompt(&encoder.tensor(), p.cut)?;
+    if let Some((next, text)) = encoder.take_waiting() {
+        encoder.encode(next, text, read(video)?)?;
+    }
+    Ok(Some(p))
+}
+
+/// The event after which the video has read the embeddings T5 last made.
+fn read(video: &Video) -> Result<Event> {
+    let e = Event::new()?;
+    e.record(&video.compute)?;
+    Ok(e)
+}
+
+/// Generates chunk after chunk until the window is gone. A prompt that comes goes to T5 on its own thread, and the
+/// video goes on with the prompt it has until T5 is done.
 fn generate(args: Args, load: Load, inbox: Inbox, frames: std::sync::mpsc::SyncSender<Vec<u8>>,
             status: Arc<Mutex<Status>>, repaint: egui::Context) -> Result<()> {
-    let (mut video, mut t5, embeddings) = load(&args)?;
+    let (mut video, t5, embeddings) = load(&args)?;
+    let mut encoder = Encoder::spawn(t5, embeddings)?;
     let first = Prompt { cut: Cut::Same, text: args.prompt.clone().unwrap_or_else(|| DEFAULT_PROMPT.into()) };
-    let t = crate::set_prompt(&mut video, &mut t5, &embeddings, &first)?;
-    println!("{}x{}, chunk {}, {} blocks ({} streamed), prompt encoded in {t:.1} s", video.m.height, video.m.width,
-             video.m.chunk, video.m.blocks, video.m.stream_blocks);
+    let started = Instant::now();
+    encoder.encode(first.clone(), crate::model_prompt(&video, &first), read(&video)?)?;
+    take_prompt(&mut video, &mut encoder, true)?;
+    println!("{}x{}, chunk {}, {} blocks ({} streamed), prompt encoded in {:.1} s", video.m.height, video.m.width,
+             video.m.chunk, video.m.blocks, video.m.stream_blocks, started.elapsed().as_secs_f64());
     #[cfg(feature = "debug-tools")]
     println!("{}", crate::measure::memory_line(&video));
     status.lock().unwrap().prompt = first.text;
@@ -46,20 +69,18 @@ fn generate(args: Args, load: Load, inbox: Inbox, frames: std::sync::mpsc::SyncS
     let mut start = Instant::now();
     let x0 = video.next_chunk(None)?;
     video.start_decode(&x0)?;
+    let mut asked = Instant::now();
     loop {
         if let Some(p) = inbox.take() {
-            let chunk = video.finish_decode()?; // the prompt changes between two chunks, the frames made go on
-            if send(&frames, chunk).is_err() {
-                return Ok(());
-            }
-            let t = crate::set_prompt(&mut video, &mut t5, &embeddings, &p)?;
+            asked = Instant::now();
+            let text = crate::model_prompt(&video, &p);
+            encoder.encode(p, text, read(&video)?)?;
+        }
+        // between two chunks: the one queued is decoded, the next is made with the new prompt
+        if let Some(p) = take_prompt(&mut video, &mut encoder, false)? {
             let kind = match p.cut { Cut::New => " (new video)", Cut::Scene => " (new shot)", Cut::Same => "" };
-            println!("prompt encoded in {t:.1} s{kind}");
+            println!("prompt encoded in {:.1} s{kind}", asked.elapsed().as_secs_f64());
             status.lock().unwrap().prompt = p.text;
-            let x0 = video.next_chunk(None)?;
-            video.start_decode(&x0)?;
-            start = Instant::now();
-            continue;
         }
         let x0 = video.next_chunk(None)?;
         let chunk = video.finish_decode()?;
@@ -71,8 +92,10 @@ fn generate(args: Args, load: Load, inbox: Inbox, frames: std::sync::mpsc::SyncS
             s.chunk_s = Some(seconds);
             s.frames_per_chunk = 4 * video.m.chunk;
         }
+        // the waits of the chunks the GPU has passed; the one queued keeps running
         #[cfg(feature = "debug-tools")]
-        println!("chunk {}: {seconds:.2} s", video.start / video.m.chunk - 2);
+        println!("chunk {}: {seconds:.2} s, {} | {}", video.start / video.m.chunk - 2, video.passed_copy_waits()?,
+                 crate::measure::memory_line(&video));
         if send(&frames, chunk).is_err() {
             return Ok(()); // the window is closed
         }
@@ -209,4 +232,53 @@ pub fn run(args: Args, load: Load) -> Result<()> {
                           pending: None, due: Instant::now(), shown: false }))
     })).map_err(|e| e.to_string())?;
     std::process::exit(0); // the generating thread is in the middle of a chunk: no need to wait for it
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A prompt changed while the video runs: T5 reads and computes beside the video, which goes on with the prompt it
+    /// has, so that no chunk after the change takes more than a third longer than the chunks before it.
+    /// Needs the GPU and artifacts/live/512x928: cargo test -- --ignored --nocapture
+    #[test]
+    #[ignore]
+    fn the_video_goes_on_while_a_prompt_is_encoded() {
+        let mut args = crate::defaults(&crate::root().join("configs").join("live.json"));
+        args.packages = crate::root().join("artifacts").join("live").join("512x928");
+        let inbox = Inbox::default();
+        let (tx, rx) = sync_channel(1 << 16); // the test takes every frame at once: nothing waits for it
+        let status = Arc::new(Mutex::new(Status::default()));
+        let generating = {
+            let inbox = inbox.clone();
+            std::thread::spawn(move || generate(args, crate::load, inbox, tx, status, egui::Context::default()))
+        };
+        // a chunk's frames come together; a chunk begins where a frame comes 0.3 s or more after the one before
+        let mut chunks: Vec<Instant> = Vec::new();
+        let mut last = Instant::now();
+        let (before, after) = (8, 6);
+        let mut changed = None;
+        while chunks.len() < before + after {
+            rx.recv().expect("the video stopped");
+            let now = Instant::now();
+            if chunks.is_empty() || now - last > Duration::from_millis(300) {
+                chunks.push(now);
+                if chunks.len() == before {
+                    inbox.put(&live_protocol::line(Cut::Same, "A red fox walks through a snowy forest at dusk"));
+                    changed = Some(chunks.len());
+                }
+            }
+            last = now;
+        }
+        drop(rx);
+        let _ = generating.join();
+        let gaps: Vec<f64> = chunks.windows(2).map(|w| (w[1] - w[0]).as_secs_f64()).collect();
+        let changed = changed.unwrap() - 1; // the gap from the chunk the prompt came in on
+        let mut steady = gaps[3..changed].to_vec(); // the cache full and calibrated from the fourth chunk on
+        steady.sort_by(f64::total_cmp);
+        let typical = steady[steady.len() / 2];
+        let worst = gaps[changed..].iter().cloned().fold(0.0, f64::max);
+        println!("chunks every {typical:.2} s before the prompt, at most {worst:.2} s after it: {gaps:.2?}");
+        assert!(worst < 1.33 * typical, "the video stood {:.2} s for the prompt", worst - typical);
+    }
 }

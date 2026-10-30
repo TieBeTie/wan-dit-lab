@@ -6,6 +6,7 @@
 //!     live --send "Snow starts to fall on the oak tree" [--scene | --new]
 //!     live check [--reference artifacts/live/480x864/reference.safetensors]   the chunks against the Python path (*)
 //!     live bench --chunks 12                                          time and memory, no window
+//!     live --config configs/offline.json [--chains fox_cabin,sea_turtle]  chains of demo_chains.json into mp4 files
 //!     live render --reference <directory>                             the videos of live_reference.py --render (*)
 //!
 //! (*) only in a build with `--features debug-tools`; the release build keeps the hot path alone.
@@ -18,9 +19,11 @@
 mod cache;
 mod config;
 mod disk;
+mod encoder;
 mod gpu;
 mod manifest;
 mod measure;
+mod offline;
 mod packages;
 mod prompts;
 mod rows;
@@ -52,6 +55,11 @@ struct Args {
     recalibrate: bool,
     scale: f32,
     right: bool,
+    /// the configuration file read, and its mode
+    config: PathBuf,
+    mode: config::Mode,
+    /// the chains of the offline mode (all of demo_chains.json when empty)
+    chains: Vec<String>,
 }
 
 fn root() -> PathBuf {
@@ -60,9 +68,23 @@ fn root() -> PathBuf {
 }
 
 fn parse() -> Args {
-    // configs/live.json first, the flags over it
-    let c = config::Config::read(&root().join("configs").join("live.json")).unwrap_or_else(|e| panic!("{e}"));
-    let mut a = Args {
+    let argv: Vec<String> = std::env::args().skip(1).collect();
+    // --config before the other flags: they override the file
+    let config = argv.iter().position(|a| a == "--config").map(|i| root().join(&argv[i + 1]))
+        .unwrap_or_else(|| root().join("configs").join("live.json"));
+    let mut a = defaults(&config);
+    let mut it = argv.into_iter();
+    flags(&mut a, &mut it);
+    a
+}
+
+/// The arguments of the configuration file (configs/live.json by default), before the flags.
+fn defaults(path: &Path) -> Args {
+    let c = config::Config::read(path).unwrap_or_else(|e| panic!("{e}"));
+    Args {
+        config: path.to_path_buf(),
+        mode: c.mode,
+        chains: Vec::new(),
         command: "run".into(),
         packages: root().join("artifacts").join("live").join(&c.size),
         prompt: Some(c.prompt.clone()),
@@ -76,12 +98,17 @@ fn parse() -> Args {
         offloading: c.offloading.clone(),
         recalibrate: false,
         right: false,
-    };
-    let mut it = std::env::args().skip(1);
+    }
+}
+
+/// The flags of the command line over the arguments `a`.
+fn flags(a: &mut Args, it: &mut impl Iterator<Item = String>) {
     while let Some(arg) = it.next() {
         let mut value = || it.next().unwrap_or_else(|| panic!("{arg} needs a value"));
         match arg.as_str() {
             "check" | "bench" | "run" | "render" => a.command = arg.clone(),
+            "--config" => { value(); }
+            "--chains" => a.chains = value().split(',').map(|c| c.trim().to_string()).filter(|c| !c.is_empty()).collect(),
             "--packages" => a.packages = value().into(),
             // the packages of one resolution, exported by export_live.py --height --width into artifacts/live/HxW
             "--size" => a.packages = root().join("artifacts").join("live").join(value()),
@@ -116,7 +143,6 @@ fn parse() -> Args {
             other => panic!("unknown argument {other}"),
         }
     }
-    a
 }
 
 /// LibTorch, the operators live::* and the GPU, then the video and T5 over the packages.
@@ -126,23 +152,46 @@ fn load(args: &Args) -> Result<(Video, T5, DeviceBuffer)> {
     let runtime = aoti::Runtime::load(&aoti::Runtime::default_torch_lib(), &operators)?;
     let gpu = Gpu::new()?;
     gpu.bind()?;
+    #[cfg(feature = "debug-tools")]
+    let used = |what: &str| {
+        let (free, total) = gpu.memory().unwrap_or((0, 0));
+        let (allocated, _, _) = runtime.memory_peak(gpu::DEVICE);
+        println!("GPU used after {what}: {:.0} MiB (torch allocated {:.0} MiB)", (total - free) as f64 / 1048576.0,
+                 allocated as f64 / 1048576.0);
+    };
+    #[cfg(feature = "debug-tools")]
+    used("the context and the operators");
     let video = Video::load(&args.packages, runtime.clone(), args.seed, &args.offloading, args.recalibrate)?;
+    #[cfg(feature = "debug-tools")]
+    used("the video's packages and buffers");
     let spec = video.m.t5.clone().ok_or("live.json has no T5: export it with export_live.py")?;
-    let t5 = T5::load(&spec, video.m.text_len, video.m.text_dim, &runtime, &args.packages, &video.compute)?;
+    let t5 = T5::load(&spec, video.m.text_len, video.m.text_dim, &runtime, &args.packages, &video.compute,
+                      &args.offloading.t5)?;
+    #[cfg(feature = "debug-tools")]
+    used("T5");
     let embeddings = DeviceBuffer::new(video.m.text_len * video.m.text_dim * 4)?;
     Ok((video, t5, embeddings))
 }
 
 /// The prompt as the model takes it: a shot's prompt begins as LongLive 2.0 marks a cut.
-fn model_prompt(video: &Video, p: &Prompt) -> String {
+pub fn model_prompt(video: &Video, p: &Prompt) -> String {
     if p.cut == Cut::Scene { format!("{}{}", video.m.scene_prefix, p.text) } else { p.text.clone() }
 }
 
 fn set_prompt(video: &mut Video, t5: &mut T5, embeddings: &DeviceBuffer, p: &Prompt) -> Result<f64> {
     let start = Instant::now();
     t5.encode(&model_prompt(video, p), embeddings, &video.compute)?;
+    #[cfg(feature = "debug-tools")]
+    let encoded = start.elapsed().as_secs_f64();
     let tensor = t5.tensor(embeddings);
     video.set_prompt(&tensor, p.cut)?;
+    #[cfg(feature = "debug-tools")]
+    {
+        video.compute.synchronize()?;
+        let all = start.elapsed().as_secs_f64();
+        println!("a prompt: T5 {:.0} ms ({} from the disk), text embedding and cross-attention keys of 30 blocks {:.0} ms",
+                 encoded * 1e3, t5.copy_waits()?, (all - encoded) * 1e3);
+    }
     Ok(start.elapsed().as_secs_f64())
 }
 
@@ -151,6 +200,11 @@ fn main() -> Result<()> {
     if let Some(text) = &args.send {
         prompts::send(args.cut, text, live_protocol::PORT)?;
         return Ok(());
+    }
+    if args.mode == config::Mode::Offline {
+        let text = std::fs::read_to_string(&args.config)?;
+        let argv: Vec<String> = std::env::args().collect();
+        return offline::run(&args, &text, &argv, load(&args)?);
     }
     match args.command.as_str() {
         #[cfg(feature = "debug-tools")]

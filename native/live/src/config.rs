@@ -19,11 +19,21 @@ use serde::{Deserialize, Serialize};
 #[derive(Deserialize, Debug, Clone, PartialEq)]
 #[serde(default)]
 pub struct Config {
+    /// "live": the window and prompts over the socket; "offline": the chains of demo_chains.json into mp4 files
+    pub mode: Mode,
     /// the packages of artifacts/live/<size>
     pub size: String,
     pub prompt: String,
     pub seed: u64,
     pub offloading: Offloading,
+}
+
+#[derive(Deserialize, Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum Mode {
+    #[default]
+    Live,
+    Offline,
 }
 
 /// The resources of the model that can be offloaded.
@@ -39,12 +49,14 @@ pub enum Resource {
 impl Resource {
     pub const ALL: [Resource; 2] = [Resource::BlockWeights, Resource::KvCache];
 
-    /// The tiers a resource can be on: the KV cache is written every chunk, the disk would be too slow for it.
+    /// Whether the resource is written while Live runs (the disk is only read: no writes to wear the SSD).
+    pub fn mutable(self) -> bool {
+        matches!(self, Resource::KvCache)
+    }
+
+    /// The tiers a resource can be on: what is written while Live runs is never on the disk.
     pub fn tiers(self) -> &'static [Tier] {
-        match self {
-            Resource::BlockWeights => &[Tier::Disk, Tier::Ram, Tier::Vram],
-            Resource::KvCache => &[Tier::Ram, Tier::Vram],
-        }
+        if self.mutable() { &[Tier::Ram, Tier::Vram] } else { &[Tier::Disk, Tier::Ram, Tier::Vram] }
     }
 }
 
@@ -72,11 +84,35 @@ pub struct Offloading {
     pub vram_margin_gib: f64,
     /// GiB T5's activations take on the GPU while a prompt is encoded, beside its two row slots
     pub t5_activations_gib: f64,
+    pub t5: T5Weights,
+}
+
+/// T5's blocks (5.6 GB, their reads most of a prompt's time) go through the same streamed rows as the DiT's, from the
+/// disk. The first rows that fit in `resident_gib` of the GPU stay there between prompts (the GPU has room, RAM has
+/// not), each one a read fewer when a prompt comes; the others are streamed, their slots given back between prompts.
+#[derive(Deserialize, Debug, Clone, PartialEq)]
+#[serde(default)]
+pub struct T5Weights {
+    pub resident_gib: f64,
+}
+
+impl Default for T5Weights {
+    fn default() -> T5Weights {
+        T5Weights { resident_gib: 1.0 }
+    }
+}
+
+impl T5Weights {
+    /// The rows of `row_bytes` that stay on the GPU, of `blocks`.
+    pub fn resident(&self, row_bytes: usize, blocks: usize) -> usize {
+        ((self.resident_gib * (1u64 << 30) as f64) as usize / row_bytes).min(blocks)
+    }
 }
 
 impl Default for Config {
     fn default() -> Config {
         Config {
+            mode: Mode::Live,
             size: "480x864".into(),
             prompt: "A lone oak tree on a grassy hill sways in the wind".into(),
             seed: 0,
@@ -94,6 +130,7 @@ impl Default for Offloading {
             copy_spare: 1.1,
             vram_margin_gib: 1.5,
             t5_activations_gib: 0.33,
+            t5: T5Weights::default(),
         }
     }
 }
@@ -280,9 +317,44 @@ mod tests {
         assert!(c.offloading.validate().is_err());
     }
 
+    /// configs/offline.json is configs/live.json with "mode": "offline": the same video, written to files.
+    #[test]
+    fn the_offline_config_is_the_live_one_but_its_mode() {
+        let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../configs");
+        let read = |name: &str| -> serde_json::Value {
+            serde_json::from_str(&std::fs::read_to_string(dir.join(name)).unwrap()).unwrap()
+        };
+        let (mut live, mut offline) = (read("live.json"), read("offline.json"));
+        assert_eq!(offline["mode"], "offline");
+        assert_eq!(Config::read(&dir.join("offline.json")).unwrap().mode, Mode::Offline);
+        assert_eq!(repository().mode, Mode::Live);
+        live.as_object_mut().unwrap().remove("mode");
+        offline.as_object_mut().unwrap().remove("mode");
+        assert_eq!(live, offline);
+    }
+
     #[test]
     fn a_missing_file_is_the_defaults() {
         assert_eq!(Config::read(Path::new("Z:/nowhere/live.json")).unwrap(), Config::default());
+    }
+
+    /// T5 keeps on the GPU the first rows that fit in its budget of 1 GiB: 4 of its 24 rows of 235 MB.
+    #[test]
+    fn t5_keeps_the_rows_its_budget_holds() {
+        let t5 = &repository().offloading.t5;
+        assert_eq!(t5.resident_gib, 1.0);
+        assert_eq!(t5.resident(235_000_000, 24), 4);
+        assert_eq!(T5Weights { resident_gib: 0.0 }.resident(235_000_000, 24), 0);
+        assert_eq!(T5Weights { resident_gib: 100.0 }.resident(235_000_000, 24), 24);
+    }
+
+    /// The disk is only read: a resource written while Live runs can never be on it.
+    #[test]
+    fn nothing_written_while_live_runs_is_on_the_disk() {
+        for r in Resource::ALL {
+            assert_eq!(r.tiers().contains(&Tier::Disk), !r.mutable(), "{r:?}");
+        }
+        assert!(Resource::KvCache.mutable());
     }
 
     /// The calibration's result is kept beside the packages, so that the next run makes every resource on its tier at

@@ -1,0 +1,173 @@
+{
+  "source": "candidate chains for the demonstration of Live with the voice director (2026-10-30). Own chains by the rules of voice/prompts/director.txt (Wan 2.2's prompt rewriter): one large subject close to the camera, a scene card repeated word for word, one change per step; plus four chains of LongLive 1.0's example/interactive_example.jsonl verbatim (lines 1, 8, 10, 12, the ones closest to the training of prompt switches). A prompt is held 8 chunks by default: 8 latent frames a chunk at 24 fps is 1.33 s of video, so 10.7 s a prompt, as the 10 s segments of LongLive's interactive evaluation (paper, Table 2); in Live at 2.23 s a chunk that is about 18 s of wall clock",
+  "chunks": 8,
+  "chains": [
+    {
+      "id": "fox_cabin",
+      "camera": "Medium close-up shot, static camera",
+      "steps": [
+        {"cut": "new", "card": "A single adult red fox with thick orange fur, a white chest and a bushy white-tipped tail sits in the snow close to the camera and fills most of the frame. Behind it stands a small wooden cabin with a snowy roof and a lit window, slightly blurred.", "action": "The fox slowly turns its head, its ears twitch, its breath makes small clouds of steam.", "light": "day time, soft daylight"},
+        {"action": "Heavy snow begins to fall, large snowflakes land on the fox's fur and on the cabin roof."},
+        {"action": "The fox slowly turns its head, its ears twitch.", "light": "sunset, warm orange side lighting"},
+        {"cut": "scene", "card": "A single adult red fox with thick orange fur and a bushy white-tipped tail lies curled up on a woven rug beside a glowing stone fireplace inside a wooden cabin, close to the camera, filling most of the frame.", "action": "The flames flicker and the fox's ears twitch.", "light": "night time, warm firelight"}
+      ]
+    },
+    {
+      "id": "raccoon_guitar",
+      "camera": "Medium close-up shot, static camera",
+      "steps": [
+        {"cut": "new", "card": "A single raccoon with grey fur, black facial markings and a bushy striped tail sits on a small wooden stool close to the camera and fills most of the frame, holding a red electric guitar. The setting is a cozy room with vintage posters on the walls, slightly blurred.", "action": "The raccoon strums the strings with its front paws, its body sways to the rhythm.", "light": "day time, warm lamp light"},
+        {"action": "The raccoon stops playing, lifts its head and looks straight at the camera, its ears twitch."},
+        {"action": "The raccoon strums the strings fast, nodding its head.", "light": "night time, pink and blue neon light"}
+      ]
+    },
+    {
+      "id": "raccoon_sink",
+      "camera": "Close-up shot, static camera",
+      "steps": [
+        {"cut": "new", "card": "A single raccoon with grey fur and black facial markings stands on a white kitchen counter close to the camera and fills most of the frame, beside a steel sink with running water. A window behind it shows green trees, slightly blurred.", "action": "The raccoon holds a red apple in its front paws and rubs it under the water stream.", "light": "day time, soft daylight from the window"},
+        {"action": "The raccoon lifts the wet apple, sniffs it and takes a small bite."},
+        {"action": "The raccoon drops the apple into the sink and splashes the water with both paws, drops fly around."}
+      ]
+    },
+    {
+      "id": "teacup_pour",
+      "steps": [
+        {"cut": "new", "text": "A close-up shot of a ceramic teacup slowly pouring water into a glass mug. The water flows smoothly from the spout of the teacup into the mug, creating gentle ripples as it fills up. Both cups have detailed textures, with the teacup having a matte finish and the glass mug showcasing clear transparency. The background is a blurred kitchen countertop, adding context without distracting from the central action. The pouring motion is fluid and natural, emphasizing the interaction between the two cups."},
+        {"text": "A close-up shot of a ceramic teacup slowly pouring red wine into a glass mug. The red wine flows smoothly from the spout of the teacup into the mug, creating gentle ripples as it fills up. Both cups have detailed textures, with the teacup having a matte finish and the glass mug showcasing clear transparency. The background is a blurred kitchen countertop, adding context without distracting from the central action. The pouring motion is fluid and natural, emphasizing the interaction between the two cups."},
+        {"text": "A close-up shot of a ceramic teacup slowly pouring milk into a glass mug. The white milk flows smoothly from the spout of the teacup into the mug, creating gentle ripples as it fills up. Both cups have detailed textures, with the teacup having a matte finish and the glass mug showcasing clear transparency. The background is a blurred kitchen countertop, adding context without distracting from the central action. The pouring motion is fluid and natural, emphasizing the interaction between the two cups."}
+      ]
+    },
+    {
+      "id": "sea_turtle",
+      "camera": "Medium close-up shot, static camera",
+      "steps": [
+        {"cut": "new", "card": "A single large green sea turtle with a brown patterned shell and scaly flippers swims close to the camera underwater and fills most of the frame. Below it lies a colorful coral reef, slightly blurred, the water is clear turquoise.", "action": "The turtle slowly beats its front flippers and glides forward, small bubbles rise.", "light": "day time, sunbeams from the water surface"},
+        {"action": "A school of small yellow fish swims around the turtle as it glides forward."},
+        {"cut": "scene", "card": "A single large green sea turtle with a brown patterned shell crawls across wet golden sand close to the camera and fills most of the frame, small waves behind it.", "action": "The turtle pushes the sand with its flippers, a wave washes over them.", "light": "sunset, warm orange light"}
+      ]
+    },
+    {
+      "id": "owl_branch",
+      "camera": "Medium close-up shot, static camera",
+      "steps": [
+        {"cut": "new", "card": "A single snowy owl with white feathers, black speckles and bright yellow eyes sits on a thick pine branch close to the camera and fills most of the frame. Behind it is a dark pine forest, slightly blurred.", "action": "The owl slowly turns its head to the side, its feathers ruffle in the wind.", "light": "dawn time, soft cold light"},
+        {"action": "Snow begins to fall, snowflakes settle on the owl's feathers and on the branch."},
+        {"action": "The owl spreads its wide white wings and flaps them twice, snow falls from the branch.", "light": "night time, moonlight"}
+      ]
+    },
+    {
+      "id": "sunflower_bee",
+      "camera": "Close-up shot, static camera",
+      "steps": [
+        {"cut": "new", "card": "A single large sunflower with bright yellow petals and a dark brown center fills most of the frame close to the camera, a field of sunflowers and a clear blue sky behind it, slightly blurred.", "action": "The sunflower sways gently in the wind, its petals tremble.", "light": "day time, sunny lighting"},
+        {"action": "A single fat honeybee with yellow and black stripes lands on the brown center and crawls over it, its wings buzz."},
+        {"action": "Rain begins to fall, drops run down the yellow petals and the sunflower bends slightly.", "light": "overcast lighting, soft light"}
+      ]
+    },
+    {
+      "id": "mossy_stream",
+      "camera": "Close-up shot, static camera",
+      "steps": [
+        {"cut": "new", "card": "A small forest stream flows over large round rocks covered with green moss, close to the camera, filling the frame. Ferns grow along the banks, tall trees behind, slightly blurred.", "action": "Clear water rushes between the rocks, foam swirls, ferns sway.", "light": "day time, soft daylight"},
+        {"action": "Red and yellow autumn leaves float down the stream and spin between the rocks."},
+        {"action": "Snow falls on the mossy rocks, the water steams slightly.", "light": "overcast lighting, cool colors"}
+      ]
+    },
+    {
+      "id": "cat_window",
+      "camera": "Medium close-up shot, static camera",
+      "steps": [
+        {"cut": "new", "card": "A single ginger cat with green eyes and striped orange fur sits on a wooden windowsill close to the camera and fills most of the frame. Behind it a large window shows rain on the glass and a city street, slightly blurred.", "action": "The cat watches the raindrops, its tail moves slowly, its ears twitch.", "light": "day time, overcast lighting"},
+        {"action": "The cat lifts one front paw and taps the glass at a raindrop sliding down."},
+        {"action": "The cat lies down on the windowsill and closes its eyes, its tail curls around its body.", "light": "night time, warm city lights through the window"}
+      ]
+    },
+    {
+      "id": "dog_beach",
+      "camera": "Medium shot, static camera",
+      "steps": [
+        {"cut": "new", "card": "A single golden retriever with long golden fur and a red collar stands on wet sand close to the camera and fills most of the frame. Behind it small waves roll onto the beach under a clear blue sky.", "action": "The dog wags its tail and pants with its tongue out, its fur moves in the wind.", "light": "day time, sunny lighting"},
+        {"action": "A wave rushes over the dog's paws, the dog jumps and splashes the water, drops fly around."},
+        {"action": "The dog shakes its wet fur, water sprays in all directions.", "light": "sunset, warm orange light"},
+        {"cut": "scene", "card": "A single golden retriever with long golden fur and a red collar lies on a wooden porch close to the camera and fills most of the frame, a garden behind it, slightly blurred.", "action": "The dog rests its head on its paws, its eyes slowly close.", "light": "sunset, warm orange light"}
+      ]
+    },
+    {
+      "id": "pancakes",
+      "camera": "Close-up shot, static camera",
+      "steps": [
+        {"cut": "new", "card": "A tall stack of five fluffy golden pancakes with a square of butter on top stands on a white plate close to the camera and fills most of the frame, on a wooden table, a kitchen slightly blurred behind.", "action": "Thick amber maple syrup pours slowly onto the top pancake and runs down the sides, the butter melts.", "light": "day time, soft daylight from a window"},
+        {"action": "Fresh red strawberries and blueberries drop onto the top pancake one by one and roll in the syrup."},
+        {"action": "White powdered sugar falls gently over the pancakes and the berries."}
+      ]
+    },
+    {
+      "id": "campfire",
+      "camera": "Close-up shot, static camera",
+      "steps": [
+        {"cut": "new", "card": "A campfire of thick crossed logs burns on a ring of grey stones close to the camera and fills most of the frame, a dark pine forest behind it, slightly blurred.", "action": "Orange flames lick the logs, sparks rise into the air, smoke curls upward.", "light": "night time, firelight"},
+        {"action": "A log breaks and falls into the fire, a burst of bright sparks flies up."},
+        {"action": "Rain begins to fall on the fire, the flames hiss and white steam rises from the logs."}
+      ]
+    },
+    {
+      "id": "horse_meadow",
+      "camera": "Medium close-up shot, static camera",
+      "steps": [
+        {"cut": "new", "card": "A single brown horse with a long black mane and a white blaze on its forehead stands in a green meadow close to the camera and fills most of the frame, hills and a clear blue sky behind it, slightly blurred.", "action": "The horse lowers its head and grazes, its tail swishes slowly.", "light": "day time, sunny lighting"},
+        {"action": "The horse lifts its head and looks to the side, its black mane blows in the wind."},
+        {"action": "Thick white fog drifts across the meadow around the horse.", "light": "dawn time, soft cold light"}
+      ]
+    },
+    {
+      "id": "koi_pond",
+      "camera": "Close-up shot, static camera, high angle shot",
+      "steps": [
+        {"cut": "new", "card": "Two large koi fish, one orange and white and one gold, swim just under the surface of a clear pond close to the camera and fill most of the frame, round green lily pads float around them.", "action": "The koi swim slowly in a circle, their tails sway, small ripples spread.", "light": "day time, soft daylight"},
+        {"action": "Pink cherry blossom petals fall onto the water and float around the swimming koi."},
+        {"action": "Rain begins to fall, drops make many small rings on the water around the koi.", "light": "overcast lighting, cool colors"}
+      ]
+    },
+    {
+      "id": "astronaut",
+      "camera": "Medium close-up shot, static camera",
+      "steps": [
+        {"cut": "new", "card": "A single astronaut in a white spacesuit with a gold reflective visor floats inside a space station close to the camera and fills most of the frame. Behind the astronaut a large round window shows the blue Earth.", "action": "The astronaut slowly turns in the air, the hoses of the suit drift.", "light": "artificial lighting, soft light"},
+        {"action": "A red apple floats in front of the visor and the astronaut reaches for it with a gloved hand."},
+        {"cut": "scene", "card": "A single astronaut in a white spacesuit with a gold reflective visor walks on the grey dusty surface of the Moon close to the camera and fills most of the frame, the black sky and the blue Earth behind.", "action": "Each step kicks up a slow cloud of grey dust.", "light": "hard sunlight, side lighting"}
+      ]
+    },
+    {
+      "id": "lighthouse",
+      "camera": "Medium shot, static camera, low angle shot",
+      "steps": [
+        {"cut": "new", "card": "A tall white lighthouse with a red top stands on dark rocks close to the camera and fills most of the frame, the sea around the rocks.", "action": "Waves crash against the rocks, white foam sprays up, seagulls fly by.", "light": "day time, sunny lighting, a clear blue sky"},
+        {"action": "A storm comes: dark clouds, heavy rain, huge waves crash against the rocks, the lighthouse beam turns.", "light": "night time, flashes of lightning"},
+        {"action": "The sea calms, small waves wash the rocks, the lighthouse beam fades.", "light": "sunrise time, warm golden light"}
+      ]
+    },
+    {
+      "id": "penguin_ice",
+      "camera": "Medium close-up shot, static camera",
+      "steps": [
+        {"cut": "new", "card": "A single emperor penguin with a black back, a white belly and a yellow patch on its neck stands on white ice close to the camera and fills most of the frame, icebergs behind it, slightly blurred.", "action": "The penguin waddles forward, flapping its short wings.", "light": "day time, sunny lighting, a clear blue sky"},
+        {"action": "The penguin drops onto its belly and slides forward across the ice, pushing with its feet."},
+        {"action": "The penguin stands still and looks up, green aurora lights wave in the dark sky above.", "light": "night time, green aurora light"}
+      ]
+    },
+    {
+      "id": "chameleon",
+      "camera": "Close-up shot, static camera",
+      "steps": [
+        {"cut": "new", "card": "A single chameleon with bright green skin, a curled tail and round turret eyes grips a thin branch with its feet close to the camera and fills most of the frame, green jungle leaves behind it, slightly blurred.", "action": "The chameleon slowly rolls its eyes in different directions and steps along the branch.", "light": "day time, soft daylight"},
+        {"action": "The chameleon's skin slowly changes from green to bright orange with red stripes."},
+        {"action": "The chameleon shoots out its long tongue and catches a small cricket on a leaf."}
+      ]
+    },
+    {"id": "longlive_boy", "ref": "reference/LongLive/LongLive1.0/example/interactive_example.jsonl#1"},
+    {"id": "longlive_man_cat", "ref": "reference/LongLive/LongLive1.0/example/interactive_example.jsonl#8"},
+    {"id": "longlive_couple", "ref": "reference/LongLive/LongLive1.0/example/interactive_example.jsonl#10"},
+    {"id": "longlive_pink_model", "ref": "reference/LongLive/LongLive1.0/example/interactive_example.jsonl#12"}
+  ]
+}

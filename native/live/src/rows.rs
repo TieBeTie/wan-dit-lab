@@ -28,7 +28,8 @@ pub struct Rows {
     pack: std::path::PathBuf,
     /// block of each streamed row, in the order of use
     streamed: Vec<usize>,
-    slots: [DeviceBuffer; 2],
+    /// two GPU slots for the streamed rows; none while parked
+    slots: Vec<DeviceBuffer>,
     copied: [Event; 2],
     freed: [Event; 2],
     copy: Stream,
@@ -74,7 +75,7 @@ impl Rows {
             }
         }
         let copy = Stream::new().map_err(io)?;
-        let slots = [DeviceBuffer::new(row_bytes).map_err(io)?, DeviceBuffer::new(row_bytes).map_err(io)?];
+        let slots = vec![DeviceBuffer::new(row_bytes).map_err(io)?, DeviceBuffer::new(row_bytes).map_err(io)?];
         let source = if disk {
             let staging = [PinnedBuffer::new(span(row_bytes)).map_err(io)?, PinnedBuffer::new(span(row_bytes)).map_err(io)?];
             Source::Disk { file: open_unbuffered(pack)?, staging }
@@ -218,14 +219,43 @@ impl Rows {
     pub fn copy_waits(&self, compute: &Stream) -> Result<(usize, usize, f32)> {
         compute.synchronize()?;
         let waits = std::mem::take(&mut *self.waits.borrow_mut());
-        let mut late = 0;
-        let mut total = 0.0;
-        for (start, end) in &waits {
-            let ms = start.elapsed_ms(end)?;
-            total += ms;
-            late += (ms > 0.05) as usize;
+        let times = waits.iter().map(|(start, end)| start.elapsed_ms(end)).collect::<Result<Vec<_>>>()?;
+        let w = CopyWaits::of(&times);
+        Ok((w.late, w.waits, w.ms))
+    }
+
+    /// debug-tools: copy_waits of the waits the GPU has already passed, without waiting for it: the window takes
+    /// them every chunk and the next chunk, queued, keeps running.
+    #[cfg(feature = "debug-tools")]
+    pub fn passed_copy_waits(&self) -> Result<CopyWaits> {
+        let mut waits = self.waits.borrow_mut();
+        // recorded in the order of the compute stream: the passed ones are a prefix
+        let mut passed = 0;
+        while passed < waits.len() && waits[passed].1.done()? {
+            passed += 1;
         }
-        Ok((late, waits.len(), total))
+        let times = waits.drain(..passed).map(|(start, end)| start.elapsed_ms(&end)).collect::<Result<Vec<_>>>()?;
+        Ok(CopyWaits::of(&times))
+    }
+
+    /// The slots go back to the GPU's free memory until unpark (rows used now and then, as T5's between prompts).
+    pub fn park(&mut self, compute: &Stream) -> Result<()> {
+        compute.synchronize()?;
+        self.copy.synchronize()?;
+        self.slots.clear();
+        self.holds = [usize::MAX; 2];
+        Ok(())
+    }
+
+    /// Slots again, the first streamed rows copied into them.
+    pub fn unpark(&mut self) -> Result<()> {
+        if self.slots.is_empty() && !self.streamed.is_empty() {
+            self.slots = vec![DeviceBuffer::new(self.row_bytes)?, DeviceBuffer::new(self.row_bytes)?];
+            for j in 0..self.streamed.len().min(2) {
+                self.fill(j % 2, j)?;
+            }
+        }
+        Ok(())
     }
 
     pub fn on_disk(&self) -> bool {
@@ -298,6 +328,30 @@ impl Rows {
     }
 }
 
+/// debug-tools: waits of the compute stream for rows' copies: how many stood more than 0.05 ms, how many there were,
+/// and the milliseconds it stood in all.
+#[cfg(feature = "debug-tools")]
+#[derive(Debug, Default, Clone, Copy, PartialEq)]
+pub struct CopyWaits {
+    pub late: usize,
+    pub waits: usize,
+    pub ms: f32,
+}
+
+#[cfg(feature = "debug-tools")]
+impl CopyWaits {
+    pub fn of(times: &[f32]) -> CopyWaits {
+        CopyWaits { late: times.iter().filter(|&&ms| ms > 0.05).count(), waits: times.len(), ms: times.iter().sum() }
+    }
+}
+
+#[cfg(feature = "debug-tools")]
+impl std::fmt::Display for CopyWaits {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        write!(f, "late copies {} of {}, the GPU stood {:.1} ms for them", self.late, self.waits, self.ms)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::spread;
@@ -307,5 +361,20 @@ mod tests {
         // live_video.py: [int((j + 0.5) * n / k) for j in range(k)], n = 30, k = 24
         let want = [0, 1, 3, 4, 5, 6, 8, 9, 10, 11, 13, 14, 15, 16, 18, 19, 20, 21, 23, 24, 25, 26, 28, 29];
         assert_eq!(spread(30, 24), want);
+    }
+
+    #[cfg(feature = "debug-tools")]
+    #[test]
+    fn a_wait_over_a_twentieth_of_a_millisecond_is_late() {
+        let w = super::CopyWaits::of(&[0.0, 0.05, 0.06, 0.2]);
+        assert_eq!((w.late, w.waits), (2, 4));
+        assert!((w.ms - 0.31).abs() < 1e-6);
+    }
+
+    #[cfg(feature = "debug-tools")]
+    #[test]
+    fn copy_waits_read_as_a_log_line() {
+        let w = super::CopyWaits { late: 3, waits: 60, ms: 4.25 };
+        assert_eq!(w.to_string(), "late copies 3 of 60, the GPU stood 4.2 ms for them");
     }
 }

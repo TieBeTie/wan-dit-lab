@@ -14,8 +14,8 @@ use crate::prompts::Prompt;
 use crate::t5::T5;
 use crate::video::{Result, Video};
 
-/// Private committed bytes and working set of this process.
-pub fn process_memory() -> (usize, usize) {
+/// Private committed bytes, working set (the physical RAM) and the largest working set so far of this process.
+pub fn process_memory() -> (usize, usize, usize) {
     #[cfg(windows)]
     {
         #[repr(C)]
@@ -40,23 +40,24 @@ pub fn process_memory() -> (usize, usize) {
         }
         let mut c = Counters { cb: std::mem::size_of::<Counters>() as u32, ..Default::default() };
         unsafe { K32GetProcessMemoryInfo(GetCurrentProcess(), &mut c, c.cb) };
-        (c.private_usage, c.working_set)
+        (c.private_usage, c.working_set, c.peak_working_set)
     }
     #[cfg(not(windows))]
     {
-        (0, 0)
+        (0, 0, 0)
     }
 }
 
 const GIB: f64 = (1u64 << 30) as f64;
 
 pub fn memory_line(video: &Video) -> String {
-    let (private, working) = process_memory();
+    let (private, working, peak_working) = process_memory();
     let (free, total) = crate::gpu::Gpu::new().and_then(|g| g.memory()).unwrap_or((0, 0));
-    let (allocated, reserved) = video.runtime().memory(crate::gpu::DEVICE);
-    format!("RAM private {:.2} GiB, working set {:.2} GiB, pinned (offloaded) {:.2} GiB | GPU used {:.2} GiB, torch allocated {:.2} reserved {:.2} GiB",
-            private as f64 / GIB, working as f64 / GIB, video.pinned_bytes() as f64 / GIB,
-            (total - free) as f64 / GIB, allocated as f64 / GIB, reserved as f64 / GIB)
+    let (allocated, reserved, peak) = video.runtime().memory_peak(crate::gpu::DEVICE);
+    format!("RAM private {:.2} GiB, working set {:.2} (at most {:.2}) GiB, pinned (offloaded) {:.2} GiB | GPU used {:.2} GiB, torch allocated {:.2} reserved {:.2} (at most {:.2}) GiB, KV on the GPU {:.2} GiB",
+            private as f64 / GIB, working as f64 / GIB, peak_working as f64 / GIB, video.pinned_bytes() as f64 / GIB,
+            (total - free) as f64 / GIB, allocated as f64 / GIB, reserved as f64 / GIB, peak as f64 / GIB,
+            video.kv_device_bytes() as f64 / GIB)
 }
 
 #[cfg(feature = "debug-tools")]
@@ -200,6 +201,11 @@ pub fn bench((mut video, mut t5, embeddings): (Video, T5, DeviceBuffer), prompt:
     if !steady.is_empty() {
         let s: f64 = steady.iter().map(|t| t.0).sum::<f64>() / steady.len() as f64;
         println!("steady chunk: {s:.3} s, {:.2} fps", steady[0].1 as f64 / s);
+    }
+    // a prompt changed while the video goes on, as the tutor changes it: T5 and the cross-attention keys
+    for text in ["A red fox walks through a snowy forest at dusk", "A sailing boat on a calm sea at sunrise"] {
+        let t = crate::set_prompt(&mut video, &mut t5, &embeddings, &Prompt { cut: Cut::Same, text: text.into() })?;
+        println!("prompt change: {:.0} ms", t * 1e3);
     }
     println!("{}", memory_line(&video));
     Ok(())

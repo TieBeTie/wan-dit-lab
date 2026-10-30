@@ -1,0 +1,22 @@
+{
+  "mode": "offline",
+  "build": "release",
+  "recalibrate": false,
+  "size": "512x928",
+  "prompt": "A lone oak tree on a grassy hill sways in the wind",
+  "seed": 0,
+  "offloading": {
+    "enabled": true,
+    "calibrate": true,
+    "resources": {
+      "block_weights": "auto",
+      "kv_cache": "auto"
+    },
+    "copy_spare": 1.1,
+    "vram_margin_gib": 1.5,
+    "t5_activations_gib": 0.33,
+    "t5": {
+      "resident_gib": 1.0
+    }
+  }
+}

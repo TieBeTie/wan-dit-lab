@@ -204,6 +204,15 @@ impl Event {
     pub fn synchronize(&self) -> Result<()> {
         unsafe { result::event::synchronize(self.0) }
     }
+
+    /// Whether the GPU has reached the event, without waiting for it.
+    pub fn done(&self) -> Result<bool> {
+        match unsafe { sys::cuEventQuery(self.0) } {
+            sys::CUresult::CUDA_SUCCESS => Ok(true),
+            sys::CUresult::CUDA_ERROR_NOT_READY => Ok(false),
+            e => Err(e.result().unwrap_err().into()),
+        }
+    }
 }
 
 impl Drop for Event {
