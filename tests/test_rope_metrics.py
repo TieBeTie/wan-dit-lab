@@ -4,7 +4,7 @@ import pytest
 import torch
 
 from wan_dit_lab import harness
-from wan_dit_lab.harness.checks import block_accuracy_gate, error_metrics, regression_check
+from wan_dit_lab.harness.checks import block_accuracy_gate, repeated_block_accuracy_gate, error_metrics, regression_check
 
 
 def test_error_metrics_are_finite_even_at_zero_reference():
@@ -48,6 +48,16 @@ def test_block_accuracy_gate_has_an_independent_reference_and_fails_bad_outputs(
     assert not block_accuracy_gate(reference + .001, reference, reference, .05)["passed"]
     assert not block_accuracy_gate(torch.full_like(reference, float("nan")),
                                    baseline, reference, .05)["passed"]
+
+
+def test_repeated_gate_compares_all_candidates_to_the_observed_baseline_envelope():
+    reference = torch.ones(4)
+    baseline = [reference + .01, reference + .02]
+    assert repeated_block_accuracy_gate([reference + .019] * 2, baseline, reference, .05)["passed"]
+    assert not repeated_block_accuracy_gate([reference + .019, reference + .04], baseline, reference, .05)["passed"]
+    assert not repeated_block_accuracy_gate([reference * float("nan")], baseline, reference, .05)["passed"]
+    with pytest.raises(ValueError, match="samples"):
+        repeated_block_accuracy_gate([], baseline, reference, .05)
 
 
 def test_paired_ratios_cannot_hide_regression_of_reported_medians():

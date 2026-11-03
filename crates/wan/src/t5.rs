@@ -9,7 +9,9 @@ use std::collections::VecDeque;
 use std::fs::File;
 use std::path::Path;
 
-use aoti::{DType, Output, Runtime, Tensor};
+use aoti::{DType, Output, Runtime};
+#[cfg(feature = "debug-tools")]
+use aoti::Tensor;
 use tokenizers::Tokenizer;
 
 use crate::config::T5Weights;
@@ -64,12 +66,6 @@ impl T5 {
     }
 
     /// The ids of the prompt's tokens (with the end token), at most text_len - 1 (the packages take no more).
-    /// debug-tools: the waits for its rows' copies from the disk that the GPU has passed since the last call.
-    #[cfg(feature = "debug-tools")]
-    pub fn copy_waits(&self) -> Result<crate::rows::CopyWaits> {
-        Ok(self.rows.passed_copy_waits()?)
-    }
-
     pub fn tokens(&self, prompt: &str) -> Result<Vec<u32>> {
         let encoding = self.tokenizer.encode(clean(prompt), true).map_err(|e| e.to_string())?;
         let mut ids = encoding.get_ids().to_vec();
@@ -109,7 +105,7 @@ impl T5 {
         self.rows.unpark()?;
         let mut kept_output: Option<Output> = None;
         for b in 0..self.spec.blocks {
-            let row = self.rows.row(b, stream)?;
+            let row = self.rows.row::<false>(b, stream)?;
             let next = self.block.run(&[row, hidden, mask_tensor], stream.raw())?.remove(0);
             self.rows.release(b, stream)?;
             hidden = *next;
@@ -134,6 +130,7 @@ impl T5 {
         [1, self.text_len as i64, self.dim as i64]
     }
 
+    #[cfg(feature = "debug-tools")]
     pub fn tensor(&self, out: &DeviceBuffer) -> Tensor {
         out.tensor(0, DType::F32, &self.shape())
     }
@@ -162,7 +159,7 @@ mod tests {
             .map(|n| crate::root().join("ops").join("build").join(format!("{n}.dll"))).collect();
         let runtime = aoti::Runtime::load(&aoti::Runtime::default_torch_lib(), &operators).unwrap();
         GPU.get_or_init(|| crate::gpu::Gpu::new().unwrap()).bind().unwrap();
-        let directory = crate::root().join("artifacts").join("live").join("480x864");
+        let directory = crate::root().join("artifacts/live/512x928");
         let m = crate::manifest::Manifest::read(&directory).unwrap();
         let stream = Stream::new().unwrap();
         let free = || cudarc::driver::result::mem_get_info().unwrap().0;
@@ -177,7 +174,7 @@ mod tests {
         assert!(resident > 0);
         assert!(taken >= resident * row && taken < resident * row + row,
                 "{taken} bytes of T5 on the GPU between prompts, {resident} rows of {row} in its budget");
-        let file = std::fs::File::open(directory.join("reference.safetensors")).unwrap();
+        let file = std::fs::File::open(crate::root().join("artifacts/live/480x864/reference.safetensors")).unwrap();
         let map = unsafe { memmap2::Mmap::map(&file).unwrap() };
         let r = safetensors::SafeTensors::deserialize(&map).unwrap();
         let (_, meta) = safetensors::SafeTensors::read_metadata(&map).unwrap();

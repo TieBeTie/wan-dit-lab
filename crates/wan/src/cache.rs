@@ -8,7 +8,36 @@
 //! next shot). Of causal.KVCache only what Live runs is here: no Participative Compression, no positions in the
 //! window, no forgetting, no Forcing-KV.
 
-use crate::gpu::{DeviceBuffer, Event, PinnedBuffer, Result, Stream};
+use crate::gpu::{DeviceBuffer, Event, PinnedBuffer, Stream};
+
+use crate::video::Result;
+
+pub fn check_host_capacity(required: usize, available: usize) -> crate::video::Result<()> {
+    if required > available {
+        return Err(format!("native buffers need {:.2} GiB pinned RAM, only {:.2} GiB available above the RAM reserve; reduce context/resolution or choose disk backing",
+            required as f64 / (1u64 << 30) as f64, available as f64 / (1u64 << 30) as f64).into());
+    }
+    Ok(())
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Format { Fp8, Bf16 }
+
+impl Format {
+    pub fn token_bytes(self, heads: usize, dim: usize) -> [usize; 4] {
+        let value = heads * dim * if self == Self::Bf16 { 2 } else { 1 };
+        // Keep the package's four-tensor ABI. Dense attention ignores the scales.
+        [value, heads * 4, value, heads * 4]
+    }
+
+    pub fn bytes(self, tokens: usize, heads: usize, dim: usize) -> usize {
+        tokens * self.token_bytes(heads, dim).iter().sum::<usize>()
+    }
+
+    fn dtype(self) -> aoti::DType {
+        match self { Self::Fp8 => aoti::DType::F8E4M3, Self::Bf16 => aoti::DType::BF16 }
+    }
+}
 
 /// Where a chunk goes and what keeping it copies.
 #[derive(Clone, Debug)]
@@ -117,18 +146,19 @@ impl Ring {
     }
 }
 
-/// The FP8 keys and values of one block with their scales, [1, tokens, heads, head_dim] and [1, tokens, heads, 1].
+/// FP8 or BF16 keys and values, with scale tensors retained for the shared package ABI.
 pub struct Buffers {
     pub k: DeviceBuffer,
     pub ks: DeviceBuffer,
     pub v: DeviceBuffer,
     pub vs: DeviceBuffer,
     pub shape: [i64; 4],
+    pub format: Format,
 }
 
 impl Buffers {
-    pub fn new(tokens: usize, heads: usize, head_dim: usize, stream: &Stream) -> Result<Buffers> {
-        let values = tokens * heads * head_dim;
+    pub fn new(tokens: usize, heads: usize, head_dim: usize, format: Format, stream: &Stream) -> Result<Buffers> {
+        let values = tokens * format.token_bytes(heads, head_dim)[0];
         let scales = tokens * heads * 4;
         Ok(Buffers {
             k: DeviceBuffer::zeroed(values, stream)?,
@@ -136,6 +166,7 @@ impl Buffers {
             v: DeviceBuffer::zeroed(values, stream)?,
             vs: DeviceBuffer::zeroed(scales, stream)?,
             shape: [1, tokens as i64, heads as i64, head_dim as i64],
+            format,
         })
     }
 
@@ -143,9 +174,9 @@ impl Buffers {
     pub fn tensors(&self) -> [aoti::Tensor; 4] {
         let [b, t, h, d] = self.shape;
         [
-            self.k.tensor(0, aoti::DType::F8E4M3, &[b, t, h, d]),
+            self.k.tensor(0, self.format.dtype(), &[b, t, h, d]),
             self.ks.tensor(0, aoti::DType::F32, &[b, t, h, 1]),
-            self.v.tensor(0, aoti::DType::F8E4M3, &[b, t, h, d]),
+            self.v.tensor(0, self.format.dtype(), &[b, t, h, d]),
             self.vs.tensor(0, aoti::DType::F32, &[b, t, h, 1]),
         ]
     }
@@ -153,7 +184,7 @@ impl Buffers {
     /// Applies the copies of a commit on `stream`, after attention there has read the tokens.
     pub fn copy(&self, copies: &[Copy], stream: &Stream) -> Result<()> {
         let [_, _, h, d] = self.shape;
-        let value = (h * d) as usize; // bytes of a token in FP8
+        let value = self.format.token_bytes(h as usize, d as usize)[0];
         let scale = h as usize * 4;
         for c in copies {
             for (buffer, bytes) in [(&self.k, value), (&self.v, value), (&self.ks, scale), (&self.vs, scale)] {
@@ -171,6 +202,8 @@ impl Buffers {
 /// on streams of their own, a block ahead of compute.
 pub struct Offloaded {
     host: Vec<[PinnedBuffer; 4]>,
+    backing: Option<crate::kv_disk::Store>,
+    blocks: usize,
     slots: [Buffers; 2],
     holds: [usize; 2],
     loaded: [Event; 2],
@@ -191,20 +224,64 @@ pub struct Write<'a> {
 
 impl Offloaded {
     /// `blocks` empty caches of `tokens` in pinned RAM, never on the GPU, with two slots of their size.
-    pub fn new(blocks: usize, tokens: usize, heads: usize, head_dim: usize, compute: &Stream) -> Result<Offloaded> {
-        let sizes = [tokens * heads * head_dim, tokens * heads * 4, tokens * heads * head_dim, tokens * heads * 4];
+    pub fn new(blocks: usize, tokens: usize, heads: usize, head_dim: usize, format: Format, compute: &Stream) -> Result<Offloaded> {
+        let sizes = format.token_bytes(heads, head_dim).map(|b| b * tokens);
         let host = (0..blocks).map(|_| {
-            let buffers = sizes.map(PinnedBuffer::new);
+            let buffers = sizes.map(|size| { let mut p = PinnedBuffer::new(size)?; p.as_mut_slice().fill(0); Ok::<_, cudarc::driver::DriverError>(p) });
             let [k, ks, v, vs] = buffers;
             Ok([k?, ks?, v?, vs?])
         }).collect::<Result<Vec<_>>>()?;
-        Offloaded::with_host(host, tokens, heads, head_dim, compute)
+        Offloaded::with_host(host, tokens, heads, head_dim, format, compute)
+    }
+
+    pub fn new_disk(blocks: usize, tokens: usize, heads: usize, head_dim: usize, format: Format, compute: &Stream) -> Result<Self> {
+        let mut cache = Self::new(2, tokens, heads, head_dim, format, compute)?;
+        cache.backing = Some(crate::kv_disk::Store::new(blocks * format.bytes(tokens, heads, head_dim))?);
+        cache.blocks = blocks;
+        cache.written = (0..blocks).map(|_| Event::new()).collect::<std::result::Result<_, _>>()?;
+        Ok(cache)
+    }
+    /// Measure actual KV uploads rather than extrapolating the weight-pack bandwidth.
+    pub fn time_copy(&self) -> Result<f32> {
+        self.synchronize()?;
+        let bytes = self.token_bytes();
+        let (start, end) = (Event::timed()?, Event::timed()?);
+        let mut times = Vec::new();
+        for _ in 0..3 {
+            start.record(&self.up)?;
+            for (i, device) in [&self.slots[0].k, &self.slots[0].ks, &self.slots[0].v, &self.slots[0].vs].iter().enumerate() {
+                self.up.copy_to_device(device.ptr, &self.host[0][i].as_slice()[..self.read * bytes[i]])?;
+            }
+            end.record(&self.up)?; end.synchronize()?;
+            times.push(start.elapsed_ms(&end)?);
+        }
+        times.sort_by(f32::total_cmp);
+        Ok(times[1])
+    }
+    pub fn is_disk(&self) -> bool { self.backing.is_some() }
+    pub fn disk_bytes(&self) -> (u64, u64) {
+        self.backing.as_ref().map_or((0, 0), |s| (s.read_bytes, s.written))
+    }
+    /// Evict at a chunk boundary. Reuse two existing pinned blocks: no extra RAM peak.
+    pub fn to_disk(&mut self) -> Result<()> {
+        if self.is_disk() { return Ok(()); }
+        self.synchronize()?;
+        let row: usize = self.host[0].iter().map(|p| p.bytes).sum();
+        let mut store = crate::kv_disk::Store::new(self.blocks * row)?;
+        for (b, host) in self.host.iter().enumerate() {
+            let mut offset = b * row;
+            for p in host { store.write(offset, p.as_slice())?; offset += p.bytes; }
+        }
+        self.host.truncate(2);
+        self.backing = Some(store);
+        Ok(())
     }
 
     /// The caches of `resident` moved to pinned RAM (their GPU memory freed), with two slots of their size.
     pub fn from_resident(resident: Vec<Buffers>, compute: &Stream) -> Result<Offloaded> {
         compute.synchronize()?;
         let shape = resident[0].shape;
+        let format = resident[0].format;
         let [_, tokens, heads, head_dim] = shape.map(|s| s as usize);
         let mut host = Vec::with_capacity(resident.len());
         for cache in resident {
@@ -217,37 +294,41 @@ impl Offloaded {
             compute.synchronize()?; // before the device buffers go
             host.push(pinned.try_into().ok().unwrap());
         }
-        Offloaded::with_host(host, tokens, heads, head_dim, compute)
+        Offloaded::with_host(host, tokens, heads, head_dim, format, compute)
     }
 
-    fn with_host(host: Vec<[PinnedBuffer; 4]>, tokens: usize, heads: usize, head_dim: usize, compute: &Stream)
+    fn with_host(host: Vec<[PinnedBuffer; 4]>, tokens: usize, heads: usize, head_dim: usize, format: Format, compute: &Stream)
         -> Result<Offloaded> {
         let blocks = host.len();
-        Ok(Offloaded {
+        let cache = Offloaded {
             host,
-            slots: [Buffers::new(tokens, heads, head_dim, compute)?, Buffers::new(tokens, heads, head_dim, compute)?],
+            backing: None,
+            blocks,
+            slots: [Buffers::new(tokens, heads, head_dim, format, compute)?, Buffers::new(tokens, heads, head_dim, format, compute)?],
             holds: [usize::MAX; 2],
             loaded: [Event::new()?, Event::new()?],
             freed: [Event::new()?, Event::new()?],
-            written: (0..blocks).map(|_| Event::new()).collect::<Result<_>>()?,
+            written: (0..blocks).map(|_| Event::new()).collect::<std::result::Result<_, _>>()?,
             up: Stream::new()?,
             down: Stream::new()?,
             read: 0,
             next: 0,
-        })
+        };
+        compute.synchronize()?; // slot zeroing precedes copies on the independent transfer streams
+        Ok(cache)
     }
 
-    /// Bytes of one token in the four buffers: a key or value in FP8, a scale in float32.
+    /// Bytes of one token in the four buffers, using the slots' value format.
     fn token_bytes(&self) -> [usize; 4] {
         let [_, _, h, d] = self.slots[0].shape.map(|s| s as usize);
-        [h * d, h * 4, h * d, h * 4]
+        self.slots[0].format.token_bytes(h, d)
     }
 
     /// A pass that reads the tokens [0, read) of every cache begins: the first two blocks are loaded.
     pub fn begin_pass(&mut self, read: usize) -> Result<()> {
         self.read = read;
         self.next = 0;
-        for slot in 0..2.min(self.host.len()) {
+        for slot in 0..2.min(self.blocks) {
             self.load(slot)?;
         }
         Ok(())
@@ -259,12 +340,25 @@ impl Offloaded {
         // after the block that used the slot is done with it, and after this block's last write reached RAM
         self.up.wait(&self.freed[slot])?;
         self.up.wait(&self.written[b])?;
+        let h = if self.backing.is_some() { slot } else { b };
+        if self.backing.is_some() {
+            self.up.synchronize()?;
+            self.down.synchronize()?;
+            let sizes = self.host[h].each_ref().map(|p| p.bytes);
+            let row: usize = sizes.iter().sum();
+            let token_bytes = self.token_bytes();
+            let mut offset = b * row;
+            for i in 0..4 {
+                self.backing.as_mut().unwrap().read(offset, &mut self.host[h][i].as_mut_slice()[..self.read * token_bytes[i]])?;
+                offset += sizes[i];
+            }
+        }
         let bytes = self.token_bytes();
         let device = [&self.slots[slot].k, &self.slots[slot].ks, &self.slots[slot].v, &self.slots[slot].vs];
         for i in 0..4 {
             let count = self.read * bytes[i];
             if count > 0 {
-                self.up.copy_to_device(device[i].ptr, &self.host[b][i].as_slice()[..count])?;
+                self.up.copy_to_device(device[i].ptr, &self.host[h][i].as_slice()[..count])?;
             }
         }
         self.loaded[slot].record(&self.up)?;
@@ -296,11 +390,25 @@ impl Offloaded {
                 };
                 let bytes = self.token_bytes();
                 let device = [self.slots[slot].k.ptr, self.slots[slot].ks.ptr, self.slots[slot].v.ptr, self.slots[slot].vs.ptr];
-                for (start, count) in ranges {
+                let h = if self.backing.is_some() { slot } else { b };
+                for &(start, count) in &ranges {
                     for i in 0..4 {
                         let (from, len) = (start * bytes[i], count * bytes[i]);
-                        let host = &mut self.host[b][i].as_mut_slice()[from..from + len];
+                        let host = &mut self.host[h][i].as_mut_slice()[from..from + len];
                         self.down.copy_to_host(host, device[i] + from as u64)?;
+                    }
+                }
+                if self.backing.is_some() {
+                    self.down.synchronize()?;
+                    let sizes = self.host[h].each_ref().map(|p| p.bytes);
+                    let row: usize = sizes.iter().sum();
+                    for (start, count) in ranges {
+                        let mut offset = b * row;
+                        for i in 0..4 {
+                            let from = start * bytes[i];
+                            self.backing.as_mut().unwrap().write(offset + from, &self.host[h][i].as_slice()[from..from + count * bytes[i]])?;
+                            offset += sizes[i];
+                        }
                     }
                 }
                 self.written[b].record(&self.down)?;
@@ -308,26 +416,22 @@ impl Offloaded {
             }
             None => self.freed[slot].record(compute)?,
         }
-        if self.next < self.host.len() {
+        if self.next < self.blocks {
             self.load(slot)?;
         }
         Ok(())
     }
 
-    /// Bytes of a block's cache that a pass with the ring full reads: `max_tokens` tokens of keys, values, scales.
-    pub fn bytes_read(max_tokens: usize, heads: usize, head_dim: usize) -> usize {
-        max_tokens * 2 * heads * (head_dim + 4)
-    }
-
     /// The caches back on the GPU (the calibration found their copies could not hide), the pinned RAM freed.
     pub fn into_resident(self, compute: &Stream) -> Result<Vec<Buffers>> {
+        if self.is_disk() { return Err("disk KV must stay streamed during calibration".into()); }
         compute.synchronize()?;
         self.up.synchronize()?;
         self.down.synchronize()?;
         let [_, tokens, heads, head_dim] = self.slots[0].shape.map(|s| s as usize);
         let mut caches = Vec::with_capacity(self.host.len());
         for host in &self.host {
-            let cache = Buffers::new(tokens, heads, head_dim, compute)?;
+            let cache = Buffers::new(tokens, heads, head_dim, self.slots[0].format, compute)?;
             for (device, pinned) in [&cache.k, &cache.ks, &cache.v, &cache.vs].into_iter().zip(host) {
                 compute.copy_to_device(device.ptr, pinned.as_slice())?;
             }
@@ -349,20 +453,55 @@ impl Offloaded {
     /// Waits for every copy to and from the slots.
     pub fn synchronize(&self) -> Result<()> {
         self.up.synchronize()?;
-        self.down.synchronize()
+        Ok(self.down.synchronize()?)
     }
 
     /// A copy of the caches in RAM, once every copy back is done (tests).
     #[cfg(test)]
-    pub fn clone_host(&self) -> Result<Vec<[Vec<u8>; 4]>> {
+    pub fn clone_host(&mut self) -> Result<Vec<[Vec<u8>; 4]>> {
         self.synchronize()?;
+        if let Some(store) = &mut self.backing {
+            let sizes = self.host[0].each_ref().map(|p| p.bytes);
+            let row: usize = sizes.iter().sum();
+            let mut result = Vec::new();
+            for b in 0..self.blocks {
+                let mut host = sizes.map(|n| vec![0; n]);
+                let mut offset = b * row;
+                for bytes in &mut host { store.read(offset, bytes)?; offset += bytes.len(); }
+                result.push(host);
+            }
+            return Ok(result);
+        }
         Ok(self.host.iter().map(|h| [0, 1, 2, 3].map(|i| h[i].as_slice().to_vec())).collect())
+    }
+}
+
+impl Drop for Offloaded {
+    fn drop(&mut self) {
+        // Error paths must not free pinned buffers while a DMA still uses them.
+        let _ = self.up.synchronize();
+        let _ = self.down.synchronize();
     }
 }
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn oversized_pinned_cache_fails_before_allocation() {
+        let required = Format::Bf16.bytes(32 * 22 * 40, 24, 128) * 30;
+        assert_eq!(required, 10_543_104_000);
+        let error = check_host_capacity(required, 8 << 30).unwrap_err().to_string();
+        assert!(error.contains("9.82") && error.contains("RAM"), "{error}");
+        assert!(check_host_capacity(1 << 30, 2 << 30).is_ok());
+    }
     use super::*;
+
+    #[test]
+    fn dense_cache_accounts_for_two_bytes_per_value_in_every_transfer() {
+        assert_eq!(Format::Bf16.token_bytes(24, 128), [6144, 96, 6144, 96]);
+        assert_eq!(Format::Fp8.token_bytes(24, 128), [3072, 96, 3072, 96]);
+        assert_eq!(Format::Bf16.bytes(100, 24, 128), 1_248_000);
+    }
 
     #[derive(serde::Deserialize)]
     struct Commit {
@@ -438,5 +577,57 @@ mod tests {
         assert_eq!(copies.iter().map(|c| c.count).sum::<usize>(), 3240);
         assert!(copies.len() <= 8, "{} copies for a chunk of 8 frames", copies.len());
         assert_eq!(ring.step(), 3);
+    }
+}
+
+#[cfg(test)]
+mod disk_gpu_tests {
+    use super::*;
+    #[test]
+    #[ignore = "requires CUDA; bounded transfer integration, no model packages"]
+    fn disk_and_ram_match_after_commits_and_eviction() {
+        let gpu = crate::gpu::Gpu::new().unwrap(); gpu.bind().unwrap();
+        let compute = Stream::new().unwrap();
+        for format in [Format::Fp8, Format::Bf16] {
+            let mut ram = Offloaded::new(3, 8, 2, 4, format, &compute).unwrap();
+            let mut disk = Offloaded::new_disk(3, 8, 2, 4, format, &compute).unwrap();
+            for round in 0..4 {
+                for cache in [&mut ram, &mut disk] {
+                    let previous = cache.clone_host().unwrap();
+                    cache.begin_pass(8).unwrap();
+                    for b in 0..3 {
+                        cache.tensors(b, &compute).unwrap();
+                        let slot = cache.holds.iter().position(|&h| h == b).unwrap();
+                        let sizes = cache.token_bytes();
+                        for (i, device) in [&cache.slots[slot].k, &cache.slots[slot].ks, &cache.slots[slot].v, &cache.slots[slot].vs].iter().enumerate() {
+                            let mut loaded = vec![0; device.bytes];
+                            compute.copy_to_host(&mut loaded, device.ptr).unwrap(); compute.synchronize().unwrap();
+                            assert_eq!(loaded, previous[b][i]);
+                        }
+                        for (i, device) in [&cache.slots[slot].k, &cache.slots[slot].ks, &cache.slots[slot].v, &cache.slots[slot].vs].iter().enumerate() {
+                            let bytes = vec![(round * 30 + b * 4 + i) as u8; 2 * sizes[i]];
+                            compute.copy_to_device(device.ptr + (round * 2 * sizes[i]) as u64, &bytes).unwrap();
+                            compute.synchronize().unwrap();
+                        }
+                        cache.end_block(b, &compute, Some(&Write { at: round * 2, n: 2, copies: &[] })).unwrap();
+                    }
+                }
+                assert_eq!(ram.clone_host().unwrap(), disk.clone_host().unwrap());
+            }
+            assert_eq!(disk.pinned_bytes(), 2 * format.bytes(8, 2, 4));
+            assert_eq!(disk.disk_bytes().1, (3 * format.bytes(8, 2, 4)) as u64);
+            // Ring compaction persists copied destinations, including across slot reuse.
+            for cache in [&mut ram, &mut disk] {
+                cache.begin_pass(8).unwrap();
+                for b in 0..3 {
+                    cache.tensors(b, &compute).unwrap();
+                    cache.end_block(b, &compute, Some(&Write { at: 6, n: 2,
+                        copies: &[Copy { src: 6, dst: 2, count: 2 }] })).unwrap();
+                }
+            }
+            assert_eq!(ram.clone_host().unwrap(), disk.clone_host().unwrap());
+            ram.to_disk().unwrap();
+            assert_eq!(ram.clone_host().unwrap(), disk.clone_host().unwrap());
+        }
     }
 }

@@ -1,0 +1,93 @@
+{
+  "source": "Three duration variants of the original astronaut and apple prompts.",
+  "chunks": 1,
+  "chains": [
+    {
+      "id": "astronaut_2_2_3_4",
+      "camera": "Medium close-up shot, static camera",
+      "steps": [
+        {
+          "cut": "new",
+          "card": "A single astronaut in a white spacesuit with a gold reflective visor floats inside a space station close to the camera and fills most of the frame. Behind the astronaut a large round window shows the blue Earth.",
+          "action": "The astronaut slowly turns in the air, the hoses of the suit drift.",
+          "light": "artificial lighting, soft light",
+          "chunks": 8
+        },
+        {
+          "action": "A red apple flies into the frame from the left, moving toward the astronaut.",
+          "chunks": 2
+        },
+        {
+          "action": "A red apple floats in front of the astronaut at arm's length, to the left of the visor.",
+          "chunks": 2
+        },
+        {
+          "action": "The astronaut reaches toward the red apple with a gloved hand and grasps it.",
+          "chunks": 3
+        },
+        {
+          "action": "The astronaut holds the red apple in a gloved hand.",
+          "chunks": 4
+        }
+      ]
+    },
+    {
+      "id": "astronaut_3_3_4_5",
+      "camera": "Medium close-up shot, static camera",
+      "steps": [
+        {
+          "cut": "new",
+          "card": "A single astronaut in a white spacesuit with a gold reflective visor floats inside a space station close to the camera and fills most of the frame. Behind the astronaut a large round window shows the blue Earth.",
+          "action": "The astronaut slowly turns in the air, the hoses of the suit drift.",
+          "light": "artificial lighting, soft light",
+          "chunks": 8
+        },
+        {
+          "action": "A red apple flies into the frame from the left, moving toward the astronaut.",
+          "chunks": 3
+        },
+        {
+          "action": "A red apple floats in front of the astronaut at arm's length, to the left of the visor.",
+          "chunks": 3
+        },
+        {
+          "action": "The astronaut reaches toward the red apple with a gloved hand and grasps it.",
+          "chunks": 4
+        },
+        {
+          "action": "The astronaut holds the red apple in a gloved hand.",
+          "chunks": 5
+        }
+      ]
+    },
+    {
+      "id": "astronaut_4_4_5_6",
+      "camera": "Medium close-up shot, static camera",
+      "steps": [
+        {
+          "cut": "new",
+          "card": "A single astronaut in a white spacesuit with a gold reflective visor floats inside a space station close to the camera and fills most of the frame. Behind the astronaut a large round window shows the blue Earth.",
+          "action": "The astronaut slowly turns in the air, the hoses of the suit drift.",
+          "light": "artificial lighting, soft light",
+          "chunks": 8
+        },
+        {
+          "action": "A red apple flies into the frame from the left, moving toward the astronaut.",
+          "chunks": 4
+        },
+        {
+          "action": "A red apple floats in front of the astronaut at arm's length, to the left of the visor.",
+          "chunks": 4
+        },
+        {
+          "action": "The astronaut reaches toward the red apple with a gloved hand and grasps it.",
+          "chunks": 5
+        },
+        {
+          "action": "The astronaut holds the red apple in a gloved hand.",
+          "chunks": 6
+        }
+      ]
+    }
+  ]
+}

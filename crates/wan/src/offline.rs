@@ -13,49 +13,9 @@ use std::path::Path;
 use live_protocol::Cut;
 use serde_json::Value;
 
-#[derive(Clone, Debug, PartialEq)]
-pub struct Step {
-    pub cut: Cut,
-    pub text: String,
-    pub chunks: usize,
-}
-
-/// The steps of `chain`, each prompt written out whole; `chunks` a prompt by default, `root` the repository.
-pub fn chain_steps(chain: &Value, chunks: usize, root: &Path) -> Result<Vec<Step>, String> {
-    let chunks = chain["chunks"].as_u64().map_or(chunks, |c| c as usize);
-    if let Some(reference) = chain["ref"].as_str() {
-        let (file, line) = reference.rsplit_once('#').ok_or(format!("{reference}: no #line"))?;
-        let text = std::fs::read_to_string(root.join(file)).map_err(|e| format!("{file}: {e}"))?;
-        let line: usize = line.parse().map_err(|_| format!("{reference}: the line is not a number"))?;
-        let row: Value = serde_json::from_str(text.lines().nth(line - 1).ok_or(format!("{reference}: no such line"))?)
-            .map_err(|e| format!("{reference}: {e}"))?;
-        let prompts = row["prompts"].as_array().ok_or(format!("{reference}: no prompts"))?;
-        return Ok(prompts.iter().enumerate()
-            .map(|(i, p)| Step { cut: if i == 0 { Cut::New } else { Cut::Same }, text: p.as_str().unwrap_or("").into(), chunks })
-            .collect());
-    }
-    let (mut card, mut light) = (None::<String>, None::<String>);
-    let mut steps = Vec::new();
-    for (i, s) in chain["steps"].as_array().ok_or("a chain has steps or a ref")?.iter().enumerate() {
-        let cut = match s["cut"].as_str().unwrap_or(if i == 0 { "new" } else { "same" }) {
-            "new" => Cut::New,
-            "same" => Cut::Same,
-            "scene" => Cut::Scene,
-            other => return Err(format!("unknown cut {other}")),
-        };
-        let text = if let Some(t) = s["text"].as_str() {
-            t.to_string()
-        } else {
-            if let Some(c) = s["card"].as_str() { card = Some(c.into()); }
-            if let Some(l) = s["light"].as_str() { light = Some(l.into()); }
-            let camera: Vec<&str> = [chain["camera"].as_str(), light.as_deref()].into_iter().flatten().collect();
-            let action = s["action"].as_str().ok_or(format!("step {i}: no text and no action"))?;
-            format!("{} {action} {}.", card.as_deref().ok_or(format!("step {i}: no card"))?, camera.join(", "))
-        };
-        steps.push(Step { cut, text, chunks: s["chunks"].as_u64().map_or(chunks, |c| c as usize) });
-    }
-    Ok(steps)
-}
+use crate::prompts::Step;
+#[cfg(test)]
+use crate::prompts::chain_steps;
 
 fn cut_name(cut: Cut) -> &'static str {
     match cut { Cut::New => "new", Cut::Same => "same", Cut::Scene => "scene" }
@@ -65,13 +25,14 @@ fn cut_name(cut: Cut) -> &'static str {
 /// of the packages, `calibration` the placement kept beside them, and each chain's steps with the second they begin
 /// (a chunk is `frames_per_chunk` frames at `fps`).
 pub fn snapshot(config: &str, args: &[String], packages: &str, calibration: Option<&str>,
-                chains: &[(String, Vec<Step>)], fps: f64, frames_per_chunk: usize) -> Value {
+                chains: &[(String, Vec<Step>)], fps: f64, frames_per_chunk: usize, decoder_trim: usize) -> Value {
     let parse = |t: &str| serde_json::from_str::<Value>(t).unwrap_or(Value::String(t.into()));
     let chains: serde_json::Map<String, Value> = chains.iter().map(|(id, steps)| {
-        let mut chunks = 0;
-        let steps: Vec<Value> = steps.iter().map(|s| {
-            let begins = (chunks * frames_per_chunk) as f64 / fps;
-            chunks += s.chunks;
+        let mut frames = 0;
+        let steps: Vec<Value> = steps.iter().enumerate().map(|(i, s)| {
+            let begins = frames as f64 / fps;
+            let made = s.chunks * frames_per_chunk;
+            frames += made - if i == 0 || s.cut == Cut::New { decoder_trim.min(made) } else { 0 };
             serde_json::json!({"cut": cut_name(s.cut), "text": s.text, "chunks": s.chunks, "begins_s": begins})
         }).collect();
         (id.clone(), Value::Array(steps))
@@ -108,66 +69,87 @@ fn stamp() -> String {
 
 /// The chains `ids` of configs/prompts/demo_chains.json (all of them when empty) into
 /// ~/Documents/Experiments/DIT/outputs/demo_chains/<time>/<id>.mp4, with run.json beside them.
-pub fn run(args: &crate::Args, config_text: &str, argv: &[String],
-           (mut video, mut t5, embeddings): (crate::Video, crate::T5, crate::DeviceBuffer)) -> crate::Result<()> {
+pub fn run<M: crate::telemetry::Probe>(args: &crate::Args, loaded: (crate::Video, crate::T5, crate::DeviceBuffer), metrics: M) -> crate::Result<()> {
     use std::io::Write;
-    let root = crate::root();
-    let pool: Value = serde_json::from_str(&std::fs::read_to_string(root.join("configs/prompts/demo_chains.json"))?)?;
-    let chunks = pool["chunks"].as_u64().unwrap_or(8) as usize;
-    let mut chains = Vec::new();
-    for chain in pool["chains"].as_array().ok_or("demo_chains.json has no chains")? {
-        let id = chain["id"].as_str().unwrap_or("").to_string();
-        if args.chains.is_empty() || args.chains.contains(&id) {
-            chains.push((id, chain_steps(chain, chunks, &root)?));
-        }
-    }
-    for id in &args.chains {
-        if !chains.iter().any(|(c, _)| c == id) {
-            return Err(format!("no chain {id} in demo_chains.json").into());
-        }
-    }
-    let home = std::env::var("USERPROFILE").map_err(|_| "no USERPROFILE")?;
-    let out = Path::new(&home).join("Documents/Experiments/DIT/outputs/demo_chains").join(stamp());
+    use crate::config::PromptSource;
+    use crate::generation::Generator;
+    let g = &args.pipeline.generate;
+    let output = g.output.as_ref().ok_or("offline output is required")?;
+    let mut sequences = crate::generation::sequences(&g.prompts)?;
+    let home = std::path::PathBuf::from(std::env::var("USERPROFILE")?);
+    let directory = if let Ok(relative) = output.directory.strip_prefix("outputs") {
+        home.join("Documents/Experiments/DIT/outputs").join(relative)
+    } else { crate::root().join(&output.directory) };
+    let out = directory.join(format!("{}-{}", stamp(), std::process::id()));
     std::fs::create_dir_all(&out)?;
-    let (h, w, fps) = (video.m.height, video.m.width, video.m.fps);
-    let frames_per_chunk = video.m.chunk * 4;
-    let write_run = |video_dir: &Path| -> crate::Result<()> {
-        let packages = std::fs::read_to_string(args.packages.join("live.json"))?;
-        let calibration = std::fs::read_to_string(args.packages.join("calibration.json")).ok();
-        let run = snapshot(config_text, argv, &packages, calibration.as_deref(), &chains, fps, frames_per_chunk);
-        std::fs::write(video_dir.join("run.json"), serde_json::to_string_pretty(&run)?)?;
+    let mut generator = Generator::new(loaded)?.observe(metrics);
+    let (h,w,fps) = (generator.video.m.height, generator.video.m.width, generator.video.m.fps);
+    let argv: Vec<String> = std::env::args().collect();
+    let write_run = |sequences: &[crate::generation::Sequence]| -> crate::Result<()> {
+        let packages = std::fs::read_to_string(args.packages().join("live.json"))?;
+        let calibration = std::fs::read_to_string(args.packages().join("calibration.json")).ok();
+        let snapshot = snapshot(&args.pipeline.value().to_string(), &argv, &packages, calibration.as_deref(),
+                                sequences, fps, generator.video.m.chunk * 4, generator.video.m.decoder_trim);
+        std::fs::write(out.join("run.json"), serde_json::to_vec_pretty(&snapshot)?)?;
         Ok(())
     };
-    write_run(&out)?;
-    for (id, steps) in &chains {
-        let path = out.join(format!("{id}.mp4"));
-        let mut ffmpeg = std::process::Command::new("ffmpeg").args(ffmpeg_args(h, w, fps, &path))
-            .stdin(std::process::Stdio::piped()).spawn().map_err(|e| format!("ffmpeg: {e}"))?;
-        let mut input = ffmpeg.stdin.take().unwrap();
-        let start = std::time::Instant::now();
-        for step in steps {
-            crate::set_prompt(&mut video, &mut t5, &embeddings, &crate::Prompt { cut: step.cut, text: step.text.clone() })?;
-            if step.cut == Cut::New {
-                video.reset_decoder();
-            }
-            for _ in 0..step.chunks {
-                let x0 = video.next_chunk(None)?;
-                for frame in video.decode(&x0)? {
-                    input.write_all(&frame)?;
-                }
-            }
-        }
-        drop(input);
-        let status = ffmpeg.wait()?;
-        if !status.success() {
-            return Err(format!("ffmpeg failed on {id}: {status}").into());
-        }
-        println!("{}: {} chunks in {:.0} s", path.display(), steps.iter().map(|s| s.chunks).sum::<usize>(),
-                 start.elapsed().as_secs_f64());
+    write_run(&sequences)?;
+    let interactive = matches!(g.prompts, PromptSource::Interactive { .. });
+    let inbox = crate::prompts::Inbox::default();
+    if interactive {
+        inbox.listen(live_protocol::PORT)?;
+        let first = if let Some(p) = g.prompts.initial() { crate::Prompt { cut: Cut::New, text: p.into() } }
+            else { loop { if let Some(p) = inbox.take() { break p; } std::thread::sleep(std::time::Duration::from_millis(20)); } };
+        sequences.push(("interactive".into(), vec![Step { cut: first.cut, text: first.text, chunks: args.chunks }]));
     }
-    // again at the end: the calibration of the first chunks is in it now
-    write_run(&out)?;
+    let mut actual_sequences = Vec::new();
+    for (id, steps) in &sequences {
+        let mut actual_steps: Vec<Step> = Vec::new();
+        let path = out.join(format!("{id}.mp4"));
+        let mut a = ffmpeg_args(h,w,fps,&path);
+        // Encoding is explicit in the offline config; validation currently supports this codec/pixel format.
+        let at = a.iter().position(|s| s == "-crf").unwrap();
+        a[at + 1] = output.crf.to_string();
+        let mut child = std::process::Command::new("ffmpeg").args(a).stdin(std::process::Stdio::piped()).spawn()?;
+        let mut input = child.stdin.take().unwrap();
+        let mut emit = |frames: Vec<Vec<u8>>, _: &crate::Video, _: &str| -> crate::Result<()> {
+            for frame in frames { input.write_all(&frame)?; }
+            Ok(())
+        };
+        let result = if interactive {
+            (|| -> crate::Result<()> {
+                generator.request(crate::Prompt { cut: steps[0].cut, text: steps[0].text.clone() })?;
+                emit(generator.poll(true)?, &generator.video, &steps[0].text)?;
+                let mut revision = 0;
+                for _ in 0..args.chunks {
+                    if let Some(p) = inbox.take() { generator.request(p)?; }
+                    emit(generator.poll(false)?, &generator.video, "")?;
+                    if revision != generator.revision() {
+                        let p = generator.active().unwrap();
+                        actual_steps.push(Step { cut: p.cut, text: p.text.clone(), chunks: 0 });
+                        revision = generator.revision();
+                    }
+                    emit(generator.advance()?, &generator.video, "")?;
+                    actual_steps.last_mut().unwrap().chunks += 1;
+                }
+                emit(generator.flush()?, &generator.video, "")?;
+                Ok(())
+            })()
+        } else { generator.script(steps, &mut emit) };
+        drop(emit);
+        drop(input);
+        if let Err(e) = result { let _ = child.kill(); let _ = child.wait(); return Err(e); }
+        if !child.wait()?.success() { return Err(format!("ffmpeg failed on {id}").into()); }
+        actual_sequences.push((id.clone(), if interactive { actual_steps } else { steps.clone() }));
+        println!("{}", path.display());
+    }
+    let packages = std::fs::read_to_string(args.packages().join("live.json"))?;
+    let calibration = std::fs::read_to_string(args.packages().join("calibration.json")).ok();
+    let snapshot = snapshot(&args.pipeline.value().to_string(), &argv, &packages, calibration.as_deref(),
+                            &actual_sequences, fps, generator.video.m.chunk * 4, generator.video.m.decoder_trim);
+    std::fs::write(out.join("run.json"), serde_json::to_vec_pretty(&snapshot)?)?;
     println!("{}", out.display());
+    generator.finish_metrics()?;
     Ok(())
 }
 
@@ -219,13 +201,23 @@ mod tests {
         let steps = [step(Cut::New, "a fox", 8), step(Cut::Scene, "a beach", 6)];
         let run = snapshot(r#"{"mode": "offline", "seed": 0}"#, &["live".into(), "--chains".into(), "fox".into()],
                            r#"{"height": 512, "kernels": "sage"}"#, Some(r#"{"weights": "disk"}"#),
-                           &[("fox".into(), steps.to_vec())], 24.0, 32);
+                           &[("fox".into(), steps.to_vec())], 24.0, 32, 3);
         assert_eq!(run["config"]["mode"], "offline");
         assert_eq!(run["args"], json!(["live", "--chains", "fox"]));
         assert_eq!(run["packages"]["height"], 512);
         assert_eq!(run["calibration"]["weights"], "disk");
         assert_eq!(run["chains"]["fox"][1], json!({"cut": "scene", "text": "a beach", "chunks": 6,
-                                                    "begins_s": 8.0 * 32.0 / 24.0}));
+                                                    "begins_s": (8.0 * 32.0 - 3.0) / 24.0}));
+    }
+
+    #[test]
+    fn prompt_times_follow_encoded_frames_including_decoder_warmup() {
+        let steps = [step(Cut::New, "a", 1), step(Cut::Same, "b", 1),
+                     step(Cut::New, "c", 1), step(Cut::Same, "d", 1)];
+        let run = snapshot("[]", &[], "{}", None, &[("test".into(), steps.to_vec())], 24.0, 32, 3);
+        assert_eq!(run["chains"]["test"][1]["begins_s"], 29.0 / 24.0);
+        assert_eq!(run["chains"]["test"][2]["begins_s"], 61.0 / 24.0);
+        assert_eq!(run["chains"]["test"][3]["begins_s"], 90.0 / 24.0);
     }
 
     #[test]

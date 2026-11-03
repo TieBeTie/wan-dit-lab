@@ -33,3 +33,9 @@ ops/build/
 *.pdb
 *.so
 archive/**/build/
+
+# Launch adapters used by the voice tutor; keep their established paths.
+!/artifacts/
+/artifacts/*
+!/artifacts/start_live.ps1
+!/artifacts/stop_live.ps1

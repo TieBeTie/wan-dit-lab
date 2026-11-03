@@ -1,0 +1,81 @@
+{
+  "source": "Director calibration pilot v1. Four chunks per step; same scene; exploratory, not a causal quality comparison.",
+  "chunks": 4,
+  "chains": [
+    {
+      "id": "teacup_action_hold",
+      "steps": [
+        {
+          "text": "A single white ceramic pouring cup with a short narrow spout and one transparent glass mug are close to the camera and fill most of the frame. The mug stands on a flat wooden kitchen counter. The ceramic cup has a curved handle and a plain matte surface. Kitchen cabinets behind the two vessels are softly blurred. Both vessels are clearly separated and fully visible. The ceramic cup tilts toward the mug. A narrow stream of clear water flows from its spout into the mug. Close-up shot, static camera, day time, soft daylight from a window.",
+          "cut": "new",
+          "chunks": 4
+        },
+        {
+          "text": "A single white ceramic pouring cup with a short narrow spout and one transparent glass mug are close to the camera and fill most of the frame. The mug stands on a flat wooden kitchen counter. The ceramic cup has a curved handle and a plain matte surface. Kitchen cabinets behind the two vessels are softly blurred. Both vessels are clearly separated and fully visible. The ceramic cup stands upright on the counter beside the mug. The water inside the mug settles to a level surface. Close-up shot, static camera, day time, soft daylight from a window.",
+          "cut": "same",
+          "chunks": 4
+        },
+        {
+          "text": "A single white ceramic pouring cup with a short narrow spout and one transparent glass mug are close to the camera and fill most of the frame. The mug stands on a flat wooden kitchen counter. The ceramic cup has a curved handle and a plain matte surface. Kitchen cabinets behind the two vessels are softly blurred. Both vessels are clearly separated and fully visible. The ceramic cup tilts toward the mug. A narrow stream of white milk flows from its spout into the mug. Close-up shot, static camera, day time, soft daylight from a window.",
+          "cut": "same",
+          "chunks": 4
+        },
+        {
+          "text": "A single white ceramic pouring cup with a short narrow spout and one transparent glass mug are close to the camera and fill most of the frame. The mug stands on a flat wooden kitchen counter. The ceramic cup has a curved handle and a plain matte surface. Kitchen cabinets behind the two vessels are softly blurred. Both vessels are clearly separated and fully visible. The ceramic cup stands upright on the counter beside the mug. The pale liquid inside the mug settles to a level surface. Close-up shot, static camera, day time, soft daylight from a window.",
+          "cut": "same",
+          "chunks": 4
+        }
+      ]
+    },
+    {
+      "id": "astronaut_apple_action_hold",
+      "steps": [
+        {
+          "text": "A single astronaut wearing a white spacesuit with a gold reflective visor floats close to the camera inside a space station and fills most of the frame. Both white gloves and the upper body are clearly visible. A large round window behind the astronaut shows the blue Earth against black space. Pale wall panels and fixed handrails frame the window. The suit has blue fabric patches and dark joints at the elbows. The astronaut floats upright with both hands resting close to the chest. The suit hoses drift gently. Medium shot, static camera, soft artificial light from the station ceiling.",
+          "cut": "new",
+          "chunks": 4
+        },
+        {
+          "text": "A single astronaut wearing a white spacesuit with a gold reflective visor floats close to the camera inside a space station and fills most of the frame. Both white gloves and the upper body are clearly visible. A large round window behind the astronaut shows the blue Earth against black space. Pale wall panels and fixed handrails frame the window. The suit has blue fabric patches and dark joints at the elbows. A single large red apple floats beside the right glove. Both hands rest close to the chest as the apple rotates slowly. Medium shot, static camera, soft artificial light from the station ceiling.",
+          "cut": "same",
+          "chunks": 4
+        },
+        {
+          "text": "A single astronaut wearing a white spacesuit with a gold reflective visor floats close to the camera inside a space station and fills most of the frame. Both white gloves and the upper body are clearly visible. A large round window behind the astronaut shows the blue Earth against black space. Pale wall panels and fixed handrails frame the window. The suit has blue fabric patches and dark joints at the elbows. The astronaut extends the right arm toward the red apple and closes the right glove around it. Medium shot, static camera, soft artificial light from the station ceiling.",
+          "cut": "same",
+          "chunks": 4
+        },
+        {
+          "text": "A single astronaut wearing a white spacesuit with a gold reflective visor floats close to the camera inside a space station and fills most of the frame. Both white gloves and the upper body are clearly visible. A large round window behind the astronaut shows the blue Earth against black space. Pale wall panels and fixed handrails frame the window. The suit has blue fabric patches and dark joints at the elbows. The astronaut holds the red apple in the right glove at chest height. The right arm rests against the body as the suit hoses drift gently. Medium shot, static camera, soft artificial light from the station ceiling.",
+          "cut": "same",
+          "chunks": 4
+        }
+      ]
+    },
+    {
+      "id": "fox_weather_light_hold",
+      "steps": [
+        {
+          "text": "A single adult red fox with thick orange fur, a white chest, dark ears and a bushy white-tipped tail sits close to the camera on white snow and fills most of the frame. Behind the fox stands a small wooden cabin with a snowy roof and one lit window. Dark pine trees rise behind the cabin. The whole head, chest, front paws and curled tail are clearly visible. The fox slowly turns its head toward the camera. Small clouds of breath rise from its muzzle. Medium close-up shot, static camera, day time, soft daylight.",
+          "cut": "new",
+          "chunks": 4
+        },
+        {
+          "text": "A single adult red fox with thick orange fur, a white chest, dark ears and a bushy white-tipped tail sits close to the camera on white snow and fills most of the frame. Behind the fox stands a small wooden cabin with a snowy roof and one lit window. Dark pine trees rise behind the cabin. The whole head, chest, front paws and curled tail are clearly visible. Large white snowflakes begin falling through the foreground and around the fox. Fresh flakes settle on its fur and on the cabin roof. Medium close-up shot, static camera, day time, soft daylight.",
+          "cut": "same",
+          "chunks": 4
+        },
+        {
+          "text": "A single adult red fox with thick orange fur, a white chest, dark ears and a bushy white-tipped tail sits close to the camera on white snow and fills most of the frame. Behind the fox stands a small wooden cabin with a snowy roof and one lit window. Dark pine trees rise behind the cabin. The whole head, chest, front paws and curled tail are clearly visible. Large white snowflakes fall steadily around the seated fox. Fresh flakes rest on its fur while small clouds of breath rise from its muzzle. Medium close-up shot, static camera, day time, soft daylight.",
+          "cut": "same",
+          "chunks": 4
+        },
+        {
+          "text": "A single adult red fox with thick orange fur, a white chest, dark ears and a bushy white-tipped tail sits close to the camera on white snow and fills most of the frame. Behind the fox stands a small wooden cabin with a snowy roof and one lit window. Dark pine trees rise behind the cabin. The whole head, chest, front paws and curled tail are clearly visible. Large white snowflakes fall steadily around the seated fox. Fresh flakes rest on its fur while small clouds of breath rise from its muzzle. Medium close-up shot, static camera, sunset, warm orange side lighting.",
+          "cut": "same",
+          "chunks": 4
+        }
+      ]
+    }
+  ]
+}

@@ -35,13 +35,13 @@ import argparse
 import copy
 import json
 import time
+from contextlib import nullcontext
 
 import torch
 from safetensors.torch import save_file
 from torch.nn.attention import SDPBackend, sdpa_kernel
 
 from wan_dit_lab.kernels.operators import load as load_operators
-from wan_dit_lab.generation import causal
 from wan_dit_lab.kernels import sage_kv
 from wan_dit_lab.kernels.cache_fp8 import store_kv_fp8
 from wan_dit_lab.models.checkpoint import self_forcing_weights
@@ -49,12 +49,13 @@ from wan_dit_lab.models.model import WanModel
 from wan_dit_lab.models.text_encoder import TEXT_LEN
 from wan_dit_lab.models.vae import TAEHVStream
 from wan_dit_lab.quantization import w4a4
-from wan_dit_lab.runtime.live_presets import KEYS, MODELS, POSITIONS, SCENE_PREFIX, rope_table
+from wan_dit_lab.runtime.live_presets import KEYS, POSITIONS, SCENE_PREFIX, rope_table
+from wan_dit_lab.runtime.live_kernels import CROSS_BACKENDS, begin_export
+from wan_dit_lab.runtime.live_pipeline import export_identity, load_pipeline, publish
 
 
 DEVICE = torch.device("cuda")
 DTYPE = torch.bfloat16
-CROSS = [SDPBackend.CUDNN_ATTENTION, SDPBackend.EFFICIENT_ATTENTION]  # causal.ATTENTION["sage"], cross-attention
 
 
 def relative(a, b):
@@ -63,8 +64,13 @@ def relative(a, b):
 
 
 class Exporter:
-    def __init__(self, out, only):
+    def __init__(self, out, only, kernels):
         self.out, self.only, self.report = out, only, {}
+        self.cross = (None if kernels["cross_attention"] == ["sage_sm89"] else
+                      [getattr(SDPBackend, CROSS_BACKENDS[name]) for name in kernels["cross_attention"]])
+
+    def attention_context(self):
+        return nullcontext() if self.cross is None else sdpa_kernel(self.cross, set_priority=True)
 
     def __call__(self, name, module, inputs, reference=None, tolerance=0.01, dynamic=None, eager_rounding=False):
         """Exports `module` on `inputs` into <out>/<name>.pt2 and checks it against `reference` (eager by default)
@@ -73,13 +79,14 @@ class Exporter:
         package. Inputs and outputs are contiguous: a package reads its inputs with the strides of the example it was
         compiled on, whatever strides the host's tensor has, and the host passes it the outputs of other packages."""
         inputs = tuple(i.contiguous() if isinstance(i, torch.Tensor) else i for i in inputs)
+        comparison = getattr(module, "comparison", lambda outputs: outputs)
         module = Contiguous(module)
-        with torch.no_grad():
+        with torch.no_grad(), self.attention_context():
             eager = module(*inputs) if reference is None else reference
         if self.only and name not in self.only:
             return eager
         start = time.perf_counter()
-        with torch.no_grad(), sdpa_kernel(CROSS, set_priority=True):
+        with torch.no_grad(), self.attention_context():
             program = torch.export.export(module, inputs, strict=False,
                                          dynamic_shapes=None if dynamic is None else (dynamic,))  # forward(*inputs)
             # the weights stay out of the package (packaged in, they hang or fail on Windows): in <name>.safetensors,
@@ -93,21 +100,28 @@ class Exporter:
         constants = {fqn: values[fqn].detach().contiguous() for fqn in runner.get_constant_fqns()}
         save_file(constants, str(self.out / f"{name}.safetensors"))
         runner.load_constants(constants, check_full_update=True, user_managed=True)
+        if name == "t5_block":
+            self.t5_runner = runner  # Reuse the DLL: Windows cannot extract a loaded package twice.
+        torch.cuda.synchronize()
+        baseline = torch.cuda.memory_allocated()
+        torch.cuda.reset_peak_memory_stats()
         with torch.no_grad():
             got = runner(*inputs)
+        torch.cuda.synchronize()
+        workspace = max(0, torch.cuda.max_memory_allocated() - baseline)
         try:
-            with torch.no_grad(), sdpa_kernel(CROSS, set_priority=True):
+            with torch.no_grad(), self.attention_context():
                 inductor = torch.compile(module)(*inputs)
         except Exception as e:  # TAEHV of Wan2.2 is loaded from a path, which Dynamo cannot import again
             print(f"{name}: no torch.compile to compare with ({type(e).__name__})", flush=True)
             inductor = eager
         listed = lambda outputs: outputs if isinstance(outputs, (list, tuple)) else [outputs]
-        got, expected, inductor = listed(got), listed(eager), listed(inductor)
+        got, expected, inductor = listed(comparison(got)), listed(comparison(eager)), listed(comparison(inductor))
         errors = [relative(g, e) for g, e in zip(got, expected) if g.is_floating_point()]
         to_inductor = [relative(g, e) for g, e in zip(got, inductor) if g.is_floating_point()]
         # pixels: the largest difference of a value, of 255
         exact = [int((g.int() - e.int()).abs().max()) for g, e in zip(got, expected) if not g.is_floating_point()]
-        self.report[name] = dict(seconds=round(compiled, 1), relative_l2=errors, relative_l2_compile=to_inductor,
+        self.report[name] = dict(workspace_bytes=workspace, seconds=round(compiled, 1), relative_l2=errors, relative_l2_compile=to_inductor,
                                  pixels_off=exact)
         print(f"{name}: {compiled:.0f} s, relative L2 to eager {['%.2e' % e for e in errors]}, to torch.compile "
               f"{['%.2e' % e for e in to_inductor]}, pixels off by {exact}", flush=True)
@@ -128,13 +142,52 @@ class Contiguous(torch.nn.Module):
         return tuple(o.contiguous() for o in out) if isinstance(out, (list, tuple)) else out.contiguous()
 
 
-class Bound(torch.nn.Module):
-    """A block over a row of the W4A4 pack given as an input: the template block's layers are rebound to views of
-    the row on every call (w4a4.slot, without copying the module)."""
+def block_rows(blocks, path, checkpoint, linear):
+    if linear == "torch_bf16":
+        from wan_dit_lab.quantization.weight_pack import mapped_rows
+        return mapped_rows(blocks, path, checkpoint)
+    if linear == "torch_fp8":
+        from wan_dit_lab.quantization.weight_pack import mapped_fp8
+        return mapped_fp8(blocks, path, checkpoint)
+    if linear == "nunchaku_w4a4":
+        return w4a4.mapped_pack(blocks, path, checkpoint)
+    raise ValueError(f"unsupported linear: {linear}")
 
-    def __init__(self, template, layout, row_bytes):
+
+class Bound(torch.nn.Module):
+    """One block structure, rebound to views of a dense or quantized byte row per call."""
+
+    def __init__(self, template, layout, row_bytes, *, linear="nunchaku_w4a4", rope=None, attention="sage_sm89", cross_attention=None):
         super().__init__()
-        self.block = w4a4.slot(torch.empty(row_bytes, dtype=torch.uint8, device="meta"), template, layout)
+        from wan_dit_lab.models.rope import rope_apply
+        if rope == "triton":
+            from wan_dit_lab.kernels.rope_triton import rope_apply
+        elif rope == "longlive_triton":
+            from wan_dit_lab.kernels.longlive_rope import rope_apply
+        elif rope != "torch_inductor" and attention != "sage_rope_sm89":
+            raise ValueError(f"unsupported RoPE: {rope}")
+        row = torch.empty(row_bytes, dtype=torch.uint8, device="meta")
+        if linear == "torch_bf16":
+            from wan_dit_lab.quantization.weight_pack import dense_slot
+            self.block = dense_slot(row, template, layout)
+        elif linear == "torch_fp8":
+            from wan_dit_lab.quantization.fp8 import fp8_slot
+            self.block = fp8_slot(row, template, layout)
+        elif linear == "nunchaku_w4a4":
+            self.block = w4a4.slot(row, template, layout)
+        else:
+            raise ValueError(f"unsupported linear: {linear}")
+        if cross_attention == ["sage_sm89"]:
+            self.block.cross_attn.sage_cross_tokens = TEXT_LEN
+        if attention == "sage_rope_sm89":
+            if rope is not None:
+                raise ValueError("joint Sage/RoPE owns its RoPE kernel")
+            self.block.self_attn.sage_rope = True
+        else:
+            self.block.self_attn.rope_kernel = rope_apply
+        if rope == "triton" and attention != "torch_sdpa":
+            self.block.self_attn.rope_input_dtype = torch.float32
+        self.attention = attention
         self.entries = {e["name"]: e for e in layout}
         self.params = []  # its parameters as plain attributes, rebound like the packed layers' parts
         for name, _ in list(self.block.named_parameters()):
@@ -147,27 +200,59 @@ class Bound(torch.nn.Module):
     def bind(self, row):
         def view(name):
             e = self.entries[name]
-            return row[e["offset"]:e["offset"] + e["bytes"]].view(getattr(torch, e["dtype"])).view(e["shape"])
+            return row[e["offset"]:e["offset"] + e["bytes"]].view(({"fp8": torch.float8_e4m3fn, "bf16": torch.bfloat16, "f32": torch.float32}.get(e["dtype"]) or getattr(torch, e["dtype"]))).view(e["shape"])
 
         for owner, attr, name in self.params:
             setattr(owner, attr, view(name))
         for m, name in self.packed:
             groups = (w4a4.FFN[0], w4a4.FFN[1]) if isinstance(m, w4a4.PackedW4A4GeluMLP) else (name,)
             m.parts = [view(f"{g}.{p}") for g in groups for p in w4a4.PARTS]
+        if any(e["dtype"] == "fp8" for e in self.entries.values()):
+            from wan_dit_lab.quantization.fp8 import PackedFp8Linear
+            for name, layer in self.block.named_modules():
+                if isinstance(layer, PackedFp8Linear):
+                    layer.weight, layer.scale = view(f"{name}.weight"), view(f"{name}.scale")
+                    layer.bias = view(f"{name}.bias") if f"{name}.bias" in self.entries else None
         return self.block
 
 
 class Cache:
-    """A full or filling FP8 KV cache as causal.KVCache keeps it for Sage, with no state of its own: the chunk's keys
-    and values are written at `at` (live::store_kv_fp8 of cache_fp8.py) and attention reads [0, at) and the chunk."""
+    """A view over host-owned KV buffers: BF16/SDPA or FP8/Sage, selected at export.
 
-    def __init__(self, at, k, ks, v, vs):
+    The dtype branch is static in each compiled package. Both paths write at
+    `at` and read the same past tokens and current chunk.
+    """
+
+    def __init__(self, at, k, ks, v, vs, *, attention="sage_sm89"):
         self.at, self.buffers = at, (k, ks, v, vs)
+        self.attention = attention
 
     def attend(self, Q, K, V):
-        store_kv_fp8(K, V, *self.buffers, self.at)
         k, ks, v, vs = self.buffers
+        if k.dtype == torch.bfloat16:
+            end = self.at + K.shape[1]
+            k[:, self.at:end].copy_(K)
+            v[:, self.at:end].copy_(V)
+            # Bound the FP32 score matrix for MATH SDPA at native resolution.
+            # Tile queries only: each query still sees the complete context.
+            key, value = k[:, :end].transpose(1, 2), v[:, :end].transpose(1, 2)
+            return torch.cat([torch.nn.functional.scaled_dot_product_attention(
+                q.transpose(1, 2), key, value).transpose(1, 2) for q in Q.split(128, dim=1)], dim=1)
+        store_kv_fp8(K, V, *self.buffers, self.at)
+        if self.attention == "torch_sdpa":
+            # Only history has been stored in FP8. Current K/V keep their
+            # original precision, exactly as in the Sage cache path.
+            past_k = (k[:, :self.at].float() * ks[:, :self.at]).to(K.dtype)
+            past_v = (v[:, :self.at].float() * vs[:, :self.at]).to(V.dtype)
+            key = torch.cat([past_k, K], dim=1).transpose(1, 2)
+            value = torch.cat([past_v, V], dim=1).transpose(1, 2)
+            return torch.cat([torch.nn.functional.scaled_dot_product_attention(
+                q.transpose(1, 2), key, value).transpose(1, 2) for q in Q.split(128, dim=1)], dim=1)
         return sage_kv.attend(Q, k, ks, v, vs, self.at, K, V)
+
+    def attend_rope(self, q, k, v, norm_q, norm_k, grid, freq, start):
+        from wan_dit_lab.kernels import sage_rope
+        return sage_rope.attend(q, k, v, norm_q, norm_k, grid[0], freq, start, *self.buffers, self.at)
 
 
 class BlockStep(torch.nn.Module):
@@ -182,7 +267,7 @@ class BlockStep(torch.nn.Module):
         freqs = torch.cat([time_rope, self.hw], dim=-1)
         with torch.autocast("cuda", dtype=DTYPE):
             return self.bound.bind(row)(X, e0, grid_sizes=(self.grid,), freqs=freqs,
-                                        cache=Cache(self.at, k, ks, v, vs), context_kv=(cross_k, cross_v))
+                                        cache=Cache(self.at, k, ks, v, vs, attention=self.bound.attention), context_kv=(cross_k, cross_v))
 
 
 class Cross(torch.nn.Module):
@@ -193,6 +278,16 @@ class Cross(torch.nn.Module):
     def forward(self, row, text):
         with torch.autocast("cuda", dtype=DTYPE):
             return self.bound.bind(row).cross_attn.keys_values(text)
+
+    def comparison(self, outputs):
+        # Opaque bytes include signed INT8 and FP32 scales. Compare their
+        # numerical meaning; byte distance would misread -1 vs 0 as 255.
+        attention = self.bound.block.cross_attn
+        if hasattr(attention, "sage_cross_tokens"):
+            from wan_dit_lab.kernels import sage_cross
+            return sage_cross.dequantize(*outputs, 1, attention.sage_cross_tokens,
+                                          attention.num_heads, attention.head_dim)
+        return outputs
 
 
 class Text(torch.nn.Module):
@@ -324,24 +419,29 @@ class Decoder(torch.nn.Module):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    parser.add_argument("--config", type=Path, default=ROOT / "configs" / "live.json",
+                        help="run config whose explicit kernels are compiled into these packages")
     parser.add_argument("--out", type=Path, default=None, help="artifacts/live/<height>x<width> by default")
-    parser.add_argument("--height", type=int, default=None, help="pixels, a multiple of 32; the preset's by default")
-    parser.add_argument("--width", type=int, default=None)
-    parser.add_argument("--rope-interpolate", action=argparse.BooleanOptionalAction, default=None,
-                        help="height and width of RoPE stretched over the trained grid (the preset's choice by default)")
-    parser.add_argument("--stream-blocks", type=int, default=None,
-                        help="blocks the host streams from pinned RAM (the preset's 24 by default; 30 where the cache is large)")
     parser.add_argument("--only", nargs="*", default=None, help="names of the packages to export (all by default)")
     parser.add_argument("--seed", type=int, default=0)
     args = parser.parse_args()
-    spec = dict(MODELS["longlive2"])
-    for key in ("height", "width", "rope_interpolate", "stream_blocks"):
-        if getattr(args, key) is not None:
-            spec[key] = getattr(args, key)
+    recipe, run_config = load_pipeline(args.config)
+    kernels = recipe["kernels"]
+    model_spec = recipe["model"]
+    height, width = map(int, recipe["video"]["size"].split("x"))
+    native = tuple(map(int, recipe["rope"]["native_size"].split("x")))
+    spec = dict(config=ROOT / model_spec["architecture"], checkpoint=ROOT / model_spec["checkpoint"],
+                pack=ROOT / model_spec["block_weights"], taehv=ROOT / model_spec["decoder"],
+                height=height, width=width, fps=recipe["video"]["fps"], vae_stride=16,
+                chunk=recipe["context"]["chunk_frames"], context_frames=recipe["context"]["window_frames"],
+                sink_frames=recipe["context"]["sink_frames"], steps=recipe["sampling"]["steps"],
+                rope_dtype=kernels["rope_dtype"], rope_interpolate=recipe["rope"]["interpolate"],
+                native=native, stream_blocks=0)
     assert spec["height"] % 32 == 0 and spec["width"] % 32 == 0, "a token is 32x32 pixels"
     if args.out is None:  # one directory per resolution: wan.exe --size picks it
-        args.out = ROOT / "artifacts" / "live" / f"{spec['height']}x{spec['width']}"
-    args.out.mkdir(parents=True, exist_ok=True)
+        args.out = ROOT / recipe["output"]
+    identity = export_identity(recipe, ROOT)
+    previous_checks = begin_export(args.out, kernels, only=bool(args.only), identity=identity)
     load_operators()
     height, width, chunk, stride = spec["height"], spec["width"], spec["chunk"], spec["vae_stride"]
     lat_h, lat_w = height // stride, width // stride
@@ -350,7 +450,7 @@ def main():
     n = chunk * tokens  # of a chunk
     max_tokens = (spec["context_frames"] - chunk) * tokens  # causal.Stream: window less the chunk
     sink_tokens = spec["sink_frames"] * tokens
-    export = Exporter(args.out, set(args.only) if args.only else None)
+    export = Exporter(args.out, set(args.only) if args.only else None, kernels)
     g = torch.Generator(DEVICE).manual_seed(args.seed)
 
     config = json.loads(spec["config"].read_text(encoding="utf-8"))
@@ -358,9 +458,10 @@ def main():
         model = WanModel(**{key: config[key] for key in KEYS})
     model.load_state_dict(self_forcing_weights(spec["checkpoint"]), assign=True)
     model.eval()
-    rows, layout = w4a4.mapped_pack(model.blocks, spec["pack"], spec["checkpoint"])
+    rows, layout = block_rows(model.blocks, spec["pack"], spec["checkpoint"], kernels["linear"])
     template = copy.deepcopy(model.blocks[0]).to("meta")
-    bound = Bound(template, layout, rows.shape[1])
+    bound = Bound(template, layout, rows.shape[1], linear=kernels["linear"], rope=kernels.get("rope"), attention=kernels["attention"],
+                  cross_attention=kernels["cross_attention"])
     for m in (model.patch_embedding, model.text_embedding, model.time_embedding, model.time_projection, model.head):
         m.to(DEVICE)
     model.blocks = None
@@ -380,7 +481,8 @@ def main():
     t = torch.tensor([999.0], device=DEVICE)
     X, e0, t_emb = export("pre", Pre(model), (x, t))
     time_rope = freqs[:, 3 * chunk:4 * chunk, :time_pairs].contiguous()  # the rows of the fourth chunk
-    cache = [torch.randn(1, max_tokens + n, heads, d, device=DEVICE, generator=g).to(torch.float8_e4m3fn),
+    cache_dtype = torch.bfloat16 if kernels["kv_cache"] == "bfloat16" else torch.float8_e4m3fn
+    cache = [torch.randn(1, max_tokens + n, heads, d, device=DEVICE, generator=g).to(cache_dtype),
              torch.rand(1, max_tokens + n, heads, 1, device=DEVICE, generator=g) * 0.05]
     cache = cache + [cache[0].clone(), cache[1].clone()]
     steps = max_tokens // n + 1  # at = 0, n, ..., max_tokens
@@ -405,10 +507,11 @@ def main():
     export("decoder", decoder, (latent, *memory))
 
     # T5: its blocks over rows of FastTextEncoder's file, then the norm; the token embedding read in place
-    from wan_dit_lab.models.checkpoint import checkpoint_dir
     from wan_dit_lab.models.text_encoder import FastTextEncoder
-    t5_rows = ROOT / "artifacts" / "t5_int8_fast.bin"
-    encoder = FastTextEncoder(DEVICE, weights_file=t5_rows)
+    text_spec = model_spec["text_encoder"]
+    t5_rows = ROOT / text_spec["block_weights"]
+    encoder = FastTextEncoder(DEVICE, weights_file=t5_rows, checkpoint=ROOT / text_spec["checkpoint"],
+                              tokenizer=ROOT / text_spec["tokenizer"], precision=text_spec.get("precision", "int8"))
     ids, mask = encoder.tokenizer(["A lone oak tree on a grassy hill sways in the wind"], return_mask=True,
                                   add_special_tokens=True)
     length = int(mask.sum())
@@ -423,29 +526,49 @@ def main():
     # fused kernel), else 24 blocks of T5's outliers move the embeddings 2-7% off it
     export("t5_final", T5Final(encoder.norm), (x5, mask), dynamic=({1: prompt_tokens}, {1: prompt_tokens}),
            eager_rounding=True)
-    t5_checkpoint = checkpoint_dir() / "models_t5_umt5-xxl-enc-bf16.pth"
+    # Probe the compiled T5 at the largest supported prompt, excluding the row
+    # (the native runner reserves its two row slots separately).
+    t5_runner = getattr(export, "t5_runner", None)
+    if t5_runner is None:  # A partial export may have kept the previous T5 package.
+        from safetensors.torch import load_file
+        t5_runner = torch._inductor.aoti_load_package(str(args.out / "t5_block.pt2"))
+        probe_constants = load_file(str(args.out / "t5_block.safetensors"), device=DEVICE)
+        t5_runner.load_constants(probe_constants, check_full_update=True, user_managed=True)
+    torch.cuda.synchronize()
+    baseline = torch.cuda.memory_allocated()
+    torch.cuda.reset_peak_memory_stats()
+    with torch.no_grad():
+        probe_x = torch.zeros(1, TEXT_LEN - 1, x5.shape[-1], device=DEVICE, dtype=torch.bfloat16)
+        probe_mask = torch.ones(1, TEXT_LEN - 1, device=DEVICE, dtype=mask.dtype)
+        probe_out = t5_runner(t5_row, probe_x, probe_mask)
+    torch.cuda.synchronize()
+    activation_bytes = torch.cuda.max_memory_allocated() - baseline
+    del probe_x, probe_mask, probe_out
+    t5_checkpoint = ROOT / text_spec["checkpoint"]
     table = encoder.embedding.weight
-    t5 = dict(tokenizer=str(checkpoint_dir() / "google" / "umt5-xxl" / "tokenizer.json"), rows=str(t5_rows),
-              row_bytes=encoder.per_block, blocks=encoder.blocks, embedding=str(t5_checkpoint),
+    t5 = dict(tokenizer=str(ROOT / text_spec["tokenizer"] / "tokenizer.json"), rows=str(t5_rows),
+              row_bytes=encoder.per_block, blocks=encoder.blocks, activation_bytes=activation_bytes, embedding=str(t5_checkpoint),
               embedding_offset=embedding_offset(t5_checkpoint, "token_embedding.weight", table),
               vocabulary=table.shape[0])
 
     # the sampler: LongLive 2.0's UniPC over 2 steps is linear in x and the two flows (checked to 2e-16 in float64):
     # x1 = x - c0 f0, x0 = x1 - c1 f1; probed here from the scheduler itself
-    scheduler = causal_unipc(spec["steps"], causal.SHIFT)
+    scheduler = causal_unipc(spec["steps"], recipe["sampling"]["timestep_shift"])
     manifest = dict(
-        preset="longlive2", height=height, width=width, fps=spec["fps"], chunk=chunk, latent=[config["out_dim"], chunk,
+        preset="longlive2", kernels=kernels, height=height, width=width, fps=spec["fps"], chunk=chunk, latent=[config["out_dim"], chunk,
                                                                                            lat_h, lat_w],
         grid=list(grid), tokens_per_frame=tokens, chunk_tokens=n, max_tokens=max_tokens, sink_tokens=sink_tokens,
         heads=heads, head_dim=d, dim=dim, text_len=TEXT_LEN, text_dim=config.get("text_dim", 4096), blocks=len(rows),
-        block_steps=steps, positions=POSITIONS, time_pairs=time_pairs, shot_rope_offset=8,
+        block_steps=steps, positions=POSITIONS, time_pairs=time_pairs, shot_rope_offset=recipe["rope"]["scene_offset_frames"],
         scene_prefix=SCENE_PREFIX, pack=str(spec["pack"]), row_bytes=rows.shape[1],
         stream_blocks=spec["stream_blocks"], timesteps=scheduler["timesteps"], sampler=scheduler["coefficients"],
         decoder_memory=[list(m.shape) for m in memory], decoder_trim=3, t5=t5, checks=export.report)
-    previous = args.out / "live.json"
-    if export.only and previous.exists():  # the checks of the packages not exported this time stay
-        manifest["checks"] = {**json.loads(previous.read_text(encoding="utf-8")).get("checks", {}), **export.report}
-    previous.write_text(json.dumps(manifest, indent=2), encoding="utf-8")
+    manifest["checks"] = {**previous_checks, **export.report}
+    checks = manifest["checks"]
+    manifest["generation_workspace_bytes"] = (
+        max((v.get("workspace_bytes", 0) for k, v in checks.items() if k.startswith("block_")), default=0)
+        + sum(checks.get(k, {}).get("workspace_bytes", 0) for k in ("text", "cross", "pre", "post", "decoder")))
+    publish(args.out, manifest, identity, recipe)
     print(f"written: {args.out}", flush=True)
 
 

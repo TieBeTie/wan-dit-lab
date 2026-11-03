@@ -6,9 +6,10 @@ version.workspace = true
 publish.workspace = true
 
 [features]
-# what only debugging and measuring need, out of the release build: live check and live render (the chunks against
-# Live's Python path), the memory line and a line per chunk in the window's log
-debug-tools = []
+default = ["fps"]
+fps = ["dep:rtrb"]
+# Explicit reference checks and detailed copy timing in `bench`; ordinary generation does not use those probes.
+debug-tools = ["fps"]
 
 [dependencies]
 aoti = { path = "../aoti" }
@@ -21,4 +22,5 @@ eframe = { version = "0.37", default-features = false, features = ["default_font
 rand = "0.9"
 rand_distr = "0.5"
 safetensors = "0.6"
+rtrb = { version = "0.4.1", optional = true }
 tokenizers = { version = "0.22", default-features = false, features = ["fancy-regex"] }

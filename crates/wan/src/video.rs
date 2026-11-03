@@ -13,7 +13,7 @@ use live_protocol::Cut;
 use rand::SeedableRng;
 use rand_distr::Distribution;
 
-use crate::cache::{Buffers, Offloaded, Ring, Write};
+use crate::cache::{Buffers, Format, Offloaded, Ring, Write};
 use crate::gpu::{DeviceBuffer, Event, PinnedBuffer, Stream};
 
 const SCALAR: usize = 256;
@@ -21,6 +21,14 @@ use crate::config::{choose, Offloading, Placement, Resource, Tier, Times};
 use crate::manifest::Manifest;
 use crate::packages::{self, Loaded};
 use crate::rows::{spread, Rows};
+
+fn cache_format(m: &Manifest) -> Format {
+    match m.kernels.kv_cache.as_str() {
+        "bfloat16" => Format::Bf16,
+        "fp8_e4m3fn" => Format::Fp8,
+        _ => unreachable!("manifest kernels were validated before allocation"),
+    }
+}
 
 pub type Error = Box<dyn std::error::Error + Send + Sync>;
 pub type Result<T> = std::result::Result<T, Error>;
@@ -39,7 +47,6 @@ struct Packages {
 struct Calibrating {
     reserve: usize,
     /// what must stay free on the GPU whatever the margin: T5's slots and activations
-    essential: usize,
     spare: f32,
     weights: bool,
     kv: bool,
@@ -94,6 +101,8 @@ pub struct Video {
     trim: usize,
     /// latent frame of the next chunk in the video
     pub start: usize,
+    offloading: Offloading,
+    reserve: usize,
     rope_offset: usize,
     pin_next: bool,
     rng: rand::rngs::StdRng,
@@ -108,20 +117,19 @@ impl Video {
     /// `offloading` (configs/live.json): which resources are offloaded, and whether the calibration chooses which of
     /// them stay so (Video::calibrate) or they stay as configured.
     /// The placement a calibration of the same configuration and packages left in <directory>/calibration.json is
-    /// taken as it is, unless `recalibrate`: every resource is made on its tier at once and nothing moves.
-    pub fn load(directory: &Path, runtime: Runtime, seed: u64, offloading: &Offloading, recalibrate: bool)
+    /// reused with calibration=if_needed; calibration=always measures again.
+    pub fn load(directory: &Path, mut m: Manifest, runtime: Runtime, seed: u64, offloading: &Offloading)
         -> Result<Video> {
-        let mut m = Manifest::read(directory)?;
         let key = Placement::key(offloading, &std::fs::read_to_string(directory.join("live.json"))?);
         let calibrates = Resource::ALL.iter().any(|&r| offloading.calibrates(r));
-        let kept = if calibrates && !recalibrate { Placement::read(directory, &key) } else { None };
-        let (weights, kv_tier) = match &kept {
+        let kept = if calibrates && offloading.calibration == crate::config::CalibrationPolicy::IfNeeded { Placement::read(directory, &key) } else { None };
+        let (mut weights, mut kv_tier) = match &kept {
             Some(p) => (p.weights, p.kv),
             None => (offloading.initial(Resource::BlockWeights), offloading.initial(Resource::KvCache)),
         };
         m.stream_blocks = match (&kept, weights) {
             (_, Tier::Vram) => 0,
-            (Some(p), Tier::Ram) => p.rows_streamed,
+            (Some(p), Tier::Ram | Tier::Disk) => p.rows_streamed,
             _ => m.blocks,
         };
         if let Some(p) = &kept {
@@ -129,12 +137,12 @@ impl Video {
                      directory.join("calibration.json").display(), p.weights, p.rows_streamed, p.kv);
         }
         // left free on the GPU when rows stay there: the margin, T5's two row slots and its activations
-        let gib = |g: f64| (g * (1u64 << 30) as f64) as usize;
         let t5_slots = 2 * m.t5.as_ref().map_or(0, |t| t.row_bytes);
-        let reserve = gib(offloading.vram_margin_gib) + t5_slots + gib(offloading.t5_activations_gib);
+        let (_, total) = cudarc::driver::result::mem_get_info()?;
+        let measured = m.t5.as_ref().map_or(0, |t| t.activation_bytes);
+        let reserve = offloading.memory_reserve(total, measured, t5_slots / 2)?;
         let calibrate = (calibrates && kept.is_none()).then(|| Calibrating {
             reserve,
-            essential: t5_slots + gib(offloading.t5_activations_gib),
             spare: offloading.copy_spare,
             weights: offloading.calibrates(Resource::BlockWeights),
             kv: offloading.calibrates(Resource::KvCache),
@@ -149,15 +157,40 @@ impl Video {
             post: package("post")?,
             decoder: package("decoder")?,
         };
-        let rows = Rows::load(&m.pack, m.blocks, m.row_bytes, &spread(m.blocks, m.stream_blocks), weights == Tier::Disk,
-                              &compute)?;
         let tokens = m.max_tokens + m.chunk_tokens;
-        // an offloaded cache is made in RAM: on the GPU first, 704x1280 would not fit beside the slots
-        let kv = if kv_tier == Tier::Ram {
-            Kv::Offloaded(Offloaded::new(m.blocks, tokens, m.heads, m.head_dim, &compute)?)
-        } else {
-            Kv::Resident((0..m.blocks).map(|_| Buffers::new(tokens, m.heads, m.head_dim, &compute))
-                .collect::<std::result::Result<_, _>>()?)
+        let kv_bytes = cache_format(&m).bytes(tokens, m.heads, m.head_dim);
+        let pending_host = 4 * m.chunk * m.height * m.width * 3 + t5_slots;
+        let headroom = crate::budget::available()?.saturating_sub(pending_host);
+        if kv_tier == Tier::Ram && kv_bytes * m.blocks > headroom {
+            if offloading.tier(Resource::KvCache) == Tier::Auto { kv_tier = Tier::Disk; }
+            else { return Err("explicit RAM KV exceeds RAM budget; choose auto or disk".into()); }
+        }
+        let kv_host = if kv_tier == Tier::Ram { m.blocks * kv_bytes } else if kv_tier == Tier::Disk { 2 * kv_bytes } else { 0 };
+        if weights == Tier::Ram && m.stream_blocks * m.row_bytes > headroom.saturating_sub(kv_host) {
+            if offloading.tier(Resource::BlockWeights) == Tier::Auto { weights = Tier::Disk; }
+            else { return Err("explicit RAM weights exceed RAM budget; choose auto or disk".into()); }
+        }
+        let (free, _) = cudarc::driver::result::mem_get_info()?;
+        let gpu_rows = (m.blocks - m.stream_blocks + 2) * m.row_bytes;
+        let gpu_kv = if kv_tier == Tier::Vram { m.blocks * kv_bytes } else { 2 * kv_bytes };
+        if !crate::budget::fits(free, gpu_rows + gpu_kv, reserve + m.generation_workspace_bytes) {
+            if offloading.tier(Resource::BlockWeights) == Tier::Auto { weights = Tier::Disk; m.stream_blocks = m.blocks; }
+            if offloading.tier(Resource::KvCache) == Tier::Auto { kv_tier = Tier::Disk; }
+        }
+        let host_kv = match kv_tier { Tier::Ram => m.blocks * kv_bytes, Tier::Disk => 2 * kv_bytes, _ => 0 };
+        let host_rows = if weights == Tier::Disk { 2 * crate::disk::span(m.row_bytes) } else { m.stream_blocks * m.row_bytes };
+        crate::cache::check_host_capacity(host_kv + host_rows + pending_host, crate::budget::available()?)?;
+        let rows = Rows::load(&m.pack, m.blocks, m.row_bytes, &spread(m.blocks, m.stream_blocks), weights == Tier::Disk, &compute)?;
+        let kv = match kv_tier {
+            Tier::Ram => Kv::Offloaded(Offloaded::new(m.blocks, tokens, m.heads, m.head_dim, cache_format(&m), &compute)?),
+            Tier::Disk => Kv::Offloaded(Offloaded::new_disk(m.blocks, tokens, m.heads, m.head_dim, cache_format(&m), &compute)?),
+            _ => {
+                let (free, _) = cudarc::driver::result::mem_get_info()?;
+                if !crate::budget::fits(free, m.blocks * kv_bytes, reserve + m.generation_workspace_bytes) {
+                    return Err("resident KV exceeds VRAM budget including workspace and reserve".into());
+                }
+                Kv::Resident((0..m.blocks).map(|_| Buffers::new(tokens, m.heads, m.head_dim, cache_format(&m), &compute)).collect::<Result<_>>()?)
+            }
         };
         let bytes = std::fs::read(directory.join("time_rope.bin"))?;
         let time_rope: Vec<f32> = bytes.chunks_exact(4).map(|b| f32::from_le_bytes(b.try_into().unwrap())).collect();
@@ -188,6 +221,8 @@ impl Video {
             memory: Vec::new(),
             zeros,
             start: 0,
+            offloading: offloading.clone(),
+            reserve,
             rope_offset: 0,
             pin_next: false,
             rng: rand::rngs::StdRng::seed_from_u64(seed),
@@ -217,17 +252,25 @@ impl Video {
         }
         let row = self.rows.time_copy()?;
         let n = self.m.blocks;
-        // the read part of a block's cache, copied at the bandwidth a row was
-        let kv_bytes = Offloaded::bytes_read(self.m.max_tokens, self.m.heads, self.m.head_dim);
-        let kv_ms = row * kv_bytes as f32 / self.m.row_bytes as f32;
+        let kv_ms = match &self.kv { Kv::Offloaded(o) => o.time_copy()?, _ => 0.0 };
         let read = self.rows.time_read()?;
         let times = Times { block_ms: block, row_copy_ms: row, row_read_ms: read, kv_copy_ms: kv_ms };
-        let (kv_tier, weights_tier, rows) = choose(n, &times, c.spare, c.kv, c.weights);
-        if kv_tier == Tier::Vram {
+        let (kv_tier, mut weights_tier, mut rows) = choose(n, &times, c.spare, c.kv && !matches!(&self.kv, Kv::Offloaded(o) if o.is_disk()), c.weights);
+        let (free, _) = cudarc::driver::result::mem_get_info()?;
+        let resident_bytes = n * cache_format(&self.m).bytes(self.m.max_tokens + self.m.chunk_tokens, self.m.heads, self.m.head_dim);
+        if kv_tier == Tier::Vram && crate::budget::fits(free, resident_bytes, c.reserve + self.m.generation_workspace_bytes)
+            && matches!(&self.kv, Kv::Offloaded(o) if !o.is_disk()) {
             if let Kv::Offloaded(_) = self.kv {
                 let Kv::Offloaded(o) = std::mem::replace(&mut self.kv, Kv::Resident(Vec::new())) else { unreachable!() };
                 self.kv = Kv::Resident(o.into_resident(&self.compute)?);
             }
+        }
+        // A VRAM recommendation may be rejected by capacity. Keep charging KV
+        // transfer time when it actually remains offloaded (also for disk staging).
+        if c.weights && kv_tier != Tier::Ram && matches!(&self.kv, Kv::Offloaded(_)) {
+            let remaining = Times { block_ms: (block - c.spare * kv_ms).max(0.0), ..times };
+            let (_, tier, count) = choose(n, &remaining, c.spare, false, true);
+            weights_tier = tier; rows = count;
         }
         let mut note = "";
         let weights_where = match weights_tier {
@@ -236,37 +279,38 @@ impl Video {
                 "from the disk".to_string()
             }
             Tier::Ram | Tier::Vram => {
-                self.rows.to_ram(&self.compute)?; // from the disk, if the weights started there
                 let (free, _) = cudarc::driver::result::mem_get_info()?;
-                let fit = free.saturating_sub(c.reserve) / self.m.row_bytes; // rows the GPU still has room for
+                let fit = free.saturating_sub(c.reserve + self.m.generation_workspace_bytes) / self.m.row_bytes; // rows the GPU still has room for
                 let streamed = self.rows.streamed();
                 let keep = rows.min(streamed).max(streamed.saturating_sub(fit));
                 if keep < streamed {
                     self.rows.keep_on_device(&spread(n, keep), &self.compute)?;
                     self.m.stream_blocks = keep;
                 }
+                if keep * self.m.row_bytes <= crate::budget::available()? {
+                    self.rows.to_ram(&self.compute)?;
+                }
                 if keep > rows {
                     note = ", fewer on the GPU than needed: it has no room";
                 }
-                format!("{keep} of {n} from RAM")
+                format!("{keep} of {n} from {}", if self.rows.on_disk() { "disk" } else { "RAM" })
             }
             Tier::Auto => "as configured".to_string(),
         };
         // the copies hide by the times, but they can still slow the blocks down (they share the GPU's memory): with
         // the weights placed, a pass with the cache offloaded and one with it on the GPU (if there is room) are
         // compared, and it stays offloaded only if it costs no more than a percent (decide_kv)
-        if let (Tier::Ram, Kv::Offloaded(_)) = (kv_tier, &self.kv) {
+        if matches!((kv_tier, &self.kv), (Tier::Ram, Kv::Offloaded(o)) if !o.is_disk()) {
             let (free, _) = cudarc::driver::result::mem_get_info()?;
-            let resident = self.m.blocks * Offloaded::bytes_read(self.m.max_tokens + self.m.chunk_tokens, self.m.heads,
+            let resident = self.m.blocks * cache_format(&self.m).bytes(self.m.max_tokens + self.m.chunk_tokens, self.m.heads,
                                                                  self.m.head_dim);
-            // speed comes first: the trial runs if the cache fits beside what T5 needs, margin or not
-            if free >= resident + c.essential {
+            if crate::budget::fits(free, resident, c.reserve + self.m.generation_workspace_bytes) {
                 self.calibration = Calibration::Trial(None);
             }
         }
         let kv_where = match (kv_tier, &self.kv) {
-            (Tier::Auto, _) => "as configured",
             (_, Kv::Offloaded(_)) if matches!(self.calibration, Calibration::Trial(_)) => "in RAM, on trial against the GPU",
+            (_, Kv::Offloaded(o)) if o.is_disk() => "on disk",
             (_, Kv::Offloaded(_)) => "in RAM",
             (_, Kv::Resident(_)) => "on the GPU",
         };
@@ -288,7 +332,7 @@ impl Video {
         } else {
             Tier::Vram
         };
-        let kv = match self.kv { Kv::Offloaded(_) => Tier::Ram, Kv::Resident(_) => Tier::Vram };
+        let kv = match self.kv { Kv::Offloaded(ref o) => if o.is_disk() { Tier::Disk } else { Tier::Ram }, Kv::Resident(_) => Tier::Vram };
         let (directory, key) = &self.placement;
         Placement { key: key.clone(), weights, rows_streamed: self.rows.streamed(), kv }.write(directory)?;
         Ok(())
@@ -299,7 +343,7 @@ impl Video {
     fn decide_kv(&mut self, whole: (Event, Event), offloaded_ms: f32) -> Result<()> {
         self.compute.synchronize()?;
         let resident_ms = whole.0.elapsed_ms(&whole.1)?;
-        let keep_offloaded = offloaded_ms <= 1.01 * resident_ms;
+        let keep_offloaded = offloaded_ms <= 1.01 * resident_ms && self.kv_device_bytes() <= crate::budget::available()?;
         if keep_offloaded {
             let Kv::Resident(caches) = std::mem::replace(&mut self.kv, Kv::Resident(Vec::new())) else { unreachable!() };
             self.kv = Kv::Offloaded(Offloaded::from_resident(caches, &self.compute)?);
@@ -316,12 +360,6 @@ impl Video {
         Ok(self.rows.copy_waits(&self.compute)?)
     }
 
-    /// debug-tools: the waits for copies of streamed rows the GPU has passed since the last call, without waiting.
-    #[cfg(feature = "debug-tools")]
-    pub fn passed_copy_waits(&self) -> Result<crate::rows::CopyWaits> {
-        Ok(self.rows.passed_copy_waits()?)
-    }
-
     /// GPU bytes the KV caches take: all of them when resident, two slots when offloaded (bench).
     pub fn kv_device_bytes(&self) -> usize {
         let bytes = |c: &Buffers| c.k.bytes + c.ks.bytes + c.v.bytes + c.vs.bytes;
@@ -332,6 +370,10 @@ impl Video {
     }
 
     /// Pinned RAM of the offloaded resources: weight rows and KV caches.
+    pub fn disk_bytes(&self) -> (u64, u64) {
+        match &self.kv { Kv::Offloaded(o) => o.disk_bytes(), _ => (0, 0) }
+    }
+
     pub fn pinned_bytes(&self) -> usize {
         self.rows.pinned_bytes() + match &self.kv {
             Kv::Offloaded(o) => o.pinned_bytes(),
@@ -352,7 +394,7 @@ impl Video {
         let text = self.p.text.run(&[*embeddings], s)?.remove(0);
         let mut cross = Vec::with_capacity(self.m.blocks);
         for b in 0..self.m.blocks {
-            let row = self.rows.row(b, &self.compute)?;
+            let row = self.rows.row::<false>(b, &self.compute)?;
             cross.push(self.p.cross.run(&[row, *text], s)?);
             self.rows.release(b, &self.compute)?;
         }
@@ -380,7 +422,7 @@ impl Video {
     /// embedding.
     /// `step` and `at`: the block package and where the chunk is written (the ring before this chunk's commit);
     /// `write`: the pass that writes the clean chunk, with the commit's copies (an offloaded cache does them here).
-    fn pass(&mut self, x: Tensor, t: f32, step: usize, at: usize, write: Option<&Write>) -> Result<(Output, Output)> {
+    fn pass<const TIMED: bool>(&mut self, x: Tensor, t: f32, step: usize, at: usize, write: Option<&Write>) -> Result<(Output, Output)> {
         let s = self.compute.raw();
         let t = self.scalar(0, t)?;
         let mut pre = self.p.pre.run(&[x, t], s)?.into_iter();
@@ -405,7 +447,7 @@ impl Video {
             _ => None,
         };
         for b in 0..self.m.blocks {
-            let row = self.rows.row(b, &self.compute)?;
+            let row = self.rows.row::<TIMED>(b, &self.compute)?;
             let [k, ks, v, vs] = match &self.kv {
                 Kv::Resident(caches) => caches[b].tensors(),
                 Kv::Offloaded(o) => o.tensors(b, &self.compute)?,
@@ -442,13 +484,33 @@ impl Video {
     }
 
     /// The latents [C, chunk, H, W] float32 of the next chunk, from `noise` of that shape or fresh noise.
+    #[cfg(any(test, feature = "debug-tools"))]
     pub fn next_chunk(&mut self, noise: Option<&[f32]>) -> Result<Output> {
+        self.next_chunk_timed::<false>(noise)
+    }
+    pub fn next_chunk_timed<const TIMED: bool>(&mut self, noise: Option<&[f32]>) -> Result<Output> {
+        if crate::budget::available()? == 0 && self.offloading.enabled {
+            self.compute.synchronize()?;
+            if self.offloading.tier(Resource::BlockWeights) == Tier::Auto { self.rows.to_disk(&self.compute)?; }
+            if crate::budget::available()? == 0 && self.offloading.tier(Resource::KvCache) == Tier::Auto {
+                if let Kv::Offloaded(o) = &mut self.kv { o.to_disk()?; }
+            }
+            // No automatic readmission this run: avoid RAM/SSD oscillation under desktop load.
+            self.calibration = Calibration::Done;
+        }
         match std::mem::replace(&mut self.calibration, Calibration::Done) {
             Calibration::Measuring(times, whole, c) => self.calibrate(times, whole, c)?,
             Calibration::TrialMeasuring(whole, None) => {
                 // the offloaded pass is measured: the next one with the cache on the GPU
                 self.compute.synchronize()?;
                 let offloaded = whole.0.elapsed_ms(&whole.1)?;
+                let (free, _) = cudarc::driver::result::mem_get_info()?;
+                let bytes = self.m.blocks * cache_format(&self.m).bytes(self.m.max_tokens + self.m.chunk_tokens, self.m.heads, self.m.head_dim);
+                if !crate::budget::fits(free, bytes, self.reserve + self.m.generation_workspace_bytes) {
+                    self.calibration = Calibration::Done;
+                    self.keep_placement()?;
+                    return self.next_chunk_timed::<TIMED>(noise);
+                }
                 let Kv::Offloaded(o) = std::mem::replace(&mut self.kv, Kv::Resident(Vec::new())) else { unreachable!() };
                 self.kv = Kv::Resident(o.into_resident(&self.compute)?);
                 self.calibration = Calibration::Trial(Some(offloaded));
@@ -483,7 +545,7 @@ impl Video {
         let mut kept: Option<Output> = None;
         let (step, at) = (self.ring.step(), self.ring.saved);
         for k in 0..self.m.timesteps.len() {
-            let (tokens, t_emb) = self.pass(x, self.m.timesteps[k], step, at, None)?;
+            let (tokens, t_emb) = self.pass::<TIMED>(x, self.m.timesteps[k], step, at, None)?;
             let c = self.scalar(1, self.m.sampler[k])?;
             let next = self.p.post.run(&[*tokens, *t_emb, x, c], self.compute.raw())?.remove(0);
             x = *next;
@@ -493,7 +555,7 @@ impl Video {
         // output is not needed
         let copies = self.ring.commit();
         let write = Write { at, n: self.m.chunk_tokens, copies: &copies };
-        drop(self.pass(x, 0.0, step, at, Some(&write))?);
+        drop(self.pass::<TIMED>(x, 0.0, step, at, Some(&write))?);
         if let Kv::Resident(caches) = &self.kv {
             for cache in caches {
                 cache.copy(&copies, &self.compute)?;
@@ -514,6 +576,7 @@ impl Video {
     }
 
     /// The frames of a chunk's latents as uint8 pixels [H, W, 3] each (TAEHVStream, one latent frame at a time).
+    #[cfg(feature = "debug-tools")]
     pub fn decode(&mut self, latents: &Tensor) -> Result<Vec<Vec<u8>>> {
         self.start_decode(latents)?;
         self.finish_decode()
@@ -573,9 +636,9 @@ impl Video {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::config::Config;
 
-    /// The video of the packages of 480x864, the operators and LibTorch loaded once per test.
+
+    /// The video of the packages of 512x928, the operators and LibTorch loaded once per test.
     fn video(offloading: &Offloading) -> Video {
         let operators: Vec<std::path::PathBuf> = ["live_w4a4", "live_sage"].iter()
             .map(|n| crate::root().join("ops").join("build").join(format!("{n}.dll"))).collect();
@@ -583,8 +646,9 @@ mod tests {
         // the primary context lives as long as the test process (a Gpu dropped would release it)
         static GPU: std::sync::OnceLock<crate::gpu::Gpu> = std::sync::OnceLock::new();
         GPU.get_or_init(|| crate::gpu::Gpu::new().unwrap()).bind().unwrap();
-        let directory = crate::root().join("artifacts").join("live").join("480x864");
-        let mut v = Video::load(&directory, runtime, 0, offloading, true).unwrap();
+        let directory = crate::root().join("artifacts").join("live").join("512x928");
+        let m = Manifest::read(&directory).unwrap();
+        let mut v = Video::load(&directory, m, runtime, 0, offloading).unwrap();
         // a prompt of zeros: what is compared is the cache, not the text
         let text = DeviceBuffer::zeroed(v.m.text_len * v.m.text_dim * 4, &v.compute).unwrap();
         let tensor = text.tensor(0, DType::F32, &[1, v.m.text_len as i64, v.m.text_dim as i64]);
@@ -614,7 +678,7 @@ mod tests {
     }
 
     fn tiers(weights: Tier, kv: Tier) -> Offloading {
-        let mut o = Config::default().offloading;
+        let mut o = Offloading::default();
         o.resources.insert(Resource::BlockWeights, weights);
         o.resources.insert(Resource::KvCache, kv);
         o
@@ -623,11 +687,11 @@ mod tests {
     /// The text package is used only when a prompt is set: between prompts its weights are off the GPU, and with
     /// them back from the disk it gives the text embedding it gave, bit for bit (the cross-attention keys after it
     /// differ in about one byte in a million between any two runs: the W4A4 GEMM is not deterministic).
-    /// Needs the GPU and artifacts/live/480x864: cargo test -- --ignored
+    /// Needs the GPU and artifacts/live/512x928: cargo test -- --ignored
     #[test]
     #[ignore]
     fn the_text_package_is_off_the_gpu_between_prompts() {
-        let mut v = video(&Config::default().offloading);
+        let mut v = video(&Offloading::default());
         assert_eq!(v.p.text.device_bytes(), 0, "the text package's weights stay on the GPU after the prompt");
         let embeddings = DeviceBuffer::zeroed(v.m.text_len * v.m.text_dim * 4, &v.compute).unwrap();
         let tensor = embeddings.tensor(0, DType::F32, &[1, v.m.text_len as i64, v.m.text_dim as i64]);
@@ -649,7 +713,7 @@ mod tests {
     /// are to each other (the pipeline is not deterministic: Sage sums with atomics, and INT4 rounding amplifies the
     /// last bits, so two identical runs part by about half of the latents' norm), through the fill of the ring and
     /// its first evictions (6 chunks); and of the cache only two slots stay on the GPU. Needs the GPU and
-    /// artifacts/live/480x864: cargo test -- --ignored
+    /// artifacts/live/512x928: cargo test -- --ignored
     #[test]
     #[ignore]
     fn the_kv_cache_in_ram_gives_the_chunks_of_the_cache_on_the_gpu() {
@@ -672,8 +736,8 @@ mod tests {
             noises += noise;
         }
         assert!(errors <= 1.5 * noises, "offloaded {errors:.3} against two resident runs {noises:.3}");
-        let m = Manifest::read(&crate::root().join("artifacts").join("live").join("480x864")).unwrap();
-        let one = Offloaded::bytes_read(m.max_tokens + m.chunk_tokens, m.heads, m.head_dim);
+        let m = Manifest::read(&crate::root().join("artifacts").join("live").join("512x928")).unwrap();
+        let one = cache_format(&m).bytes(m.max_tokens + m.chunk_tokens, m.heads, m.head_dim);
         println!("KV cache on the GPU: {resident_bytes} resident, {offloaded_bytes} offloaded");
         assert_eq!(resident_bytes, m.blocks * one);
         assert_eq!(offloaded_bytes, 2 * one);
@@ -685,17 +749,22 @@ mod tests {
     #[test]
     #[ignore]
     fn an_offloaded_cache_keeps_what_a_resident_one_keeps() {
+        check_cache_transport(Format::Fp8);
+        check_cache_transport(Format::Bf16);
+    }
+
+    fn check_cache_transport(format: Format) {
         static GPU: std::sync::OnceLock<crate::gpu::Gpu> = std::sync::OnceLock::new();
         GPU.get_or_init(|| crate::gpu::Gpu::new().unwrap()).bind().unwrap();
         let (blocks, per, chunk, heads, head_dim) = (3, 5, 8, 2, 16);
         let (max_tokens, sink) = (24 * per, 8 * per);
         let n = chunk * per;
         let compute = Stream::new().unwrap();
-        let new = || Buffers::new(max_tokens + n, heads, head_dim, &compute).unwrap();
+        let new = || Buffers::new(max_tokens + n, heads, head_dim, format, &compute).unwrap();
         let resident: Vec<Buffers> = (0..blocks).map(|_| new()).collect();
         let mut offloaded = Offloaded::from_resident((0..blocks).map(|_| new()).collect(), &compute).unwrap();
         let mut ring = Ring::new(max_tokens, sink, chunk, per);
-        let token = [heads * head_dim, heads * 4, heads * head_dim, heads * 4];
+        let token = format.token_bytes(heads, head_dim);
         // what a block package writes at `at`: bytes from the pass, block and buffer numbers
         let bytes = |pass: usize, b: usize, i: usize| -> Vec<u8> {
             (0..n * token[i]).map(|j| (pass * 31 + b * 7 + i * 3 + j) as u8).collect()

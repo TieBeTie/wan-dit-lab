@@ -72,6 +72,26 @@ def regression_check(reference_ms, candidate_ms, max_regression, min_rounds=12):
                 scope="one local run, not an independent multi-machine study")
 
 
+def repeated_block_accuracy_gate(candidates, baselines, reference, max_relative_increase):
+    """Same tolerances as block_accuracy_gate, using the measured atomic-noise envelope.
+
+    Every candidate sample must pass; a lucky candidate or baseline run cannot
+    certify a nondeterministic low-precision block. Individual errors are retained.
+    """
+    if not candidates or not baselines:
+        raise ValueError("Both paths require nonempty samples")
+    actual = [error_metrics(value, reference) for value in candidates]
+    previous = [error_metrics(value, reference) for value in baselines]
+    result = dict(candidate_samples=actual, baseline_samples=previous)
+    if any(not value["finite"] for value in actual + previous):
+        return dict(result, passed=False)
+    l2_limit = max(value["relative_l2"] for value in previous) * (1 + max_relative_increase) + 1e-7
+    peak_limit = max(value["max_abs"] for value in previous) + min(torch.finfo(value.dtype).eps for value in candidates) * reference.abs().max().item()
+    return dict(result, passed=all(value["relative_l2"] <= l2_limit and value["max_abs"] <= peak_limit for value in actual),
+                relative_l2_limit=l2_limit, max_abs_limit=peak_limit,
+                max_relative_error_increase=max_relative_increase)
+
+
 def block_accuracy_gate(candidate, baseline, fp32_reference, max_relative_increase):
     """Check integration against an independent precision reference, not bitwise BF16.
 

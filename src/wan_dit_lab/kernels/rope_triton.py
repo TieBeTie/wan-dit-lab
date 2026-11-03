@@ -13,7 +13,7 @@ from torch.library import triton_op, wrap_triton
 
 @triton.jit
 def _rope_kernel(
-    X, FREQ, OUT,
+    X, FREQ, OUTPUT,
     LENGTH: tl.constexpr, HEADS: tl.constexpr, PAIRS: tl.constexpr,
     XS0: tl.constexpr, XS1: tl.constexpr, XS2: tl.constexpr, XS3: tl.constexpr,
     FS0: tl.constexpr, FS1: tl.constexpr, FS2: tl.constexpr,
@@ -56,11 +56,11 @@ def _rope_kernel(
     out_odd = tl.where(rotate, out_odd, odd)
     # PyTorch's FP64 -> FP16/BF16 cast goes through FP32. Preserve that
     # double-rounding contract inside registers, without a global temporary.
-    if OUT.dtype.element_ty == tl.float16 or OUT.dtype.element_ty == tl.bfloat16:
+    if OUTPUT.dtype.element_ty == tl.float16 or OUTPUT.dtype.element_ty == tl.bfloat16:
         out_even = out_even.to(tl.float32)
         out_odd = out_odd.to(tl.float32)
-    tl.store(OUT + 2 * index, out_even, valid)
-    tl.store(OUT + 2 * index + 1, out_odd, valid)
+    tl.store(OUTPUT + 2 * index, out_even, valid)
+    tl.store(OUTPUT + 2 * index + 1, out_odd, valid)
 
 
 @triton_op("wan_dit_lab::rope3d_rotate", mutates_args={})

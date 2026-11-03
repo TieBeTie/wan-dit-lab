@@ -14,7 +14,8 @@ use crate::video::Result;
 type Request = (Prompt, String, Event);
 
 pub struct Encoder {
-    requests: Sender<Request>,
+    requests: Option<Sender<Request>>,
+    worker: Option<std::thread::JoinHandle<()>>,
     done: Receiver<std::result::Result<Prompt, String>>,
     embeddings: Arc<DeviceBuffer>,
     shape: [i64; 3],
@@ -30,7 +31,7 @@ impl Encoder {
         let embeddings = Arc::new(embeddings);
         let shape = t5.shape();
         let out = embeddings.clone();
-        std::thread::Builder::new().name("t5".into()).spawn(move || {
+        let worker = std::thread::Builder::new().name("t5".into()).spawn(move || {
             let gpu = match Gpu::new().and_then(|g| g.bind().map(|_| g)) {
                 Ok(g) => g,
                 Err(e) => return drop(finished.send(Err(e.to_string()))),
@@ -46,9 +47,12 @@ impl Encoder {
                     break;
                 }
             }
+            drop(t5);
+            drop(out);
+            drop(stream);
             drop(gpu);
         })?;
-        Ok(Encoder { requests, done, embeddings, shape, busy: false, waiting: None })
+        Ok(Encoder { requests: Some(requests), worker: Some(worker), done, embeddings, shape, busy: false, waiting: None })
     }
 
     /// Encodes `prompt` (as the model takes it, `text`) after the one being encoded; a newer one replaces it while it
@@ -58,7 +62,7 @@ impl Encoder {
             self.waiting = Some((prompt, text));
             return Ok(());
         }
-        self.requests.send((prompt, text, read)).map_err(|_| "T5's thread is gone")?;
+        self.requests.as_ref().ok_or("T5's thread is stopped")?.send((prompt, text, read)).map_err(|_| "T5's thread is gone")?;
         self.busy = true;
         Ok(())
     }
@@ -88,5 +92,13 @@ impl Encoder {
 
     pub fn tensor(&self) -> aoti::Tensor {
         self.embeddings.tensor(0, aoti::DType::F32, &self.shape)
+    }
+}
+
+impl Drop for Encoder {
+    fn drop(&mut self) {
+        // Close the request channel and release all of T5's GPU resources before the next run starts.
+        self.requests.take();
+        if let Some(worker) = self.worker.take() { let _ = worker.join(); }
     }
 }

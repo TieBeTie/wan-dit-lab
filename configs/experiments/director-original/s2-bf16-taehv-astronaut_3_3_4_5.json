@@ -1,0 +1,68 @@
+{
+  "model_kwargs": {
+    "model_name": "Wan2.2-TI2V-5B",
+    "timestep_shift": 5.0,
+    "num_frame_per_block": 8,
+    "local_attn_size": 32
+  },
+  "use_ema": false,
+  "output_folder": "C:\\Users\\ramaf\\Documents\\Experiments\\DIT\\outputs\\director-original\\s2-bf16-taehv",
+  "num_samples": 1,
+  "save_latents_only": false,
+  "num_output_frames": 184,
+  "data": {
+    "data_path": "C:\\Users\\ramaf\\Documents\\Experiments\\DIT\\outputs\\director-original\\s2-bf16-taehv-prompts",
+    "image_or_video_shape": [
+      1,
+      184,
+      48,
+      44,
+      80
+    ]
+  },
+  "inference": {
+    "sampling_steps": 2,
+    "sink_size": 8,
+    "guidance_scale": 1.0,
+    "multi_shot_sink": true,
+    "multi_shot_rope_offset": 8,
+    "streaming_vae": false,
+    "async_vae": false,
+    "vae_type": "taehv",
+    "kv_quant": false
+  },
+  "checkpoints": {
+    "generator_ckpt": "C:\\Inner Firmament\\Growth Space\\Projects\\Software\\ML\\wan-dit-lab\\checkpoints\\LongLive-2.0-5B-S2\\model_te.pt"
+  },
+  "logging": {
+    "seed": 0
+  },
+  "model_quant": false,
+  "fp8_quant": false,
+  "torch_compile": false,
+  "execution": {
+    "runner": "scripts/experiments/original_offload.py",
+    "weights": "cpu",
+    "kv_cache": "cpu",
+    "dtype": "bfloat16",
+    "vae_decode": "taehv",
+    "prompt_schedule": {
+      "astronaut_3_3_4_5": {
+        "chunks": [
+          8,
+          3,
+          3,
+          4,
+          5
+        ],
+        "cuts": [
+          "new",
+          "same",
+          "same",
+          "same",
+          "same"
+        ]
+      }
+    }
+  }
+}

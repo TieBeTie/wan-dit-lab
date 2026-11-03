@@ -1,0 +1,90 @@
+[
+  {
+    "component": "export",
+    "compiler": "torch_aot_inductor",
+    "rebuild": "if_missing_or_changed",
+    "output": "artifacts/live/704x1280-s2-fp8-kv-sdpa",
+    "model": {
+      "architecture": "checkpoints/Wan2.2-TI2V-5B/config.json",
+      "checkpoint": "checkpoints/LongLive-2.0-5B-S2/model_te.pt",
+      "block_weights": "artifacts/longlive2_5b_s2_blocks.fp8",
+      "text_encoder": {
+        "precision": "bfloat16",
+        "checkpoint": "checkpoints/Wan2.1-T2V-1.3B/models_t5_umt5-xxl-enc-bf16.pth",
+        "block_weights": "artifacts/t5_bf16.bin",
+        "tokenizer": "checkpoints/Wan2.1-T2V-1.3B/google/umt5-xxl"
+      },
+      "decoder": "reference/taehv/taew2_2.pth"
+    },
+    "video": {
+      "size": "704x1280",
+      "fps": 24
+    },
+    "sampling": {
+      "algorithm": "unipc",
+      "steps": 2,
+      "timestep_shift": 5.0
+    },
+    "context": {
+      "chunk_frames": 8,
+      "window_frames": 32,
+      "sink_frames": 8
+    },
+    "rope": {
+      "interpolate": false,
+      "native_size": "704x1280",
+      "scene_offset_frames": 8
+    },
+    "kernels": {
+      "attention": "torch_sdpa",
+      "cross_attention": [
+        "math"
+      ],
+      "linear": "torch_fp8",
+      "kv_cache": "fp8_e4m3fn",
+      "kv_store": "triton",
+      "rope": "longlive_triton",
+      "rope_dtype": "float32"
+    }
+  },
+  {
+    "component": "generate",
+    "packages_from": "export",
+    "mode": "offline",
+    "prompts": {
+      "source": "script",
+      "file": "configs/experiments/director-original/three-selected-scenes.json",
+      "chains": [
+        "teacup_pour",
+        "astronaut_3_3_4_5",
+        "fox_cabin"
+      ]
+    },
+    "seed": 0,
+    "offloading": {
+      "enabled": true,
+      "calibration": "if_needed",
+      "resources": {
+        "block_weights": "auto",
+        "kv_cache": "auto"
+      },
+      "copy_spare": 1.1,
+      "t5": {
+        "activations": "auto",
+        "resident": "auto"
+      },
+      "vram_margin_fraction": 0.1875,
+      "ram_margin_fraction": 0.125
+    },
+    "output": {
+      "directory": "outputs/quality-search/point-a-fp8-kv",
+      "codec": "libx264",
+      "crf": 16,
+      "pixel_format": "yuv420p"
+    },
+    "debug": "fps",
+    "drain": {
+      "every": "5s"
+    }
+  }
+]

@@ -21,7 +21,14 @@ class MultiHeadAttention(torch.nn.Module):
     def keys_values(self, C):
         # (K, V) [batch, token, heads, head_dim] of C: for cross attention they depend on the prompt alone,
         # and causal.Stream computes them once per prompt (context_kv)
-        K = self.norm_k(self.k(C)).reshape(C.shape[0], C.shape[-2], self.num_heads, self.head_dim)
+        if hasattr(self, "sage_cross_tokens"):
+            from wan_dit_lab.kernels import sage_cross
+            if C.shape[-2] != self.sage_cross_tokens:
+                raise ValueError("Cross context must match the exported text length")
+            shape = (C.shape[0], C.shape[-2], self.num_heads, self.head_dim)
+            return sage_cross.prepare_kv(self.k(C).reshape(shape), self.v(C).reshape(shape),
+                                          self.norm_k.weight, self.norm_k.eps)
+        K = self.norm_k(self.k(C).to(dtype=getattr(self, "rope_input_dtype", None))).reshape(C.shape[0], C.shape[-2], self.num_heads, self.head_dim)
         V = self.v(C).reshape(C.shape[0], C.shape[-2], self.num_heads, self.head_dim)
         return K, V
 
@@ -29,11 +36,25 @@ class MultiHeadAttention(torch.nn.Module):
         # softmax((QK^T)/sqrt(d)) V; keys and values come from context in cross attention (or context_kv, computed
         # beforehand), and from the cached frames before this chunk too when a cache is given (causal.KVCache)
         cross = context is not None or context_kv is not None
-        Q = self.norm_q(self.q(X)).reshape(X.shape[0], X.shape[-2], self.num_heads, self.head_dim)
+        if cross and hasattr(self, "sage_cross_tokens"):
+            from wan_dit_lab.kernels import sage_cross
+            Q = self.q(X).reshape(X.shape[0], X.shape[-2], self.num_heads, self.head_dim)
+            key, value = self.keys_values(context) if context_kv is None else context_kv
+            A = sage_cross.attend(Q, self.norm_q.weight, self.norm_q.eps, key, value, self.sage_cross_tokens)
+            return self.o(A.reshape(*X.shape[:-1], self.dim))
+        if not cross and getattr(self, "sage_rope", False):
+            shape = (X.shape[0], X.shape[-2], self.num_heads, self.head_dim)
+            Q, K, V = (layer(X).reshape(shape) for layer in (self.q, self.k, self.v))
+            A = cache.attend_rope(Q, K, V, self.norm_q, self.norm_k, grid_sizes, freq, start_frame)
+            return self.o(A.reshape(*X.shape[:-1], self.dim))
+        Q = self.norm_q(self.q(X).to(dtype=getattr(self, "rope_input_dtype", None))).reshape(X.shape[0], X.shape[-2], self.num_heads, self.head_dim)
         K, V = self.keys_values(X if context is None else context) if context_kv is None else context_kv
         if not cross:
-            Q = rope_apply(Q, grid_sizes, freq, start_frame)
-            K = rope_apply(K, grid_sizes, freq, start_frame)
+            apply_rope = getattr(self, "rope_kernel", rope_apply)
+            # Q and K determine position-sensitive attention weights.
+            # V supplies the content those weights combine.
+            Q = apply_rope(Q, grid_sizes, freq, start_frame)
+            K = apply_rope(K, grid_sizes, freq, start_frame)
         if cache is not None:  # attention over the cached frames too, outside a compiled graph (causal.KVCache)
             return self.o(cache.attend(Q, K, V).reshape(X.shape[0], X.shape[-2], self.dim))
         Q = Q.permute(0, 2, 1, 3)

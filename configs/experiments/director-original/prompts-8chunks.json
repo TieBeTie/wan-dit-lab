@@ -1,0 +1,56 @@
+{
+  "source": "Duration follow-up: identical pilot-v1 text and seed, only chunks per prompt 4 -> 8. Two selected chains.",
+  "chunks": 8,
+  "chains": [
+    {
+      "id": "teacup_action_hold",
+      "steps": [
+        {
+          "text": "A single white ceramic pouring cup with a short narrow spout and one transparent glass mug are close to the camera and fill most of the frame. The mug stands on a flat wooden kitchen counter. The ceramic cup has a curved handle and a plain matte surface. Kitchen cabinets behind the two vessels are softly blurred. Both vessels are clearly separated and fully visible. The ceramic cup tilts toward the mug. A narrow stream of clear water flows from its spout into the mug. Close-up shot, static camera, day time, soft daylight from a window.",
+          "cut": "new",
+          "chunks": 8
+        },
+        {
+          "text": "A single white ceramic pouring cup with a short narrow spout and one transparent glass mug are close to the camera and fill most of the frame. The mug stands on a flat wooden kitchen counter. The ceramic cup has a curved handle and a plain matte surface. Kitchen cabinets behind the two vessels are softly blurred. Both vessels are clearly separated and fully visible. The ceramic cup stands upright on the counter beside the mug. The water inside the mug settles to a level surface. Close-up shot, static camera, day time, soft daylight from a window.",
+          "cut": "same",
+          "chunks": 8
+        },
+        {
+          "text": "A single white ceramic pouring cup with a short narrow spout and one transparent glass mug are close to the camera and fill most of the frame. The mug stands on a flat wooden kitchen counter. The ceramic cup has a curved handle and a plain matte surface. Kitchen cabinets behind the two vessels are softly blurred. Both vessels are clearly separated and fully visible. The ceramic cup tilts toward the mug. A narrow stream of white milk flows from its spout into the mug. Close-up shot, static camera, day time, soft daylight from a window.",
+          "cut": "same",
+          "chunks": 8
+        },
+        {
+          "text": "A single white ceramic pouring cup with a short narrow spout and one transparent glass mug are close to the camera and fill most of the frame. The mug stands on a flat wooden kitchen counter. The ceramic cup has a curved handle and a plain matte surface. Kitchen cabinets behind the two vessels are softly blurred. Both vessels are clearly separated and fully visible. The ceramic cup stands upright on the counter beside the mug. The pale liquid inside the mug settles to a level surface. Close-up shot, static camera, day time, soft daylight from a window.",
+          "cut": "same",
+          "chunks": 8
+        }
+      ]
+    },
+    {
+      "id": "astronaut_apple_action_hold",
+      "steps": [
+        {
+          "text": "A single astronaut wearing a white spacesuit with a gold reflective visor floats close to the camera inside a space station and fills most of the frame. Both white gloves and the upper body are clearly visible. A large round window behind the astronaut shows the blue Earth against black space. Pale wall panels and fixed handrails frame the window. The suit has blue fabric patches and dark joints at the elbows. The astronaut floats upright with both hands resting close to the chest. The suit hoses drift gently. Medium shot, static camera, soft artificial light from the station ceiling.",
+          "cut": "new",
+          "chunks": 8
+        },
+        {
+          "text": "A single astronaut wearing a white spacesuit with a gold reflective visor floats close to the camera inside a space station and fills most of the frame. Both white gloves and the upper body are clearly visible. A large round window behind the astronaut shows the blue Earth against black space. Pale wall panels and fixed handrails frame the window. The suit has blue fabric patches and dark joints at the elbows. A single large red apple floats beside the right glove. Both hands rest close to the chest as the apple rotates slowly. Medium shot, static camera, soft artificial light from the station ceiling.",
+          "cut": "same",
+          "chunks": 8
+        },
+        {
+          "text": "A single astronaut wearing a white spacesuit with a gold reflective visor floats close to the camera inside a space station and fills most of the frame. Both white gloves and the upper body are clearly visible. A large round window behind the astronaut shows the blue Earth against black space. Pale wall panels and fixed handrails frame the window. The suit has blue fabric patches and dark joints at the elbows. The astronaut extends the right arm toward the red apple and closes the right glove around it. Medium shot, static camera, soft artificial light from the station ceiling.",
+          "cut": "same",
+          "chunks": 8
+        },
+        {
+          "text": "A single astronaut wearing a white spacesuit with a gold reflective visor floats close to the camera inside a space station and fills most of the frame. Both white gloves and the upper body are clearly visible. A large round window behind the astronaut shows the blue Earth against black space. Pale wall panels and fixed handrails frame the window. The suit has blue fabric patches and dark joints at the elbows. The astronaut holds the red apple in the right glove at chest height. The right arm rests against the body as the suit hoses drift gently. Medium shot, static camera, soft artificial light from the station ceiling.",
+          "cut": "same",
+          "chunks": 8
+        }
+      ]
+    }
+  ]
+}

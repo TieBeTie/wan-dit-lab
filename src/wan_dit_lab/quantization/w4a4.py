@@ -253,8 +253,15 @@ class FusedQKVAttention(MultiHeadAttention):
         assert context is None and context_kv is None, "q, k and v of one input: self-attention only"
         B, L = X.shape[0], X.shape[-2]
         q, k, v = self.qkv(X).split(self.dim, dim=-1)
-        Q = rope_apply(self.norm_q(q).reshape(B, L, self.num_heads, self.head_dim), grid_sizes, freq, start_frame)
-        K = rope_apply(self.norm_k(k).reshape(B, L, self.num_heads, self.head_dim), grid_sizes, freq, start_frame)
+        if getattr(self, "sage_rope", False):
+            shape = (B, L, self.num_heads, self.head_dim)
+            A = cache.attend_rope(q.reshape(shape), k.reshape(shape), v.reshape(shape),
+                                  self.norm_q, self.norm_k, grid_sizes, freq, start_frame)
+            return self.o(A.reshape(B, L, self.dim))
+        rotate = getattr(self, "rope_kernel", rope_apply)
+        dtype = getattr(self, "rope_input_dtype", None)
+        Q = rotate(self.norm_q(q.to(dtype=dtype)).reshape(B, L, self.num_heads, self.head_dim), grid_sizes, freq, start_frame)
+        K = rotate(self.norm_k(k.to(dtype=dtype)).reshape(B, L, self.num_heads, self.head_dim), grid_sizes, freq, start_frame)
         V = v.reshape(B, L, self.num_heads, self.head_dim)
         if cache is not None:
             return self.o(cache.attend(Q, K, V).reshape(B, L, self.dim))

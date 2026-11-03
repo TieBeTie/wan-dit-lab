@@ -6,6 +6,7 @@
 # -DebugTools builds only wan-debug.exe; -Print prints what it would build and builds nothing.
 [CmdletBinding()]
 param([switch]$DebugTools, [switch]$Print)
+$ErrorActionPreference = 'Stop'
 Set-Location $PSScriptRoot
 $builds = @(
   @{ args = @("--release", "-p", "wan"); target = "target"; out = "bin\wan.exe" },

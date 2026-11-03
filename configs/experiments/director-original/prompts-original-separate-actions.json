@@ -1,0 +1,82 @@
+{
+  "source": "Original demo chains with separate action and hold steps; four chunks per step.",
+  "chunks": 4,
+  "chains": [
+    {
+      "id": "teacup_pour",
+      "steps": [
+        {
+          "cut": "new",
+          "text": "A close-up shot of a ceramic teacup slowly pouring water into a glass mug. The water flows smoothly from the spout of the teacup into the mug, creating gentle ripples as it fills up. Both cups have detailed textures, with the teacup having a matte finish and the glass mug showcasing clear transparency. The background is a blurred kitchen countertop, adding context without distracting from the central action. The pouring motion is fluid and natural, emphasizing the interaction between the two cups."
+        },
+        {
+          "text": "A close-up shot of a ceramic teacup standing upright beside a glass mug containing water. The surface of the water is calm. Both cups have detailed textures, with the teacup having a matte finish and the glass mug showcasing clear transparency. The background is a blurred kitchen countertop, adding context without distracting from the two cups."
+        },
+        {
+          "text": "A close-up shot of a ceramic teacup slowly pouring red wine into a glass mug. The red wine flows smoothly from the spout of the teacup into the mug, creating gentle ripples as it fills up. Both cups have detailed textures, with the teacup having a matte finish and the glass mug showcasing clear transparency. The background is a blurred kitchen countertop, adding context without distracting from the central action. The pouring motion is fluid and natural, emphasizing the interaction between the two cups."
+        },
+        {
+          "text": "A close-up shot of a ceramic teacup standing upright beside a glass mug containing red wine. The surface of the red wine is calm. Both cups have detailed textures, with the teacup having a matte finish and the glass mug showcasing clear transparency. The background is a blurred kitchen countertop, adding context without distracting from the two cups."
+        },
+        {
+          "text": "A close-up shot of a ceramic teacup slowly pouring milk into a glass mug. The white milk flows smoothly from the spout of the teacup into the mug, creating gentle ripples as it fills up. Both cups have detailed textures, with the teacup having a matte finish and the glass mug showcasing clear transparency. The background is a blurred kitchen countertop, adding context without distracting from the central action. The pouring motion is fluid and natural, emphasizing the interaction between the two cups."
+        },
+        {
+          "text": "A close-up shot of a ceramic teacup standing upright beside a glass mug containing milk. The surface of the milk is calm. Both cups have detailed textures, with the teacup having a matte finish and the glass mug showcasing clear transparency. The background is a blurred kitchen countertop, adding context without distracting from the two cups."
+        }
+      ]
+    },
+    {
+      "id": "astronaut",
+      "camera": "Medium wide shot, static camera",
+      "steps": [
+        {
+          "cut": "new",
+          "card": "A single astronaut in a white spacesuit with a gold reflective visor floats inside a space station shown from the waist up with both arms and gloves fully visible and open space around the body. Behind the astronaut a large round window shows the blue Earth.",
+          "action": "The astronaut slowly turns in the air, the hoses of the suit drift.",
+          "light": "artificial lighting, soft light"
+        },
+        {
+          "action": "A red apple floats in front of the visor."
+        },
+        {
+          "action": "The astronaut reaches for the red apple with a gloved hand and catches it."
+        },
+        {
+          "action": "The astronaut holds the red apple with a gloved hand."
+        },
+        {
+          "cut": "scene",
+          "card": "A single astronaut in a white spacesuit with a gold reflective visor walks on the grey dusty surface of the Moon close to the camera and fills most of the frame, the black sky and the blue Earth behind.",
+          "action": "Each step kicks up a slow cloud of grey dust.",
+          "light": "hard sunlight, side lighting"
+        }
+      ]
+    },
+    {
+      "id": "fox_cabin",
+      "camera": "Medium close-up shot, static camera",
+      "steps": [
+        {
+          "cut": "new",
+          "card": "A single adult red fox with thick orange fur, a white chest and a bushy white-tipped tail sits in the snow close to the camera and fills most of the frame. Behind it stands a small wooden cabin with a snowy roof and a lit window, slightly blurred.",
+          "action": "The fox slowly turns its head, its ears twitch, its breath makes small clouds of steam.",
+          "light": "day time, soft daylight"
+        },
+        {
+          "action": "Heavy snow begins to fall, large snowflakes land on the fox's fur and on the cabin roof."
+        },
+        {
+          "action": "The fox slowly turns its head, its ears twitch.",
+          "light": "sunset, warm orange side lighting"
+        },
+        {
+          "cut": "scene",
+          "card": "A single adult red fox with thick orange fur and a bushy white-tipped tail lies curled up on a woven rug beside a glowing stone fireplace inside a wooden cabin, close to the camera, filling most of the frame.",
+          "action": "The flames flicker and the fox's ears twitch.",
+          "light": "night time, warm firelight"
+        }
+      ]
+    }
+  ]
+}

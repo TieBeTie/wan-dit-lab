@@ -32,12 +32,12 @@ class TextEncoder:
     """umT5-XXL built once over its mapped checkpoint; each call streams its blocks through the GPU again. A live video
     encodes every new prompt with it, without building the model each time."""
 
-    def __init__(self, device, window=2, ram_window=2, trace=None, resource_cache=None):
+    def __init__(self, device, window=2, ram_window=2, trace=None, resource_cache=None, *, checkpoint=None, tokenizer=None):
         self.tokenizer = HuggingfaceTokenizer(
-            name=str(checkpoint_dir() / "google" / "umt5-xxl"), seq_len=TEXT_LEN, clean="whitespace"
+            name=str(checkpoint_dir() / "google" / "umt5-xxl" if tokenizer is None else tokenizer), seq_len=TEXT_LEN, clean="whitespace"
         )
         self.encoder = umt5_xxl(encoder_only=True, dtype=torch.bfloat16, device="meta")
-        self.encoder.load_state_dict(mapped_torch_checkpoint(checkpoint_dir() / "models_t5_umt5-xxl-enc-bf16.pth"),
+        self.encoder.load_state_dict(mapped_torch_checkpoint(checkpoint_dir() / "models_t5_umt5-xxl-enc-bf16.pth" if checkpoint is None else checkpoint),
                                      assign=True)
         self.encoder.eval()
         self.resource_cache = resource_cache
@@ -98,18 +98,34 @@ class FastTextEncoder:
     The blocks go through the GPU by BlockOffloader as TextEncoder's, each a row of bytes in a GPU slot that slot()
     makes a block of: its linear layers unpack their INT8 weights to bfloat16 when called."""
 
-    def __init__(self, device, cache=16, truncate=True, weights_file=None):
+    def __init__(self, device, cache=16, truncate=True, weights_file=None, *, checkpoint=None, tokenizer=None, precision="int8"):
         """weights_file: the INT8 blocks kept in this file instead of all of them in RAM (5.6 GB that Live, OBS and
         the tutor need): made from the checkpoint the first time, then read row by row while a prompt is encoded, on
         Windows without the page cache (RowFile), elsewhere mapped. The cost is the read of the file per prompt."""
+        if precision not in ("int8", "bfloat16"):
+            raise ValueError(f"unsupported text precision: {precision}")
         self.truncate = truncate  # compute only the prompt's tokens (else all TEXT_LEN, as TextEncoder)
-        base = TextEncoder(device)
+        base = TextEncoder(device) if checkpoint is None and tokenizer is None else TextEncoder(device, checkpoint=checkpoint, tokenizer=tokenizer)
         self.tokenizer, self.norm, self.device = base.tokenizer, base.norm, device
         self.embedding = base.encoder.token_embedding
         blocks = base.encoder.blocks
         # the structure of a block; its weights take GPU memory (0.37 GB) only while a prompt is encoded: beside a
         # live video's model, cache and CUDA graph at 512x928 there is no room to keep them
         self.template = copy.deepcopy(blocks[0]).to("meta").requires_grad_(False)
+        if precision == "bfloat16":
+            from wan_dit_lab.quantization.weight_pack import build, mapped_rows
+            if weights_file is None:
+                raise ValueError("bfloat16 text encoder requires an immutable weights_file")
+            source = checkpoint_dir() / "models_t5_umt5-xxl-enc-bf16.pth" if checkpoint is None else checkpoint
+            self.path = Path(weights_file)
+            if not self.path.exists():
+                build(blocks, self.path, source)
+            rows, entries = mapped_rows(blocks, self.path, source)
+            self.blocks, self.per_block = rows.shape
+            self.layout = [(e["name"], [(e["offset"], tuple(e["shape"]), torch.bfloat16)]) for e in entries]
+            self.mapped, self.buffer = True, None
+            self.cache, self.capacity = {}, cache
+            return
         self.linears = [n for n, m in self.template.named_modules() if isinstance(m, torch.nn.Linear)]
         # per block: {name: (int8 weight, scale)} for linears, {name: bf16 tensor} for the rest; laid out in one row of
         # bytes per block (16-byte aligned pieces). ffn.fc2 (wo of T5) stays in bfloat16: its inputs carry the outliers

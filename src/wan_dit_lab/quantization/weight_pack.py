@@ -81,6 +81,73 @@ def mapped(blocks, path, source):
         return torch.from_numpy(data).view(torch.bfloat16).reshape(len(blocks), -1)
 
 
+def mapped_rows(blocks, path, source):
+    """Dense BF16 pack through the same byte-row interface as quantized packs.
+
+    Reuse mapped() for provenance and shape checks. The native row scheduler
+    deals only in bytes and does not need a separate BF16 offloading algorithm.
+    """
+    tensors = mapped(blocks, path, source)
+    entries, offset = [], 0
+    for name, parameter in blocks[0].named_parameters():
+        size = parameter.numel() * 2
+        entries.append(dict(name=name, dtype='bfloat16', shape=list(parameter.shape), offset=offset, bytes=size))
+        offset += size
+    return tensors.view(torch.uint8).reshape(len(blocks), offset), entries
+
+
+def dense_slot(row, like, entries):
+    """Structure-only module bound to unquantized row views; no private copy."""
+    import copy
+    module = copy.deepcopy(like).to('meta').requires_grad_(False)
+    for entry in entries:
+        parent, _, name = entry['name'].rpartition('.')
+        owner = module.get_submodule(parent) if parent else module
+        value = row[entry['offset']:entry['offset'] + entry['bytes']].view(torch.bfloat16).reshape(entry['shape'])
+        setattr(owner, name, torch.nn.Parameter(value, requires_grad=False))
+    return module
+
+
+def prepare_dense_weights(recipe, root):
+    """Build missing dense rows before export identity is computed, without CUDA.
+
+    Check space for every requested pack together before writing the first one.
+    Existing packs are validated by mapped_rows when the exporter opens them.
+    """
+    from wan_dit_lab.models.checkpoint import mapped_torch_checkpoint, self_forcing_weights
+    from wan_dit_lab.models.model import WanModel
+    root, requests = Path(root), []
+    spec = recipe["model"]
+    path = root / spec["block_weights"]
+    if recipe["kernels"]["linear"] == "torch_bf16" and not path.exists():
+        config = json.loads((root / spec["architecture"]).read_text(encoding="utf-8"))
+        keys = ("dim", "eps", "ffn_dim", "freq_dim", "in_dim", "num_heads", "num_layers", "out_dim", "text_len")
+        with torch.device("meta"):
+            model = WanModel(**{k: config[k] for k in keys})
+        source = root / spec["checkpoint"]
+        model.load_state_dict(self_forcing_weights(source), assign=True)
+        requests.append((model.blocks, path, source))
+    text = spec["text_encoder"]
+    path = root / text["block_weights"]
+    if text.get("precision", "int8") == "bfloat16" and not path.exists():
+        from wan_dit_lab.models.text_encoder import umt5_xxl
+        encoder = umt5_xxl(encoder_only=True, dtype=torch.bfloat16, device="meta")
+        source = root / text["checkpoint"]
+        encoder.load_state_dict(mapped_torch_checkpoint(source), assign=True)
+        requests.append((encoder.blocks, path, source))
+    volumes = {}
+    for blocks, path, _ in requests:
+        volume = path.resolve().anchor
+        volumes[volume] = volumes.get(volume, 0) + sum(p.numel() * 2 for b in blocks for p in b.parameters())
+    for volume, size in volumes.items():
+        needed, free = size + 3 * 2**30, shutil.disk_usage(volume).free
+        if free < needed:
+            raise OSError(f"Insufficient disk space for dense packs: need {needed / 2**30:.2f} GiB, "
+                          f"free {free / 2**30:.2f} GiB on {volume}")
+    for blocks, path, source in requests:
+        build(blocks, path, source)
+
+
 def fp8_layout(block):
     """Where each tensor of a block lies in its block_fp8_v1 row: the weight of every nn.Linear in FP8 with one
     float32 scale per tensor (fp8.quantize), every other parameter in bfloat16; each entry 16-byte aligned."""

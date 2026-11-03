@@ -50,14 +50,33 @@ pub fn process_memory() -> (usize, usize, usize) {
 
 const GIB: f64 = (1u64 << 30) as f64;
 
+/// Physical RAM available for pinned allocations (never count the pagefile).
+pub fn physical_ram() -> Result<(usize, usize)> {
+    #[cfg(windows)] {
+        #[repr(C)]
+        struct Status { length: u32, load: u32, values: [u64; 7] }
+        #[link(name = "kernel32")]
+        extern "system" { fn GlobalMemoryStatusEx(status: *mut Status) -> i32; }
+        let mut status = Status { length: std::mem::size_of::<Status>() as u32, load: 0, values: [0; 7] };
+        if unsafe { GlobalMemoryStatusEx(&mut status) } == 0 { return Err(std::io::Error::last_os_error().into()); }
+        Ok((status.values[0] as usize, status.values[1] as usize))
+    }
+    #[cfg(not(windows))] { Err("physical RAM probe is not implemented on this platform".into()) }
+}
+
 pub fn memory_line(video: &Video) -> String {
     let (private, working, peak_working) = process_memory();
     let (free, total) = crate::gpu::Gpu::new().and_then(|g| g.memory()).unwrap_or((0, 0));
     let (allocated, reserved, peak) = video.runtime().memory_peak(crate::gpu::DEVICE);
-    format!("RAM private {:.2} GiB, working set {:.2} (at most {:.2}) GiB, pinned (offloaded) {:.2} GiB | GPU used {:.2} GiB, torch allocated {:.2} reserved {:.2} (at most {:.2}) GiB, KV on the GPU {:.2} GiB",
+    let (_, available) = physical_ram().unwrap_or((0, 0));
+    let pinned = crate::budget::PINNED.load(std::sync::atomic::Ordering::Relaxed);
+    let (read, written) = video.disk_bytes();
+    let memory = format!("RAM private {:.2} GiB, working set {:.2} (at most {:.2}) GiB, pinned (offloaded) {:.2} GiB | GPU used {:.2} GiB, torch allocated {:.2} reserved {:.2} (at most {:.2}) GiB, KV on the GPU {:.2} GiB",
             private as f64 / GIB, working as f64 / GIB, peak_working as f64 / GIB, video.pinned_bytes() as f64 / GIB,
             (total - free) as f64 / GIB, allocated as f64 / GIB, reserved as f64 / GIB, peak as f64 / GIB,
-            video.kv_device_bytes() as f64 / GIB)
+            video.kv_device_bytes() as f64 / GIB);
+    format!("{memory} | system available {:.2} GiB, all native pinned {:.2} GiB, KV disk read/write {:.2}/{:.2} GiB",
+            available as f64 / GIB, pinned as f64 / GIB, read as f64 / GIB, written as f64 / GIB)
 }
 
 #[cfg(feature = "debug-tools")]
@@ -161,32 +180,21 @@ pub fn check(reference: &Path, (mut video, mut t5, embeddings): (Video, T5, Devi
 
 /// Chunks of one prompt without a window: seconds from one chunk's frames to the next's, fps, memory. As the window
 /// runs it, the next chunk queued behind the decoding of this one; `serial`: each chunk waited for before the next.
-pub fn bench((mut video, mut t5, embeddings): (Video, T5, DeviceBuffer), prompt: &str, chunks: usize, serial: bool)
-    -> Result<()> {
-    let p = Prompt { cut: Cut::Same, text: prompt.into() };
-    let t = crate::set_prompt(&mut video, &mut t5, &embeddings, &p)?;
-    println!("{}", memory_line(&video));
-    println!("T5 and cross-attention: {t:.2} s");
+pub fn bench<M: crate::telemetry::Probe>(loaded: (Video, T5, DeviceBuffer), prompt: &str, chunks: usize, serial: bool, metrics: M) -> Result<()> {
+    let mut generator = crate::generation::Generator::new(loaded)?.observe(metrics);
+    let start = Instant::now();
+    generator.request(Prompt { cut: Cut::Same, text: prompt.into() })?;
+    generator.poll(true)?;
+    println!("{}", memory_line(&generator.video));
+    println!("T5 and cross-attention: {:.2} s", start.elapsed().as_secs_f64());
     let mut times = Vec::new();
     let mut start = Instant::now();
-    if !serial {
-        let x0 = video.next_chunk(None)?;
-        video.start_decode(&x0)?;
-    }
+    if !serial { generator.advance()?; }
     for i in 0..chunks {
         #[cfg(feature = "debug-tools")]
-        if i == 4 {
-            video.copy_waits()?; // the waits from here on: after the calibration, the cache full
-        }
-        let frames = if serial {
-            let x0 = video.next_chunk(None)?;
-            video.decode(&x0)?
-        } else {
-            let x0 = video.next_chunk(None)?;
-            let frames = video.finish_decode()?;
-            video.start_decode(&x0)?;
-            frames
-        };
+        if i == 4 { generator.video.copy_waits()?; }
+        let mut frames = generator.advance_timed::<{ cfg!(feature = "debug-tools") }>()?;
+        if serial { frames.extend(generator.flush()?); }
         let seconds = start.elapsed().as_secs_f64();
         start = Instant::now();
         println!("chunk {i}: {seconds:.3} s, {} frames, {:.1} fps", frames.len(), frames.len() as f64 / seconds);
@@ -194,20 +202,22 @@ pub fn bench((mut video, mut t5, embeddings): (Video, T5, DeviceBuffer), prompt:
     }
     #[cfg(feature = "debug-tools")]
     {
-        let (late, waits, ms) = video.copy_waits()?;
+        let (late, waits, ms) = generator.video.copy_waits()?;
         println!("copies of streamed rows from chunk 4 on: {late} late of {waits}, the GPU stood {ms:.1} ms for them");
     }
-    let steady: Vec<_> = times.iter().skip(4).collect(); // the ring is full from the fourth chunk on
+    let steady: Vec<_> = times.iter().skip(4).collect();
     if !steady.is_empty() {
-        let s: f64 = steady.iter().map(|t| t.0).sum::<f64>() / steady.len() as f64;
-        println!("steady chunk: {s:.3} s, {:.2} fps", steady[0].1 as f64 / s);
+        let seconds = steady.iter().map(|t| t.0).sum::<f64>() / steady.len() as f64;
+        println!("steady chunk: {seconds:.3} s, {:.2} fps", steady[0].1 as f64 / seconds);
     }
-    // a prompt changed while the video goes on, as the tutor changes it: T5 and the cross-attention keys
     for text in ["A red fox walks through a snowy forest at dusk", "A sailing boat on a calm sea at sunrise"] {
-        let t = crate::set_prompt(&mut video, &mut t5, &embeddings, &Prompt { cut: Cut::Same, text: text.into() })?;
-        println!("prompt change: {:.0} ms", t * 1e3);
+        let start = Instant::now();
+        generator.request(Prompt { cut: Cut::Same, text: text.into() })?;
+        generator.poll(true)?;
+        println!("prompt change: {:.0} ms", start.elapsed().as_secs_f64() * 1e3);
     }
-    println!("{}", memory_line(&video));
+    println!("{}", memory_line(&generator.video));
+    generator.finish_metrics()?;
     Ok(())
 }
 

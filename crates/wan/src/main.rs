@@ -18,6 +18,8 @@
 //! "/new ..." (a new video). Esc or closing the window stops it.
 
 mod cache;
+mod budget;
+mod kv_disk;
 mod config;
 mod disk;
 mod encoder;
@@ -26,6 +28,10 @@ mod manifest;
 mod measure;
 mod offline;
 mod packages;
+mod pipeline;
+mod runtime;
+mod generation;
+mod telemetry;
 mod prompts;
 mod rows;
 mod t5;
@@ -33,179 +39,123 @@ mod video;
 mod window;
 
 use std::path::{Path, PathBuf};
-use std::time::Instant;
 
 use live_protocol::Cut;
 
-use crate::gpu::{DeviceBuffer, Gpu};
+use crate::gpu::DeviceBuffer;
 use crate::prompts::Prompt;
 use crate::t5::T5;
 use crate::video::{Result, Video};
 
+/// Command-line controls only. Model and generation settings live once, in the parsed pipeline.
 struct Args {
+    pipeline: config::Config,
     command: String,
-    packages: PathBuf,
-    prompt: Option<String>,
-    send: Option<String>,
-    cut: Cut,
-    seed: u64,
+    send: Option<Prompt>,
     chunks: usize,
     reference: PathBuf,
     serial: bool,
-    offloading: config::Offloading,
-    recalibrate: bool,
     scale: f32,
     right: bool,
-    /// the configuration file read, and its mode
-    config: PathBuf,
-    mode: config::Mode,
-    /// the chains of the offline mode (all of demo_chains.json when empty)
-    chains: Vec<String>,
 }
-
+impl Args {
+    fn packages(&self) -> PathBuf { root().join(&self.pipeline.export.output) }
+}
 fn root() -> PathBuf {
-    // crates/wan -> wan-dit-lab
     Path::new(env!("CARGO_MANIFEST_DIR")).parent().unwrap().parent().unwrap().to_path_buf()
 }
-
-fn parse() -> Args {
-    let argv: Vec<String> = std::env::args().skip(1).collect();
-    // --config before the other flags: they override the file
-    let config = argv.iter().position(|a| a == "--config").map(|i| root().join(&argv[i + 1]))
-        .unwrap_or_else(|| root().join("configs").join("live.json"));
-    let mut a = defaults(&config);
-    let mut it = argv.into_iter();
-    flags(&mut a, &mut it);
-    a
-}
-
-/// The arguments of the configuration file (configs/live.json by default), before the flags.
+#[cfg(test)]
 fn defaults(path: &Path) -> Args {
-    let c = config::Config::read(path).unwrap_or_else(|e| panic!("{e}"));
-    Args {
-        config: path.to_path_buf(),
-        mode: c.mode,
-        chains: Vec::new(),
-        command: "run".into(),
-        packages: root().join("artifacts").join("live").join(&c.size),
-        prompt: Some(c.prompt.clone()),
-        send: None,
-        cut: Cut::Same,
-        seed: c.seed,
-        chunks: 12,
-        reference: root().join("artifacts").join("live").join("480x864").join("reference.safetensors"),
-        scale: 1.0,
-        serial: false,
-        offloading: c.offloading.clone(),
-        recalibrate: c.recalibrate,
-        right: false,
-    }
+    Args { pipeline: config::Config::read(path).expect("pipeline config"), command: "run".into(), send: None,
+           chunks: 12, reference: root().join("artifacts/live/480x864/reference.safetensors"),
+           serial: false, scale: 1.0, right: false }
 }
-
-/// The flags of the command line over the arguments `a`.
-fn flags(a: &mut Args, it: &mut impl Iterator<Item = String>) {
+fn parse_from(argv: &[String]) -> Result<Args> {
+    let config_path = match argv.iter().position(|a| a == "--config") {
+        Some(i) => root().join(argv.get(i + 1).ok_or("--config needs a value")?),
+        None => root().join("configs/live.json"),
+    };
+    let config = config::Config::read(&config_path)?;
+    let mut a = Args { pipeline: config, command: "run".into(), send: None, chunks: 12,
+        reference: root().join("artifacts/live/480x864/reference.safetensors"), serial: false, scale: 1.0, right: false };
+    let mut it = argv.iter();
+    let mut cut = Cut::Same;
     while let Some(arg) = it.next() {
-        let mut value = || it.next().unwrap_or_else(|| panic!("{arg} needs a value"));
+        let mut value = || it.next().ok_or_else(|| format!("{arg} needs a value"));
         match arg.as_str() {
             "check" | "bench" | "run" | "render" => a.command = arg.clone(),
-            "--config" => { value(); }
-            "--chains" => a.chains = value().split(',').map(|c| c.trim().to_string()).filter(|c| !c.is_empty()).collect(),
-            "--packages" => a.packages = value().into(),
-            // the packages of one resolution, exported by export_live.py --height --width into artifacts/live/HxW
-            "--size" => a.packages = root().join("artifacts").join("live").join(value()),
-            "--prompt" => a.prompt = Some(value()),
-            "--send" => a.send = Some(value()),
-            "--scene" => a.cut = Cut::Scene,
-            "--new" => a.cut = Cut::New,
-            "--seed" => a.seed = value().parse().expect("--seed"),
-            "--chunks" => a.chunks = value().parse().expect("--chunks"),
-            "--reference" => a.reference = value().into(),
-            "--scale" => a.scale = value().parse().expect("--scale"),
+            "--plan" => a.command = "plan".into(),
+            "--export-only" => a.command = "export".into(),
+            "--config" => { value()?; }
+            "--packages" => a.pipeline.export.output = value()?.into(),
+            "--size" => {
+                let size = value()?.clone();
+                a.pipeline.export.output = PathBuf::from("artifacts/live").join(&size);
+                a.pipeline.export.video.size = size;
+            }
+            "--prompt" => a.pipeline.generate.prompts = config::PromptSource::Interactive { initial: Some(value()?.clone()) },
+            "--chains" => match &mut a.pipeline.generate.prompts {
+                config::PromptSource::Script { chains, .. } => *chains = value()?.split(',').map(str::trim).filter(|s| !s.is_empty()).map(String::from).collect(),
+                _ => return Err("--chains needs prompts.source=script".into()),
+            },
+            "--send" => a.send = Some(Prompt { text: value()?.clone(), cut }),
+            "--scene" => cut = Cut::Scene,
+            "--new" => cut = Cut::New,
+            "--seed" => a.pipeline.generate.seed = value()?.parse()?,
+            "--chunks" => a.chunks = value()?.parse()?,
+            "--reference" => a.reference = value()?.into(),
+            "--scale" => a.scale = value()?.parse()?,
             "--right" => a.right = true,
             "--serial" => a.serial = true,
-            // a resource's tier over configs/live.json: --tier kv_cache=vram, --tier block_weights=disk
+            "--rebuild" => a.pipeline.export.rebuild = value()?.clone(),
+            "--calibration" => a.pipeline.generate.offloading.calibration = serde_json::from_value(serde_json::json!(value()?))?,
             "--tier" => {
-                let v = value();
-                let (resource, tier) = v.split_once('=').unwrap_or_else(|| panic!("--tier resource=tier, not {v}"));
-                let quoted = |s: &str| format!("\"{s}\"");
-                let resource: config::Resource = serde_json::from_str(&quoted(resource)).expect("--tier: a resource");
-                let tier: config::Tier = serde_json::from_str(&quoted(tier)).expect("--tier: vram, ram, disk or auto");
-                a.offloading.resources.insert(resource, tier);
-                a.offloading.validate().unwrap_or_else(|e| panic!("--tier {v}: {e}"));
+                let v = value()?;
+                let (r,t) = v.split_once('=').ok_or("--tier needs resource=tier")?;
+                a.pipeline.generate.offloading.resources.insert(serde_json::from_value(serde_json::json!(r))?, serde_json::from_value(serde_json::json!(t))?);
             }
-            "--no-offloading" => a.offloading.enabled = false,
-            // calibrate again, not taking the placement kept in <packages>/calibration.json
-            "--recalibrate" => a.recalibrate = true,
-            "-h" | "--help" => {
-                println!("{}", include_str!("main.rs").lines().take_while(|l| l.starts_with("//!"))
-                    .map(|l| l.trim_start_matches("//!").trim_start_matches(' ')).collect::<Vec<_>>().join("\n"));
-                std::process::exit(0);
-            }
-            other => panic!("unknown argument {other}"),
+            "--no-offloading" => a.pipeline.generate.offloading.enabled = false,
+            other => return Err(format!("unknown argument {other}").into()),
         }
     }
+    if let Some(p) = &mut a.send { p.cut = cut; }
+    if a.chunks == 0 || !a.scale.is_finite() || a.scale <= 0.0 { return Err("chunks and scale must be positive".into()); }
+    a.pipeline.validate()?;
+    Ok(a)
 }
-
-/// LibTorch, the operators live::* and the GPU, then the video and T5 over the packages.
-fn load(args: &Args) -> Result<(Video, T5, DeviceBuffer)> {
-    let operators: Vec<PathBuf> = ["live_w4a4", "live_sage"].iter()
-        .map(|n| root().join("ops").join("build").join(format!("{n}.dll"))).collect();
-    let runtime = aoti::Runtime::load(&aoti::Runtime::default_torch_lib(), &operators)?;
-    let gpu = Gpu::new()?;
-    gpu.bind()?;
-    #[cfg(feature = "debug-tools")]
-    let used = |what: &str| {
-        let (free, total) = gpu.memory().unwrap_or((0, 0));
-        let (allocated, _, _) = runtime.memory_peak(gpu::DEVICE);
-        println!("GPU used after {what}: {:.0} MiB (torch allocated {:.0} MiB)", (total - free) as f64 / 1048576.0,
-                 allocated as f64 / 1048576.0);
-    };
-    #[cfg(feature = "debug-tools")]
-    used("the context and the operators");
-    let video = Video::load(&args.packages, runtime.clone(), args.seed, &args.offloading, args.recalibrate)?;
-    #[cfg(feature = "debug-tools")]
-    used("the video's packages and buffers");
-    let spec = video.m.t5.clone().ok_or("live.json has no T5: export it with export_live.py")?;
-    let t5 = T5::load(&spec, video.m.text_len, video.m.text_dim, &runtime, &args.packages, &video.compute,
-                      &args.offloading.t5)?;
-    #[cfg(feature = "debug-tools")]
-    used("T5");
-    let embeddings = DeviceBuffer::new(video.m.text_len * video.m.text_dim * 4)?;
-    Ok((video, t5, embeddings))
-}
-
-/// The prompt as the model takes it: a shot's prompt begins as LongLive 2.0 marks a cut.
-pub fn model_prompt(video: &Video, p: &Prompt) -> String {
-    if p.cut == Cut::Scene { format!("{}{}", video.m.scene_prefix, p.text) } else { p.text.clone() }
-}
-
-fn set_prompt(video: &mut Video, t5: &mut T5, embeddings: &DeviceBuffer, p: &Prompt) -> Result<f64> {
-    let start = Instant::now();
-    t5.encode(&model_prompt(video, p), embeddings, &video.compute)?;
-    #[cfg(feature = "debug-tools")]
-    let encoded = start.elapsed().as_secs_f64();
-    let tensor = t5.tensor(embeddings);
-    video.set_prompt(&tensor, p.cut)?;
-    #[cfg(feature = "debug-tools")]
-    {
-        video.compute.synchronize()?;
-        let all = start.elapsed().as_secs_f64();
-        println!("a prompt: T5 {:.0} ms ({} from the disk), text embedding and cross-attention keys of 30 blocks {:.0} ms",
-                 encoded * 1e3, t5.copy_waits()?, (all - encoded) * 1e3);
-    }
-    Ok(start.elapsed().as_secs_f64())
-}
+// Kept as direct functions for the diagnostic callers; no configuration work in the chunk loop.
+use runtime::load;
+#[cfg(feature = "debug-tools")]
+use runtime::set_prompt;
 
 fn main() -> Result<()> {
-    let args = parse();
-    if let Some(text) = &args.send {
-        prompts::send(args.cut, text, live_protocol::PORT)?;
+    let argv: Vec<String> = std::env::args().skip(1).collect();
+    if argv.iter().any(|a| a == "--help" || a == "-h") {
+        println!("wan --config configs/live.json [--prompt TEXT] [--plan | --export-only]\nwan --config configs/offline.json [--chains IDS]\nwan bench --chunks N [--rebuild never]\nwan --send TEXT [--scene | --new]");
         return Ok(());
     }
-    if args.mode == config::Mode::Offline {
-        let text = std::fs::read_to_string(&args.config)?;
-        let argv: Vec<String> = std::env::args().collect();
-        return offline::run(&args, &text, &argv, load(&args)?);
+    let args = parse_from(&argv)?;
+    if let Some(p) = &args.send { prompts::send(p.cut, &p.text, live_protocol::PORT)?; return Ok(()); }
+    if args.command == "plan" { println!("{}", serde_json::to_string_pretty(&args.pipeline.value())?); return Ok(()); }
+    // Resolve prompt scripts before any expensive preparation or GPU allocation.
+    let _ = generation::sequences(&args.pipeline.generate.prompts)?;
+    #[cfg(not(feature = "fps"))]
+    if args.command != "export" && args.pipeline.generate.debug.enabled() {
+        return Err("this executable was built without diagnostics; use debug=false or rebuild with feature fps".into());
+    }
+    pipeline::prepare(&args.pipeline)?;
+    if args.command == "export" { return Ok(()); }
+    #[cfg(feature = "fps")]
+    if args.pipeline.generate.debug.enabled() {
+        let metrics = telemetry::Fps::spawn(&args.pipeline.generate.drain)?;
+        return execute(args, metrics);
+    }
+    execute(args, telemetry::Off)
+}
+
+fn execute<M: telemetry::Probe>(args: Args, metrics: M) -> Result<()> {
+    if args.command == "run" && args.pipeline.generate.mode == config::Mode::Offline {
+        return offline::run(&args, load(&args)?, metrics);
     }
     match args.command.as_str() {
         #[cfg(feature = "debug-tools")]
@@ -213,9 +163,35 @@ fn main() -> Result<()> {
         #[cfg(feature = "debug-tools")]
         "render" => measure::render(&args.reference, load(&args)?),
         #[cfg(not(feature = "debug-tools"))]
-        "check" | "render" => Err("check and render are built with --features debug-tools".into()),
-        "bench" => measure::bench(load(&args)?, args.prompt.as_deref().unwrap_or(window::DEFAULT_PROMPT), args.chunks,
-                                  args.serial),
-        _ => window::run(args, load),
+        "check" | "render" => Err("check and render need wan-debug.exe".into()),
+        "bench" => measure::bench(load(&args)?, args.pipeline.generate.prompts.initial().ok_or("bench needs an initial prompt")?, args.chunks, args.serial, metrics),
+        _ => window::run(args, load, metrics),
+    }
+}
+
+#[cfg(test)]
+mod kernel_tests {
+    use super::*;
+    #[test]
+    fn mismatched_kernels_fail_before_loading_operators_or_the_gpu() {
+        let mut args = defaults(&root().join("configs/live.json"));
+        let dir = std::env::temp_dir().join(format!("wan-kernel-startup-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let mut manifest = crate::manifest::tests::fixture();
+        manifest["kernels"]["cross_attention"] = serde_json::json!(["efficient"]);
+        std::fs::write(dir.join("live.json"), manifest.to_string()).unwrap();
+        args.pipeline.export.output = dir.clone();
+        let error = load(&args).err().expect("mismatched packages loaded").to_string();
+        assert!(error.contains("cross_attention"), "runtime touched before validation: {error}");
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+    #[test]
+    fn overrides_change_the_effective_config_and_missing_values_are_errors() {
+        let a = parse_from(&["--prompt".into(), "a fox".into(), "--seed".into(), "7".into()]).unwrap();
+        assert_eq!(a.pipeline.generate.prompts.initial(), Some("a fox"));
+        assert_eq!(a.pipeline.value()[1]["seed"], 7);
+        assert!(parse_from(&["--config".into()]).is_err());
+        assert!(parse_from(&["--seed".into()]).is_err());
+        assert!(parse_from(&["--unknown".into()]).is_err());
     }
 }

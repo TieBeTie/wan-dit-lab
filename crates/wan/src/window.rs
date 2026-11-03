@@ -9,14 +9,12 @@ use std::time::{Duration, Instant};
 use eframe::egui;
 use live_protocol::Cut;
 
-use crate::encoder::Encoder;
-use crate::gpu::{DeviceBuffer, Event};
+use crate::gpu::DeviceBuffer;
 use crate::prompts::{Inbox, Prompt};
 use crate::t5::T5;
 use crate::video::{Result, Video};
 use crate::Args;
 
-pub const DEFAULT_PROMPT: &str = "A lone oak tree on a grassy hill sways in the wind";
 const TITLE: &str = "live video (Esc to stop)";
 const BOX: f32 = 44.0; // pixels of the prompt box below the video
 
@@ -27,79 +25,48 @@ struct Status {
     chunk_s: Option<f64>,
     frames_per_chunk: usize,
     error: Option<String>,
+    closed: bool,
 }
 
 type Load = fn(&Args) -> Result<(Video, T5, DeviceBuffer)>;
 
-/// The prompt whose embeddings T5 has made: the video takes it between two chunks (the text embedding and the
-/// cross-attention keys of every block); then the newest prompt that came meanwhile goes to T5.
-fn take_prompt(video: &mut Video, encoder: &mut Encoder, wait: bool) -> Result<Option<Prompt>> {
-    let Some(p) = encoder.ready(wait)? else { return Ok(None) };
-    video.set_prompt(&encoder.tensor(), p.cut)?;
-    if let Some((next, text)) = encoder.take_waiting() {
-        encoder.encode(next, text, read(video)?)?;
-    }
-    Ok(Some(p))
-}
-
-/// The event after which the video has read the embeddings T5 last made.
-fn read(video: &Video) -> Result<Event> {
-    let e = Event::new()?;
-    e.record(&video.compute)?;
-    Ok(e)
-}
-
-/// Generates chunk after chunk until the window is gone. A prompt that comes goes to T5 on its own thread, and the
-/// video goes on with the prompt it has until T5 is done.
-fn generate(args: Args, load: Load, inbox: Inbox, frames: std::sync::mpsc::SyncSender<Vec<u8>>,
-            status: Arc<Mutex<Status>>, repaint: egui::Context) -> Result<()> {
-    let (mut video, t5, embeddings) = load(&args)?;
-    let mut encoder = Encoder::spawn(t5, embeddings)?;
-    let first = Prompt { cut: Cut::Same, text: args.prompt.clone().unwrap_or_else(|| DEFAULT_PROMPT.into()) };
-    let started = Instant::now();
-    encoder.encode(first.clone(), crate::model_prompt(&video, &first), read(&video)?)?;
-    take_prompt(&mut video, &mut encoder, true)?;
-    println!("{}x{}, chunk {}, {} blocks ({} streamed), prompt encoded in {:.1} s", video.m.height, video.m.width,
-             video.m.chunk, video.m.blocks, video.m.stream_blocks, started.elapsed().as_secs_f64());
-    #[cfg(feature = "debug-tools")]
-    println!("{}", crate::measure::memory_line(&video));
-    status.lock().unwrap().prompt = first.text;
-    // the next chunk is queued behind the decoding of this one, before the host waits for its pixels: the GPU goes
-    // from one to the other without waiting for the host
-    let mut start = Instant::now();
-    let x0 = video.next_chunk(None)?;
-    video.start_decode(&x0)?;
-    let mut asked = Instant::now();
-    loop {
-        if let Some(p) = inbox.take() {
-            asked = Instant::now();
-            let text = crate::model_prompt(&video, &p);
-            encoder.encode(p, text, read(&video)?)?;
-        }
-        // between two chunks: the one queued is decoded, the next is made with the new prompt
-        if let Some(p) = take_prompt(&mut video, &mut encoder, false)? {
-            let kind = match p.cut { Cut::New => " (new video)", Cut::Scene => " (new shot)", Cut::Same => "" };
-            println!("prompt encoded in {:.1} s{kind}", asked.elapsed().as_secs_f64());
-            status.lock().unwrap().prompt = p.text;
-        }
-        let x0 = video.next_chunk(None)?;
-        let chunk = video.finish_decode()?;
-        video.start_decode(&x0)?;
-        let seconds = start.elapsed().as_secs_f64();
-        start = Instant::now();
+/// Both scripted playback and interactive prompts use the common generator.
+fn generate<M: crate::telemetry::Probe>(args: Args, load: Load, inbox: Inbox, frames: std::sync::mpsc::SyncSender<Vec<u8>>,
+            status: Arc<Mutex<Status>>, repaint: egui::Context, metrics: M) -> Result<()> {
+    let script = crate::generation::sequences(&args.pipeline.generate.prompts)?;
+    let mut generator = crate::generation::Generator::new(load(&args)?)?.observe(metrics);
+    let mut started = Instant::now();
+    let mut emit = |chunk: Vec<Vec<u8>>, _: &Video, prompt: &str| -> Result<()> {
+        if chunk.is_empty() { return Ok(()); }
+        let seconds = started.elapsed().as_secs_f64();
+        started = Instant::now();
         {
-            let mut s = status.lock().unwrap();
-            s.chunk_s = Some(seconds);
-            s.frames_per_chunk = 4 * video.m.chunk;
+            let mut state = status.lock().unwrap();
+            state.prompt = prompt.into(); state.chunk_s = Some(seconds);
+            state.frames_per_chunk = chunk.len();
         }
-        // the waits of the chunks the GPU has passed; the one queued keeps running
-        #[cfg(feature = "debug-tools")]
-        println!("chunk {}: {seconds:.2} s, {} | {}", video.start / video.m.chunk - 2, video.passed_copy_waits()?,
-                 crate::measure::memory_line(&video));
-        if send(&frames, chunk).is_err() {
-            return Ok(()); // the window is closed
-        }
+        send(&frames, chunk)?;
         repaint.request_repaint();
+        Ok(())
+    };
+    if !script.is_empty() {
+        for (_, steps) in script { generator.script(&steps, &mut emit)?; }
+        return generator.finish_metrics();
+    }
+    let first = if let Some(text) = args.pipeline.generate.prompts.initial() { Prompt { cut: Cut::Same, text: text.into() } }
+            else { loop {
+                if status.lock().unwrap().closed { return generator.finish_metrics(); }
+                if let Some(p) = inbox.take() { break p; }
+                std::thread::sleep(Duration::from_millis(20));
+            } };
+    generator.request(first)?;
+    generator.poll(true)?;
+    loop {
+        if let Some(p) = inbox.take() { generator.request(p)?; }
+        let drained = generator.poll(false)?;
+        emit(drained, &generator.video, &generator.active().unwrap().text)?;
+        let chunk = generator.advance()?;
+        if emit(chunk, &generator.video, &generator.active().unwrap().text).is_err() { return generator.finish_metrics(); }
     }
 }
 
@@ -121,6 +88,8 @@ struct App {
     pending: Option<String>,
     due: Instant,
     shown: bool,
+    interactive: bool,
+    show_fps: bool,
 }
 
 impl eframe::App for App {
@@ -159,7 +128,7 @@ impl eframe::App for App {
             }
         }
         egui::Panel::bottom("prompt").exact_size(BOX).show(ui, |ui| {
-            let edit = ui.add(egui::TextEdit::singleline(&mut self.entry).desired_width(f32::INFINITY)
+            let edit = ui.add_enabled(self.interactive, egui::TextEdit::singleline(&mut self.entry).desired_width(f32::INFINITY)
                 .font(egui::FontId::proportional(17.0)));
             if edit.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)) {
                 let text = self.entry.trim().to_owned();
@@ -185,8 +154,8 @@ impl eframe::App for App {
             let mut text = match (&error, self.shown) {
                 (Some(e), _) => format!("error: {e}"),
                 (None, false) => "warming up: loading the packages, T5".into(),
-                (None, true) => format!("{}   |   {fps:.1} fps, chunk {:.2} s", short(&prompt, 100),
-                                        self.status.lock().unwrap().chunk_s.unwrap_or(0.0)),
+                (None, true) if self.show_fps => format!("{}   |   generation {made:.1} FPS", short(&prompt, 100)),
+                (None, true) => short(&prompt, 100),
             };
             if let Some(p) = &self.pending {
                 text += &format!("   |   next, T5 encoding: {}", short(p, 60));
@@ -204,12 +173,14 @@ fn short(text: &str, n: usize) -> String {
     text.chars().take(n).collect()
 }
 
-pub fn run(args: Args, load: Load) -> Result<()> {
-    let manifest = crate::manifest::Manifest::read(&args.packages)?;
+pub fn run<M: crate::telemetry::Probe>(args: Args, load: Load, metrics: M) -> Result<()> {
+    let manifest = crate::manifest::Manifest::read_for(&args.packages(), &args.pipeline.export.kernels)?;
     let size = [manifest.width, manifest.height];
     let (w, h) = (manifest.width as f32 * args.scale, manifest.height as f32 * args.scale + BOX);
     let inbox = Inbox::default();
-    inbox.listen(live_protocol::PORT)?;
+    let interactive = args.pipeline.generate.prompts.interactive();
+    let show_fps = args.pipeline.generate.debug.enabled();
+    if interactive { inbox.listen(live_protocol::PORT)?; }
     let (tx, rx) = sync_channel(4 * 4 * manifest.chunk); // four chunks ahead at most
     let status = Arc::new(Mutex::new(Status::default()));
     let mut viewport = egui::ViewportBuilder::default().with_title(TITLE).with_inner_size([w, h]);
@@ -219,19 +190,25 @@ pub fn run(args: Args, load: Load) -> Result<()> {
     let options = eframe::NativeOptions { viewport, ..Default::default() };
     let (generating, max_fps) = (status.clone(), manifest.fps);
     let generator_inbox = inbox.clone();
-    eframe::run_native(TITLE, options, Box::new(move |cc| {
+    let shutdown = status.clone();
+    let mut worker = None;
+    let generating_thread = &mut worker;
+    let result = eframe::run_native(TITLE, options, Box::new(move |cc| {
         let repaint = cc.egui_ctx.clone();
-        std::thread::Builder::new().name("generate".into()).spawn(move || {
-            if let Err(e) = generate(args, load, generator_inbox, tx, generating.clone(), repaint.clone()) {
+        *generating_thread = Some(std::thread::Builder::new().name("generate".into()).spawn(move || {
+            if let Err(e) = generate(args, load, generator_inbox, tx, generating.clone(), repaint.clone(), metrics) {
                 eprintln!("error: {e}");
                 generating.lock().unwrap().error = Some(e.to_string());
                 repaint.request_repaint();
             }
-        })?;
+        })?);
         Ok(Box::new(App { frames: rx, status, inbox, texture: None, size, max_fps, entry: String::new(),
-                          pending: None, due: Instant::now(), shown: false }))
-    })).map_err(|e| e.to_string())?;
-    std::process::exit(0); // the generating thread is in the middle of a chunk: no need to wait for it
+                          pending: None, due: Instant::now(), shown: false, interactive, show_fps }))
+    }));
+    shutdown.lock().unwrap().closed = true;
+    if let Some(worker) = worker { worker.join().map_err(|_| "generating thread panicked")?; }
+    result.map_err(|e| e.to_string())?;
+    Ok(())
 }
 
 #[cfg(test)]
@@ -245,13 +222,13 @@ mod tests {
     #[ignore]
     fn the_video_goes_on_while_a_prompt_is_encoded() {
         let mut args = crate::defaults(&crate::root().join("configs").join("live.json"));
-        args.packages = crate::root().join("artifacts").join("live").join("512x928");
+        args.pipeline.export.output = "artifacts/live/512x928".into();
         let inbox = Inbox::default();
         let (tx, rx) = sync_channel(1 << 16); // the test takes every frame at once: nothing waits for it
         let status = Arc::new(Mutex::new(Status::default()));
         let generating = {
             let inbox = inbox.clone();
-            std::thread::spawn(move || generate(args, crate::load, inbox, tx, status, egui::Context::default()))
+            std::thread::spawn(move || generate(args, crate::load, inbox, tx, status, egui::Context::default(), crate::telemetry::Off))
         };
         // a chunk's frames come together; a chunk begins where a frame comes 0.3 s or more after the one before
         let mut chunks: Vec<Instant> = Vec::new();

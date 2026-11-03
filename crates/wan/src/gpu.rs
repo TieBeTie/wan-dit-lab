@@ -87,7 +87,18 @@ unsafe impl Sync for PinnedBuffer {}
 
 impl PinnedBuffer {
     pub fn new(bytes: usize) -> Result<PinnedBuffer> {
+        let _guard = crate::budget::ALLOCATION.lock().unwrap_or_else(|e| e.into_inner());
+        let free = crate::budget::available().map_err(|e| {
+            eprintln!("RAM admission probe failed: {e}");
+            DriverError(sys::cudaError_enum::CUDA_ERROR_OUT_OF_MEMORY)
+        })?;
+        if bytes > free {
+            eprintln!("RAM reserve: requested {:.1} MiB pinned, {:.1} MiB available above reserve",
+                      bytes as f64 / 1048576.0, free as f64 / 1048576.0);
+            return Err(DriverError(sys::cudaError_enum::CUDA_ERROR_OUT_OF_MEMORY));
+        }
         let ptr = unsafe { result::malloc_host(bytes.max(1), 0)? };
+        crate::budget::PINNED.fetch_add(bytes, std::sync::atomic::Ordering::Relaxed);
         Ok(PinnedBuffer { ptr, bytes })
     }
 
@@ -104,6 +115,7 @@ impl Drop for PinnedBuffer {
     fn drop(&mut self) {
         unsafe {
             let _ = result::free_host(self.ptr);
+            crate::budget::PINNED.fetch_sub(self.bytes, std::sync::atomic::Ordering::Relaxed);
         }
     }
 }
@@ -205,14 +217,6 @@ impl Event {
         unsafe { result::event::synchronize(self.0) }
     }
 
-    /// Whether the GPU has reached the event, without waiting for it.
-    pub fn done(&self) -> Result<bool> {
-        match unsafe { sys::cuEventQuery(self.0) } {
-            sys::CUresult::CUDA_SUCCESS => Ok(true),
-            sys::CUresult::CUDA_ERROR_NOT_READY => Ok(false),
-            e => Err(e.result().unwrap_err().into()),
-        }
-    }
 }
 
 impl Drop for Event {

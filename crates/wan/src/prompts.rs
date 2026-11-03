@@ -7,6 +7,8 @@ use std::net::TcpListener;
 use std::sync::{Arc, Mutex};
 
 use live_protocol::Cut;
+use std::path::Path;
+use serde_json::Value;
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct Prompt {
@@ -85,4 +87,49 @@ mod tests {
         }
         panic!("the prompt did not arrive");
     }
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct Step {
+    pub cut: Cut,
+    pub text: String,
+    pub chunks: usize,
+}
+
+/// The steps of `chain`, each prompt written out whole; `chunks` a prompt by default, `root` the repository.
+pub fn chain_steps(chain: &Value, chunks: usize, root: &Path) -> Result<Vec<Step>, String> {
+    let chunks = chain["chunks"].as_u64().map_or(chunks, |c| c as usize);
+    if let Some(reference) = chain["ref"].as_str() {
+        let (file, line) = reference.rsplit_once('#').ok_or(format!("{reference}: no #line"))?;
+        let text = std::fs::read_to_string(root.join(file)).map_err(|e| format!("{file}: {e}"))?;
+        let line: usize = line.parse().map_err(|_| format!("{reference}: the line is not a number"))?;
+        if line == 0 { return Err("reference lines start at 1".into()); }
+        let row: Value = serde_json::from_str(text.lines().nth(line - 1).ok_or(format!("{reference}: no such line"))?)
+            .map_err(|e| format!("{reference}: {e}"))?;
+        let prompts = row["prompts"].as_array().ok_or(format!("{reference}: no prompts"))?;
+        return Ok(prompts.iter().enumerate()
+            .map(|(i, p)| Step { cut: if i == 0 { Cut::New } else { Cut::Same }, text: p.as_str().unwrap_or("").into(), chunks })
+            .collect());
+    }
+    let (mut card, mut light) = (None::<String>, None::<String>);
+    let mut steps = Vec::new();
+    for (i, s) in chain["steps"].as_array().ok_or("a chain has steps or a ref")?.iter().enumerate() {
+        let cut = match s["cut"].as_str().unwrap_or(if i == 0 { "new" } else { "same" }) {
+            "new" => Cut::New,
+            "same" => Cut::Same,
+            "scene" => Cut::Scene,
+            other => return Err(format!("unknown cut {other}")),
+        };
+        let text = if let Some(t) = s["text"].as_str() {
+            t.to_string()
+        } else {
+            if let Some(c) = s["card"].as_str() { card = Some(c.into()); }
+            if let Some(l) = s["light"].as_str() { light = Some(l.into()); }
+            let camera: Vec<&str> = [chain["camera"].as_str(), light.as_deref()].into_iter().flatten().collect();
+            let action = s["action"].as_str().ok_or(format!("step {i}: no text and no action"))?;
+            format!("{} {action} {}.", card.as_deref().ok_or(format!("step {i}: no card"))?, camera.join(", "))
+        };
+        steps.push(Step { cut, text, chunks: s["chunks"].as_u64().map_or(chunks, |c| c as usize) });
+    }
+    Ok(steps)
 }
