@@ -51,36 +51,48 @@ impl Rows {
     /// `disk`; the rest on the GPU.
     pub fn load(pack: &Path, blocks: usize, row_bytes: usize, streamed: &[usize], disk: bool, stream: &Stream)
         -> std::io::Result<Rows> {
-        let file = File::open(pack)?;
-        let map = unsafe { memmap2::Mmap::map(&file)? };
-        assert_eq!(map.len(), blocks * row_bytes, "the W4A4 pack has another size than its manifest says");
         let io = |e: cudarc::driver::DriverError| std::io::Error::other(e.to_string());
+        assert_eq!(std::fs::metadata(pack)?.len() as usize, blocks * row_bytes, "the pack has another size than its manifest says");
+        // From the disk, the rows kept on the GPU go through the staging buffers too: a mapping of the pack would put
+        // its pages into this process's working set (8.6 GiB for T5) and count them against the RAM reserve.
+        let mut disk_source = if disk {
+            let staging = [PinnedBuffer::new(span(row_bytes)).map_err(io)?, PinnedBuffer::new(span(row_bytes)).map_err(io)?];
+            Some((open_unbuffered(pack)?, staging))
+        } else {
+            None
+        };
+        let map = if disk { None } else { Some(unsafe { memmap2::Mmap::map(&File::open(pack)?)? }) };
         let mut places = Vec::with_capacity(blocks);
         let mut host = Vec::new();
         for b in 0..blocks {
-            let row = &map[b * row_bytes..(b + 1) * row_bytes];
             if let Some(j) = streamed.iter().position(|&s| s == b) {
-                if !disk {
+                if let Some(map) = &map {
                     let mut pinned = PinnedBuffer::new(row_bytes).map_err(io)?;
-                    pinned.as_mut_slice().copy_from_slice(row);
+                    pinned.as_mut_slice().copy_from_slice(&map[b * row_bytes..(b + 1) * row_bytes]);
                     assert_eq!(j, host.len(), "streamed rows in the order of their blocks");
                     host.push(pinned);
                 }
                 places.push(Place::Streamed(j));
             } else {
                 let device = DeviceBuffer::new(row_bytes).map_err(io)?;
-                stream.copy_to_device(device.ptr, row).map_err(io)?;
-                stream.synchronize().map_err(io)?; // the mapping is read before the next row
+                match (&map, &mut disk_source) {
+                    (Some(map), _) => stream.copy_to_device(device.ptr, &map[b * row_bytes..(b + 1) * row_bytes]).map_err(io)?,
+                    (None, Some((file, staging))) => {
+                        let at = read_row(file, b, row_bytes, staging[0].as_mut_slice())?;
+                        stream.copy_to_device(device.ptr, &staging[0].as_slice()[at..at + row_bytes]).map_err(io)?;
+                    }
+                    (None, None) => unreachable!(),
+                }
+                stream.synchronize().map_err(io)?; // the source is read before the next row
                 places.push(Place::Device(device));
             }
         }
+        drop(map);
         let copy = Stream::new().map_err(io)?;
         let slots = vec![DeviceBuffer::new(row_bytes).map_err(io)?, DeviceBuffer::new(row_bytes).map_err(io)?];
-        let source = if disk {
-            let staging = [PinnedBuffer::new(span(row_bytes)).map_err(io)?, PinnedBuffer::new(span(row_bytes)).map_err(io)?];
-            Source::Disk { file: open_unbuffered(pack)?, staging }
-        } else {
-            Source::Pinned(host)
+        let source = match disk_source {
+            Some((file, staging)) => Source::Disk { file, staging },
+            None => Source::Pinned(host),
         };
         let mut rows = Rows {
             places,
@@ -163,9 +175,9 @@ impl Rows {
     pub fn keep_on_device(&mut self, streamed: &[usize], compute: &Stream) -> Result<()> {
         compute.synchronize()?;
         self.copy.synchronize()?;
-        if matches!(self.source, Source::Disk { .. }) {
-            let file = File::open(&self.pack).map_err(|_| cudarc::driver::DriverError(cudarc::driver::sys::cudaError_enum::CUDA_ERROR_FILE_NOT_FOUND))?;
-            let map = unsafe { memmap2::Mmap::map(&file) }.map_err(|_| cudarc::driver::DriverError(cudarc::driver::sys::cudaError_enum::CUDA_ERROR_FILE_NOT_FOUND))?;
+        if let Source::Disk { file, staging } = &mut self.source {
+            // through the staging buffer, as Rows::load: a mapping would count the pack's pages against the reserve
+            let missing = |_| cudarc::driver::DriverError(cudarc::driver::sys::cudaError_enum::CUDA_ERROR_FILE_NOT_FOUND);
             let mut kept = Vec::new();
             for b in 0..self.places.len() {
                 if matches!(self.places[b], Place::Streamed(_)) {
@@ -173,7 +185,8 @@ impl Rows {
                         self.places[b] = Place::Streamed(kept.len()); kept.push(b);
                     } else {
                         let device = DeviceBuffer::new(self.row_bytes)?;
-                        self.copy.copy_to_device(device.ptr, &map[b * self.row_bytes..(b + 1) * self.row_bytes])?;
+                        let at = read_row(file, b, self.row_bytes, staging[0].as_mut_slice()).map_err(missing)?;
+                        self.copy.copy_to_device(device.ptr, &staging[0].as_slice()[at..at + self.row_bytes])?;
                         self.copy.synchronize()?;
                         self.places[b] = Place::Device(device);
                     }
@@ -418,6 +431,29 @@ mod placement_gpu_tests {
             if pass == 1 { rows.to_disk(&compute).unwrap(); }
         }
         compute.synchronize().unwrap(); rows.copy.synchronize().unwrap();
+        drop(rows);
+        std::fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    #[ignore = "requires CUDA; small weight placement integration"]
+    fn disk_rows_kept_on_the_gpu_are_read_without_mapping_the_pack() {
+        // T5's resident rows went through a mapping of the 8.6 GiB pack: its pages counted against the RAM reserve
+        // and the staging buffers after them were refused. Rows of 5000 bytes: the file ends inside a sector.
+        let gpu = crate::gpu::Gpu::new().unwrap(); gpu.bind().unwrap();
+        let compute = Stream::new().unwrap();
+        let path = std::env::temp_dir().join(format!("wan-row-resident-{}.bin", std::process::id()));
+        let data: Vec<u8> = (0..3 * 5000).map(|i| (i % 251) as u8).collect();
+        std::fs::write(&path, &data).unwrap();
+        let rows = Rows::load(&path, 3, 5000, &[1], true, &compute).unwrap();
+        // a mapping still open would keep the file from being replaced; reads without one do not
+        std::fs::write(&path, b"replaced").unwrap();
+        for b in [0, 2] {
+            let Place::Device(d) = &rows.places[b] else { panic!("row {b} is not on the GPU") };
+            let mut bytes = vec![0; 5000];
+            compute.copy_to_host(&mut bytes, d.ptr).unwrap(); compute.synchronize().unwrap();
+            assert_eq!(bytes, &data[b * 5000..(b + 1) * 5000]);
+        }
         drop(rows);
         std::fs::remove_file(path).unwrap();
     }
