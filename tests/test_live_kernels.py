@@ -29,6 +29,14 @@ def test_fp8_original_recipe_is_accepted():
     assert validate_kernels(kernels) == kernels
 
 
+def test_dense_sdpa_accepts_memory_efficient_backend():
+    # MATH materializes the scores: at 704x1280 a compiled block grew by 1.3 GiB per chunk of context (5.3 GiB at a
+    # full window) and spilled out of 8 GiB; the original LongLive computes this attention with FlashAttention.
+    kernels = {**KERNELS, "linear": "torch_fp8", "attention": "torch_sdpa", "cross_attention": ["efficient"],
+               "rope": "longlive_triton"}
+    assert validate_kernels(kernels) == kernels
+
+
 def test_point_a_accepts_fp8_storage_with_sdpa():
     from wan_dit_lab.runtime.live_pipeline import load_pipeline
     export, _ = load_pipeline(ROOT / "configs/experiments/director-original/point-a-fp8-kv.proposed.json")
@@ -61,6 +69,28 @@ def test_fp8_sdpa_reads_past_and_keeps_current_chunk_unquantized(exporter, monke
             return exporter.Cache(3, ck, ks, cv, vs, attention="torch_sdpa").attend(q, k, v)
     export = exporter.Exporter(tmp_path, None, {**KERNELS, "cross_attention": ["math"]})
     export("fp8_sdpa_probe", Attention(), (q, k, v, ck, ks, cv, vs))
+
+
+@pytest.mark.gpu
+def test_fp8_cache_attention_exports_with_memory_efficient_sdpa(exporter, tmp_path):
+    import torch
+    from torch.nn.attention import SDPBackend, sdpa_kernel
+    from wan_dit_lab.kernels.cache_fp8 import store_kv_fp8
+    torch.manual_seed(7)
+    q, k, v = [torch.randn(1, 160, 2, 48, device="cuda", dtype=torch.bfloat16) for _ in range(3)]
+    ck, cv = [torch.zeros(1, 320, 2, 48, device="cuda", dtype=torch.float8_e4m3fn) for _ in range(2)]
+    ks, vs = [torch.ones(1, 320, 2, 1, device="cuda") for _ in range(2)]
+    old_k, old_v = [torch.randn(1, 160, 2, 48, device="cuda", dtype=torch.bfloat16) for _ in range(2)]
+    store_kv_fp8(old_k, old_v, ck, ks, cv, vs, 0)
+    class Attention(torch.nn.Module):
+        def forward(self, q, k, v, ck, ks, cv, vs):
+            return exporter.Cache(160, ck, ks, cv, vs, attention="torch_sdpa").attend(q, k, v)
+    inputs = (q, k, v, ck, ks, cv, vs)
+    with torch.no_grad(), sdpa_kernel([SDPBackend.MATH]):
+        math = Attention()(*inputs)
+    export = exporter.Exporter(tmp_path, None, {**KERNELS, "attention": "torch_sdpa", "cross_attention": ["efficient"]})
+    efficient = export("fp8_sdpa_efficient_probe", Attention(), inputs)
+    assert exporter.relative(efficient, math) < 0.01
 
 
 def test_fp8_experiment_accepts_automatic_memory_policy():

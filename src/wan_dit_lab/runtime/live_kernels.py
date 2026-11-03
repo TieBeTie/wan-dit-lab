@@ -39,8 +39,8 @@ def validate_kernels(kernels):
     storage = (kernels["kv_cache"], kernels["kv_store"])
     if storage not in (("bfloat16", "torch"), ("fp8_e4m3fn", "triton")) or (not dense and storage != ("fp8_e4m3fn", "triton")):
         raise ValueError("kernels: choose BF16/torch or FP8/triton storage; Sage requires FP8/triton")
-    if dense and cross != ["math"]:
-        raise ValueError("kernels.cross_attention: torch_sdpa currently requires [math] for both attention paths")
+    if dense and cross == ["sage_sm89"]:
+        raise ValueError("kernels.cross_attention: torch_sdpa takes SDPA backends for both attention paths")
     if cross != ["sage_sm89"] and (not isinstance(cross, list) or not cross
             or any(not isinstance(b, str) or b not in CROSS_BACKENDS for b in cross)
             or len(set(cross)) != len(cross)):
