@@ -39,7 +39,7 @@ pub fn load(args: &Args) -> Result<(Video, T5, DeviceBuffer)> {
         }
         let (free, total) = gpu.memory()?;
         let reserve = args.pipeline.generate.offloading.memory_reserve(total as usize, spec.activation_bytes, spec.row_bytes)?;
-        let budget = (free as usize).saturating_sub(reserve + video.m.generation_workspace_bytes);
+        let budget = t5_resident_budget(free as usize, reserve, video.m.generation_workspace_bytes, video.gpu_claim_bytes());
         t5_weights.resident_gib = budget as f64 / (1u64 << 30) as f64;
         println!("auto T5: measured activations {:.0} MiB, resident budget {:.0} MiB",
                  spec.activation_bytes as f64 / 1048576.0, budget as f64 / 1048576.0);
@@ -50,6 +50,12 @@ pub fn load(args: &Args) -> Result<(Video, T5, DeviceBuffer)> {
     used("T5");
     let embeddings = DeviceBuffer::new(video.m.text_len * video.m.text_dim * 4)?;
     Ok((video, t5, embeddings))
+}
+
+/// GPU bytes T5's resident rows may take: what is free beyond the reserve, the model's workspace and what the
+/// calibration may still put on the GPU for the model (T5 runs once per prompt, the model every chunk).
+fn t5_resident_budget(free: usize, reserve: usize, workspace: usize, model_claim: usize) -> usize {
+    free.saturating_sub(reserve + workspace + model_claim)
 }
 
 /// The prompt as the model takes it: a shot's prompt begins as LongLive 2.0 marks a cut.
@@ -75,3 +81,15 @@ pub fn set_prompt(video: &mut Video, t5: &mut T5, embeddings: &DeviceBuffer, p: 
     Ok(start.elapsed().as_secs_f64())
 }
 
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn t5_gets_only_what_the_dit_will_not_take() {
+        const G: usize = 1 << 30;
+        // 6 GiB free, 1.5 reserve, 1 workspace: without a DiT claim T5 took 3.5 GiB and pushed weights and KV out
+        assert_eq!(super::t5_resident_budget(6 * G, 3 * G / 2, G, 0), 7 * G / 2);
+        assert_eq!(super::t5_resident_budget(6 * G, 3 * G / 2, G, 3 * G), G / 2);
+        assert_eq!(super::t5_resident_budget(6 * G, 3 * G / 2, G, 5 * G), 0);
+    }
+}

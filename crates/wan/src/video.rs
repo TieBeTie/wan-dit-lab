@@ -161,21 +161,26 @@ impl Video {
         let kv_bytes = cache_format(&m).bytes(tokens, m.heads, m.head_dim);
         let pending_host = 4 * m.chunk * m.height * m.width * 3 + t5_slots;
         let headroom = crate::budget::available()?.saturating_sub(pending_host);
-        if kv_tier == Tier::Ram && kv_bytes * m.blocks > headroom {
-            if offloading.tier(Resource::KvCache) == Tier::Auto { kv_tier = Tier::Disk; }
-            else { return Err("explicit RAM KV exceeds RAM budget; choose auto or disk".into()); }
+        let (free, _) = cudarc::driver::result::mem_get_info()?;
+        let ram_fits = kv_bytes * m.blocks <= headroom;
+        // on the GPU beside the two slots of streamed rows at least
+        let vram_fits = crate::budget::fits(free, m.blocks * kv_bytes + 2 * m.row_bytes, reserve + m.generation_workspace_bytes);
+        if kv_tier == Tier::Ram && !ram_fits && offloading.tier(Resource::KvCache) != Tier::Auto {
+            return Err("explicit RAM KV exceeds RAM budget; choose auto or disk".into());
         }
+        kv_tier = crate::config::kv_tier(offloading.tier(Resource::KvCache), kv_tier, ram_fits, vram_fits)?;
         let kv_host = if kv_tier == Tier::Ram { m.blocks * kv_bytes } else if kv_tier == Tier::Disk { 2 * kv_bytes } else { 0 };
         if weights == Tier::Ram && m.stream_blocks * m.row_bytes > headroom.saturating_sub(kv_host) {
             if offloading.tier(Resource::BlockWeights) == Tier::Auto { weights = Tier::Disk; }
             else { return Err("explicit RAM weights exceed RAM budget; choose auto or disk".into()); }
         }
-        let (free, _) = cudarc::driver::result::mem_get_info()?;
         let gpu_rows = (m.blocks - m.stream_blocks + 2) * m.row_bytes;
         let gpu_kv = if kv_tier == Tier::Vram { m.blocks * kv_bytes } else { 2 * kv_bytes };
         if !crate::budget::fits(free, gpu_rows + gpu_kv, reserve + m.generation_workspace_bytes) {
             if offloading.tier(Resource::BlockWeights) == Tier::Auto { weights = Tier::Disk; m.stream_blocks = m.blocks; }
-            if offloading.tier(Resource::KvCache) == Tier::Auto { kv_tier = Tier::Disk; }
+            // the weights now take two slots only; the cache stays in memory, never on the disk under "auto"
+            let vram_fits = crate::budget::fits(free, m.blocks * kv_bytes + 2 * m.row_bytes, reserve + m.generation_workspace_bytes);
+            kv_tier = crate::config::kv_tier(offloading.tier(Resource::KvCache), kv_tier, ram_fits, vram_fits)?;
         }
         let host_kv = match kv_tier { Tier::Ram => m.blocks * kv_bytes, Tier::Disk => 2 * kv_bytes, _ => 0 };
         let host_rows = if weights == Tier::Disk { 2 * crate::disk::span(m.row_bytes) } else { m.stream_blocks * m.row_bytes };
@@ -360,6 +365,21 @@ impl Video {
         Ok(self.rows.copy_waits(&self.compute)?)
     }
 
+    /// GPU bytes the calibration may still give the model: its streamed weight rows and an offloaded KV cache,
+    /// while it has not placed them yet (none once it is done or off). T5 is resident only beyond this.
+    pub fn gpu_claim_bytes(&self) -> usize {
+        if !matches!(self.calibration, Calibration::Armed(_)) {
+            return 0;
+        }
+        let rows = self.rows.streamed() * self.m.row_bytes;
+        let kv = match &self.kv {
+            Kv::Offloaded(o) => self.m.blocks * cache_format(&self.m).bytes(self.m.max_tokens + self.m.chunk_tokens,
+                                                                            self.m.heads, self.m.head_dim) - o.slot_bytes(),
+            Kv::Resident(_) => 0,
+        };
+        rows + kv
+    }
+
     /// GPU bytes the KV caches take: all of them when resident, two slots when offloaded (bench).
     pub fn kv_device_bytes(&self) -> usize {
         let bytes = |c: &Buffers| c.k.bytes + c.ks.bytes + c.v.bytes + c.vs.bytes;
@@ -492,9 +512,7 @@ impl Video {
         if crate::budget::available()? == 0 && self.offloading.enabled {
             self.compute.synchronize()?;
             if self.offloading.tier(Resource::BlockWeights) == Tier::Auto { self.rows.to_disk(&self.compute)?; }
-            if crate::budget::available()? == 0 && self.offloading.tier(Resource::KvCache) == Tier::Auto {
-                if let Kv::Offloaded(o) = &mut self.kv { o.to_disk()?; }
-            }
+            // the KV cache is not moved to the disk under "auto": it is written every chunk
             // No automatic readmission this run: avoid RAM/SSD oscillation under desktop load.
             self.calibration = Calibration::Done;
         }

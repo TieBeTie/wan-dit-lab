@@ -372,6 +372,21 @@ pub fn choose(n: usize, t: &Times, spare: f32, kv_auto: bool, weights_auto: bool
     (kv, if rows > 0 { Tier::Ram } else { Tier::Vram }, rows)
 }
 
+/// The KV cache's tier at load. A configured tier is kept as it is; "auto" never puts the cache on the disk (it is
+/// written every chunk, and a run must not wear the SSD): the wanted tier if it fits, else the other memory that
+/// fits, else an error with the reason.
+pub fn kv_tier(configured: Tier, wanted: Tier, ram_fits: bool, vram_fits: bool) -> Result<Tier, String> {
+    if configured != Tier::Auto {
+        return Ok(configured);
+    }
+    match (wanted, ram_fits, vram_fits) {
+        (Tier::Vram, _, true) => Ok(Tier::Vram),
+        (_, true, _) => Ok(Tier::Ram),
+        (_, false, true) => Ok(Tier::Vram),
+        _ => Err("the KV cache fits neither RAM above the reserve nor the GPU; \"auto\" does not put it on the disk                   (free memory, or set offloading.resources.kv_cache to \"disk\" explicitly)".into()),
+    }
+}
+
 /// Where the calibration put every resource, kept in <packages>/calibration.json for the next run of the same
 /// configuration and packages (`key`), so that it makes every resource on its tier at once.
 #[derive(Deserialize, Serialize, Debug, Clone, PartialEq)]
@@ -482,6 +497,17 @@ mod tests {
         let c = Config::parse(include_str!("../../../configs/experiments/director-original/point-a-fp8-kv.proposed.json")).unwrap();
         assert_eq!(c.export.kernels.kv_cache, "fp8_e4m3fn");
         assert_eq!(c.export.kernels.attention, "torch_sdpa");
+    }
+    #[test]
+    fn automatic_kv_never_goes_to_the_disk() {
+        assert_eq!(kv_tier(Tier::Auto, Tier::Ram, true, false), Ok(Tier::Ram));
+        assert_eq!(kv_tier(Tier::Auto, Tier::Ram, false, true), Ok(Tier::Vram));
+        assert_eq!(kv_tier(Tier::Auto, Tier::Vram, true, true), Ok(Tier::Vram));
+        assert_eq!(kv_tier(Tier::Auto, Tier::Vram, true, false), Ok(Tier::Ram));
+        // a calibration.json of an older run that chose the disk
+        assert_eq!(kv_tier(Tier::Auto, Tier::Disk, true, false), Ok(Tier::Ram));
+        assert!(kv_tier(Tier::Auto, Tier::Ram, false, false).unwrap_err().contains("disk"));
+        assert_eq!(kv_tier(Tier::Disk, Tier::Disk, false, false), Ok(Tier::Disk));
     }
     #[test]
     fn point_a_prime_takes_memory_efficient_sdpa_and_rejects_sage_cross() {
