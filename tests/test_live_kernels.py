@@ -29,6 +29,23 @@ def test_fp8_original_recipe_is_accepted():
     assert validate_kernels(kernels) == kernels
 
 
+def test_fused_sage_rope_may_name_the_rounding_of_longlive_rope():
+    kernels = {**KERNELS, "attention": "sage_rope_sm89", "cross_attention": ["efficient"], "rope": "longlive_triton"}
+    assert validate_kernels(kernels) == kernels
+    with pytest.raises(ValueError):
+        validate_kernels({**kernels, "rope": "triton"})
+
+
+def test_fused_sage_rope_rounds_as_longlive_when_its_rope_is_named(exporter, monkeypatch):
+    from wan_dit_lab.kernels import sage_rope
+    seen = []
+    monkeypatch.setattr(sage_rope, "attend", lambda *a, **kw: seen.append(kw.get("longlive_rounding", False)))
+    for rope in (None, "longlive_triton"):
+        cache = exporter.Cache(0, *[None] * 4, attention="sage_rope_sm89", longlive_rounding=rope is not None)
+        cache.attend_rope(None, None, None, None, None, ((1, 1, 1),), None, 0)
+    assert seen == [False, True]
+
+
 def test_dense_sdpa_accepts_memory_efficient_backend():
     # MATH materializes the scores: at 704x1280 a compiled block grew by 1.3 GiB per chunk of context (5.3 GiB at a
     # full window) and spilled out of 8 GiB; the original LongLive computes this attention with FlashAttention.

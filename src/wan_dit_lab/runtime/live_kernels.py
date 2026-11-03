@@ -24,9 +24,11 @@ def validate_kernels(kernels):
         raise ValueError("kernels must be an explicit object")
     expected = set(SUPPORTED) | {"cross_attention"}
     joint = kernels.get("attention") == "sage_rope_sm89"
-    if joint:
+    if joint:  # owns its RoPE; "longlive_triton" only names the rounding to reproduce
         expected.remove("rope")
-    missing, unknown = expected - kernels.keys(), kernels.keys() - expected
+        if kernels.get("rope", "longlive_triton") != "longlive_triton":
+            raise ValueError("kernels.rope: sage_rope_sm89 takes none or longlive_triton")
+    missing, unknown = expected - kernels.keys(), kernels.keys() - expected - ({"rope"} if joint else set())
     if missing or unknown:
         raise ValueError(f"kernels: missing {sorted(missing)}, unknown {sorted(unknown)}")
     for field, supported in SUPPORTED.items():

@@ -42,7 +42,8 @@ def _rms(Q, K, QR, KR, N: tl.constexpr, C: tl.constexpr,
 @triton.jit
 def _rotate_raw(X, R, W, F, b, h, t, valid, d,
                 N: tl.constexpr, D: tl.constexpr, SX: tl.constexpr, SF: tl.constexpr,
-                GH: tl.constexpr, GW: tl.constexpr, START: tl.constexpr, BF16: tl.constexpr):
+                GH: tl.constexpr, GW: tl.constexpr, START: tl.constexpr, BF16: tl.constexpr,
+                MATCH: tl.constexpr = False):
     pair = d // 2
     spatial: tl.constexpr = (D // 2) // 3
     temporal: tl.constexpr = D // 2 - 2 * spatial
@@ -55,24 +56,36 @@ def _rotate_raw(X, R, W, F, b, h, t, valid, d,
     r = tl.load(R + b * N + t, valid, other=0)
     even = tl.load(X + base, valid[:, None], other=0).to(tl.float32) * r[:, None]
     odd = tl.load(X + base + 1, valid[:, None], other=0).to(tl.float32) * r[:, None]
+    if MATCH:  # RMSNorm returns the projection's BF16 before the weight (models/rms_norm.py)
+        even = even.to(tl.bfloat16).to(tl.float32)
+        odd = odd.to(tl.bfloat16).to(tl.float32)
     even = even * tl.load(W + h * D + 2 * pair)[None, :].to(tl.float32)
     odd = odd * tl.load(W + h * D + 2 * pair + 1)[None, :].to(tl.float32)
-    # Match the existing Inductor rotation's fused multiply-add orientation.
-    # Letting the compiler contract the other product changes INT8 tie cases.
-    rotated = tl.where((d % 2)[None, :] == 0,
-                       tl.fma(even, cosine, -(odd * sine)), tl.fma(odd, cosine, even * sine))
-    if BF16:
+    if MATCH:
+        # BF16 times the BF16 weight, then LongLive's RoPE kernel: its products as that kernel contracts them,
+        # and its BF16 output
+        even = even.to(tl.bfloat16).to(tl.float32)
+        odd = odd.to(tl.bfloat16).to(tl.float32)
+        rotated = tl.where((d % 2)[None, :] == 0,
+                           tl.fma(even, cosine, -(odd * sine)), tl.fma(even, sine, odd * cosine))
+    else:
+        # Match the existing Inductor rotation's fused multiply-add orientation.
+        # Letting the compiler contract the other product changes INT8 tie cases.
+        rotated = tl.where((d % 2)[None, :] == 0,
+                           tl.fma(even, cosine, -(odd * sine)), tl.fma(odd, cosine, even * sine))
+    if BF16 or MATCH:
         rotated = rotated.to(tl.float32).to(tl.bfloat16).to(tl.float32)
     return tl.where(valid[:, None], rotated, 0.)
 
 
 @triton.jit
 def _q_rope_int8(Q, QR, W, F, Q8, QS, N: tl.constexpr, H: tl.constexpr, D: tl.constexpr,
-                 SQ: tl.constexpr, SF: tl.constexpr, GH: tl.constexpr, GW: tl.constexpr, START: tl.constexpr):
+                 SQ: tl.constexpr, SF: tl.constexpr, GH: tl.constexpr, GW: tl.constexpr, START: tl.constexpr,
+                 MATCH: tl.constexpr):
     group, h, b = tl.program_id(0), tl.program_id(1), tl.program_id(2)
     t = (group // 8) * 32 + group % 8 + tl.arange(0, 4) * 8
     d = tl.arange(0, D)
-    x = _rotate_raw(Q, QR, W, F, b, h, t, t < N, d, N, D, SQ, SF, GH, GW, START, False)
+    x = _rotate_raw(Q, QR, W, F, b, h, t, t < N, d, N, D, SQ, SF, GH, GW, START, False, MATCH)
     scale = tl.max(tl.max(tl.abs(x), 1), 0) / 127. + 1e-7
     y = x / scale
     y = (y + tl.where(y >= 0, .5, -.5)).to(tl.int8)
@@ -83,12 +96,13 @@ def _q_rope_int8(Q, QR, W, F, Q8, QS, N: tl.constexpr, H: tl.constexpr, D: tl.co
 @triton.jit
 def _keys(CK, KS, K, KR, W, F, b, h, t, d,
           AT: tl.constexpr, N: tl.constexpr, D: tl.constexpr, SC: tl.constexpr, SS: tl.constexpr,
-          SK: tl.constexpr, SF: tl.constexpr, GH: tl.constexpr, GW: tl.constexpr, START: tl.constexpr):
+          SK: tl.constexpr, SF: tl.constexpr, GH: tl.constexpr, GW: tl.constexpr, START: tl.constexpr,
+          MATCH: tl.constexpr):
     past = t < AT
     current = (t >= AT) & (t < AT + N)
     cached = tl.load(CK + b * SC[0] + t[:, None] * SC[1] + h * SC[2] + d[None, :], past[:, None], other=0.).to(tl.float32)
     scale = tl.load(KS + b * SS[0] + t * SS[1] + h * SS[2], past, other=0)
-    new = _rotate_raw(K, KR, W, F, b, h, t - AT, current, d, N, D, SK, SF, GH, GW, START, True)
+    new = _rotate_raw(K, KR, W, F, b, h, t - AT, current, d, N, D, SK, SF, GH, GW, START, True, MATCH)
     return tl.where(past[:, None], cached * scale[:, None], new)
 
 
@@ -96,11 +110,11 @@ def _keys(CK, KS, K, KR, W, F, b, h, t, d,
 def _k_rope_sum(CK, KS, K, KR, W, F, PARTIAL,
                 AT: tl.constexpr, N: tl.constexpr, H: tl.constexpr, D: tl.constexpr,
                 SC: tl.constexpr, SS: tl.constexpr, SK: tl.constexpr, SF: tl.constexpr,
-                GH: tl.constexpr, GW: tl.constexpr, START: tl.constexpr):
+                GH: tl.constexpr, GW: tl.constexpr, START: tl.constexpr, MATCH: tl.constexpr):
     tile, h, b = tl.program_id(0), tl.program_id(1), tl.program_id(2)
     d = tl.arange(0, D)
     x = _keys(CK, KS, K, KR, W, F, b, h, tile * 64 + tl.arange(0, 64), d,
-              AT, N, D, SC, SS, SK, SF, GH, GW, START)
+              AT, N, D, SC, SS, SK, SF, GH, GW, START, MATCH)
     tl.store(PARTIAL + ((b * H + h) * tl.num_programs(0) + tile) * D + d, tl.sum(x, 0))
 
 
@@ -108,12 +122,12 @@ def _k_rope_sum(CK, KS, K, KR, W, F, PARTIAL,
 def _k_rope_int8(CK, KS, K, KR, W, F, MEAN, K8, KScale,
                  AT: tl.constexpr, N: tl.constexpr, H: tl.constexpr, D: tl.constexpr,
                  SC: tl.constexpr, SS: tl.constexpr, SK: tl.constexpr, SF: tl.constexpr,
-                 GH: tl.constexpr, GW: tl.constexpr, START: tl.constexpr):
+                 GH: tl.constexpr, GW: tl.constexpr, START: tl.constexpr, MATCH: tl.constexpr):
     block, group = tl.program_id(0) // 4, tl.program_id(0) % 4
     h, b = tl.program_id(1), tl.program_id(2)
     i, d = tl.arange(0, 16), tl.arange(0, D)
     t = block * 64 + (i // 2) * 8 + group * 2 + i % 2
-    x = _keys(CK, KS, K, KR, W, F, b, h, t, d, AT, N, D, SC, SS, SK, SF, GH, GW, START)
+    x = _keys(CK, KS, K, KR, W, F, b, h, t, d, AT, N, D, SC, SS, SK, SF, GH, GW, START, MATCH)
     # Cache the uncentered current keys. Every token has exactly one owner.
     current = (t >= AT) & (t < AT + N)
     row_scale = tl.maximum(tl.max(tl.abs(x), 1), 1e-12) * (1. / 448.)
@@ -136,7 +150,7 @@ _KEY = "".join(kernel.cache_key for kernel in (_rms, _q_rope_int8, _k_rope_sum, 
 
 def _prepare(q: torch.Tensor, k: torch.Tensor, v: torch.Tensor, wq: torch.Tensor, wk: torch.Tensor,
              freq: torch.Tensor, grid_key: str, start: int, ck: torch.Tensor, ks: torch.Tensor,
-             cv: torch.Tensor, vs: torch.Tensor, at: int, eps_q: float, eps_k: float
+             cv: torch.Tensor, vs: torch.Tensor, at: int, eps_q: float, eps_k: float, match: bool
              ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
     _, gh, gw = (int(x) for x in grid_key.split(","))
     b, n, h, d = q.shape
@@ -148,9 +162,9 @@ def _prepare(q: torch.Tensor, k: torch.Tensor, v: torch.Tensor, wq: torch.Tensor
     q8 = torch.empty(b, n, h, d, device=dev, dtype=torch.int8)
     qs = torch.empty(b, h, triton.cdiv(n, 128) * 32, device=dev, dtype=torch.float32)
     wrap_triton(_q_rope_int8)[(qs.shape[-1], h, b)](q, qr, wq, freq, q8, qs, n, h, d,
-                                                     q.stride(), freq.stride(), gh, gw, start)
+                                                     q.stride(), freq.stride(), gh, gw, start, match)
     partial = torch.empty(b, h, tiles, d, device=dev, dtype=torch.float32)
-    k_args = (at, n, h, d, ck.stride(), ks.stride(), k.stride(), freq.stride(), gh, gw, start)
+    k_args = (at, n, h, d, ck.stride(), ks.stride(), k.stride(), freq.stride(), gh, gw, start, match)
     wrap_triton(_k_rope_sum)[(tiles, h, b)](ck, ks, k, kr, wk, freq, partial, *k_args)
     mean = partial.sum(2) / length
     k8 = torch.empty(b, length, h, d, device=dev, dtype=torch.int8)
@@ -178,8 +192,9 @@ _NAME = "wan_dit_lab::sage_rope_prepare_" + hashlib.sha256((_KEY + inspect.getso
 _prepare = triton_op(_NAME, mutates_args={"ck", "ks", "cv", "vs"})(_prepare)
 
 
-def prepare(q, k, v, wq, wk, freq, grid, start, ck, ks, cv, vs, at, eps_q, eps_k):
-    """Inference-only [B,N,H,128] preparation; persistent cache buffers are mutated."""
+def prepare(q, k, v, wq, wk, freq, grid, start, ck, ks, cv, vs, at, eps_q, eps_k, longlive_rounding=False):
+    """Inference-only [B,N,H,128] preparation; persistent cache buffers are mutated. longlive_rounding: round where
+    the separate path (RMSNorm, LongLive's RoPE kernel, then Sage) rounds to BF16, so the two agree."""
     if q.ndim != 4 or q.shape != k.shape or q.shape != v.shape or q.shape[-1] != 128:
         raise ValueError("Sage sm89 requires matching [B,N,H,128] Q/K/V")
     if any(x.stride(-1) != 1 or x.stride(-2) != q.shape[-1] for x in (q, k, v)):
@@ -190,10 +205,10 @@ def prepare(q, k, v, wq, wk, freq, grid, start, ck, ks, cv, vs, at, eps_q, eps_k
         raise ValueError("RoPE position exceeds the frequency table")
     if at < 0 or at + q.shape[1] > ck.shape[1]:
         raise ValueError("Write exceeds cache bounds")
-    return _prepare(q, k, v, wq, wk, freq, ",".join(map(str, grid)), start, ck, ks, cv, vs, at, eps_q, eps_k)
+    return _prepare(q, k, v, wq, wk, freq, ",".join(map(str, grid)), start, ck, ks, cv, vs, at, eps_q, eps_k, longlive_rounding)
 
 
-def attend(q, k, v, norm_q, norm_k, grid, freq, start, ck, ks, cv, vs, at):
+def attend(q, k, v, norm_q, norm_k, grid, freq, start, ck, ks, cv, vs, at, longlive_rounding=False):
     q8, k8, v8, qs, kscale, vscale = prepare(q, k, v, norm_q.weight, norm_k.weight, freq, grid, start,
-                                            ck, ks, cv, vs, at, norm_q.eps, norm_k.eps)
+                                            ck, ks, cv, vs, at, norm_q.eps, norm_k.eps, longlive_rounding)
     return operators.load().sage_sm89(q8, k8, v8, qs, kscale, vscale, q.shape[-1] ** -.5)

@@ -179,8 +179,10 @@ class Bound(torch.nn.Module):
             raise ValueError(f"unsupported linear: {linear}")
         if cross_attention == ["sage_sm89"]:
             self.block.cross_attn.sage_cross_tokens = TEXT_LEN
+        # joint Sage/RoPE owns its RoPE kernel; naming LongLive's makes it round as that kernel does
+        self.longlive_rounding = attention == "sage_rope_sm89" and rope == "longlive_triton"
         if attention == "sage_rope_sm89":
-            if rope is not None:
+            if rope not in (None, "longlive_triton"):
                 raise ValueError("joint Sage/RoPE owns its RoPE kernel")
             self.block.self_attn.sage_rope = True
         else:
@@ -223,9 +225,9 @@ class Cache:
     `at` and read the same past tokens and current chunk.
     """
 
-    def __init__(self, at, k, ks, v, vs, *, attention="sage_sm89"):
+    def __init__(self, at, k, ks, v, vs, *, attention="sage_sm89", longlive_rounding=False):
         self.at, self.buffers = at, (k, ks, v, vs)
-        self.attention = attention
+        self.attention, self.longlive_rounding = attention, longlive_rounding
 
     def attend(self, Q, K, V):
         k, ks, v, vs = self.buffers
@@ -252,7 +254,8 @@ class Cache:
 
     def attend_rope(self, q, k, v, norm_q, norm_k, grid, freq, start):
         from wan_dit_lab.kernels import sage_rope
-        return sage_rope.attend(q, k, v, norm_q, norm_k, grid[0], freq, start, *self.buffers, self.at)
+        return sage_rope.attend(q, k, v, norm_q, norm_k, grid[0], freq, start, *self.buffers, self.at,
+                                longlive_rounding=self.longlive_rounding)
 
 
 class BlockStep(torch.nn.Module):
@@ -267,7 +270,8 @@ class BlockStep(torch.nn.Module):
         freqs = torch.cat([time_rope, self.hw], dim=-1)
         with torch.autocast("cuda", dtype=DTYPE):
             return self.bound.bind(row)(X, e0, grid_sizes=(self.grid,), freqs=freqs,
-                                        cache=Cache(self.at, k, ks, v, vs, attention=self.bound.attention), context_kv=(cross_k, cross_v))
+                                        cache=Cache(self.at, k, ks, v, vs, attention=self.bound.attention,
+                                                    longlive_rounding=self.bound.longlive_rounding), context_kv=(cross_k, cross_v))
 
 
 class Cross(torch.nn.Module):

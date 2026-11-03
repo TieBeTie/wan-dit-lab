@@ -168,8 +168,9 @@ impl Kernels {
         }
         match self.attention.as_str() {
             "sage_sm89" | "torch_sdpa" if matches!(self.rope.as_deref(), Some("torch_inductor" | "triton" | "longlive_triton")) => {},
-            "sage_rope_sm89" if self.rope.is_none() => {},
-            "sage_rope_sm89" => return Err("kernels.rope must be absent: sage_rope_sm89 owns RoPE".into()),
+            // owns its RoPE; "longlive_triton" only names the rounding it reproduces
+            "sage_rope_sm89" if matches!(self.rope.as_deref(), None | Some("longlive_triton")) => {},
+            "sage_rope_sm89" => return Err("kernels.rope: sage_rope_sm89 takes none or longlive_triton".into()),
             "sage_sm89" | "torch_sdpa" => return Err("kernels.rope: choose torch_inductor, triton or longlive_triton".into()),
             _ => return Err(format!("kernels.attention: {:?} is unsupported", self.attention)),
         }
@@ -497,6 +498,14 @@ mod tests {
         let c = Config::parse(include_str!("../../../configs/experiments/director-original/point-a-fp8-kv.proposed.json")).unwrap();
         assert_eq!(c.export.kernels.kv_cache, "fp8_e4m3fn");
         assert_eq!(c.export.kernels.attention, "torch_sdpa");
+    }
+    #[test]
+    fn fused_sage_rope_takes_longlive_rounding_only() {
+        let mut value = Config::parse(include_str!("../../../configs/experiments/director-original/point-b2r-w4a4-sagerope-704x1280.json")).unwrap().value();
+        value[0]["kernels"]["rope"] = serde_json::json!("longlive_triton");
+        assert!(Config::parse(&value.to_string()).is_ok());
+        value[0]["kernels"]["rope"] = serde_json::json!("triton");
+        assert!(Config::parse(&value.to_string()).is_err());
     }
     #[test]
     fn automatic_kv_never_goes_to_the_disk() {

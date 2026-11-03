@@ -179,3 +179,42 @@ def test_joint_sage_rope_is_packaged_as_native_gpu_code(tmp_path):
     with zipfile.ZipFile(package) as archive:
         contents=b"".join(archive.read(name) for name in archive.namelist() if name.endswith(".cpp"))
         assert b"_q_rope_int8" in contents and b"_k_rope_int8" in contents
+
+
+@pytest.mark.gpu
+@pytest.mark.parametrize("at,start", [(0, 0), (160, 4)])
+def test_fused_with_longlive_rounding_matches_the_separate_path(at, start):
+    # The separate path of the start point: RMSNorm to BF16, times the BF16 weight, LongLive's RoPE to BF16, then
+    # Sage over the FP8 cache. Fused without those roundings it differed by 2.7% per call at 704x1280; with them
+    # it may differ only by the order of the atomic K sum of the separate path.
+    from wan_dit_lab.kernels import sage_kv, sage_rope
+    from wan_dit_lab.kernels.cache_fp8 import store_kv_fp8
+    from wan_dit_lab.kernels.longlive_rope import rope_apply
+    from wan_dit_lab.models.rms_norm import RMSNorm
+    from wan_dit_lab.models.rope import rope
+    torch.manual_seed(29)
+    b, h, d, grid = 1, 3, 128, (2, 4, 10)
+    n = grid[0] * grid[1] * grid[2]
+    q, k, v = [(torch.randn(b, n, h, d, device="cuda") * 3).bfloat16() for _ in range(3)]
+    norms = [RMSNorm(h * d).cuda().bfloat16() for _ in range(2)]
+    with torch.no_grad():
+        for norm in norms:
+            norm.weight.uniform_(.5, 1.5)
+    freq = torch.cat([rope(1024, 44), rope(1024, 42), rope(1024, 42)], -1).float().cuda()
+    old = [torch.randn(b, max(at, 1), h, d, device="cuda").bfloat16() for _ in range(2)]
+    def cache():
+        c = [torch.zeros(b, at + n, h, d, device="cuda", dtype=torch.float8_e4m3fn), torch.ones(b, at + n, h, 1, device="cuda")]
+        c += [c[0].clone(), c[1].clone()]
+        if at:
+            store_kv_fp8(*old, *c, 0)
+        return c
+    def separate():
+        c = cache()
+        qs, ks = [rope_apply(norm(x.flatten(-2)).view(b, n, h, d), (grid,), freq, start) for x, norm in zip((q, k), norms)]
+        store_kv_fp8(ks, v, *c, at)
+        return sage_kv.attend(qs, *c, at, ks, v)
+    with torch.no_grad():
+        expected, again = separate(), separate()
+        actual = sage_rope.attend(q, k, v, *norms, grid, freq, start, *cache(), at, longlive_rounding=True)
+    rel = lambda x, y: float((x.float() - y.float()).norm() / y.float().norm())
+    assert rel(actual, expected) <= max(2 * rel(again, expected), 1e-3), (rel(actual, expected), rel(again, expected))
