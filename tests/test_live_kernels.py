@@ -344,6 +344,24 @@ def test_longlive_rope_uses_the_original_kernel_in_a_compiled_package(exporter, 
 
 
 @pytest.mark.gpu
+def test_longlive_rope_survives_compilation_when_sizes_are_multiples_of_16():
+    # Integers divisible by 16 (160 tokens, strides 96 and 48) made Inductor's analysis of the original kernel fail
+    # (IndexError in set_arg_attr); it then dropped the kernel and returned an uninitialized buffer.
+    import torch
+    from wan_dit_lab.models.rope import rope, rope_apply as reference
+    from wan_dit_lab.kernels.longlive_rope import rope_apply
+    torch.manual_seed(0)
+    grid, freq = ((1, 2, 80),), torch.cat([rope(160, 16)] * 3, -1).float().cuda()
+    x = torch.randn(1, 160, 96, device="cuda", dtype=torch.bfloat16)
+    def rotate(x):
+        return rope_apply(torch.nn.functional.rms_norm(x, (96,)).reshape(1, 160, 2, 48), grid, freq, 0)
+    with torch.no_grad():
+        expected = reference(torch.nn.functional.rms_norm(x, (96,)).reshape(1, 160, 2, 48), grid, freq, 0)
+        actual = torch.compile(rotate, fullgraph=True)(x)
+    torch.testing.assert_close(actual, expected, rtol=0, atol=0)
+
+
+@pytest.mark.gpu
 def test_dense_block_exports_with_original_rope_and_mutable_bf16_cache(exporter, tmp_path, monkeypatch):
     from wan_dit_lab.models.block import WanBlock
     from wan_dit_lab.models.rope import rope
