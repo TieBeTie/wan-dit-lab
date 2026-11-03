@@ -163,8 +163,8 @@ impl Kernels {
             || (!dense && storage != ("fp8_e4m3fn", "triton")) {
             return Err("kernels.kv_cache/kv_store: choose BF16/torch or FP8/triton; Sage requires FP8/triton".into());
         }
-        if dense && self.cross_attention != ["math"] {
-            return Err("kernels.cross_attention: torch_sdpa requires [math] for both attention paths".into());
+        if dense && self.cross_attention == ["sage_sm89"] {
+            return Err("kernels.cross_attention: torch_sdpa takes SDPA backends for both attention paths".into());
         }
         match self.attention.as_str() {
             "sage_sm89" | "torch_sdpa" if matches!(self.rope.as_deref(), Some("torch_inductor" | "triton" | "longlive_triton")) => {},
@@ -482,6 +482,15 @@ mod tests {
         let c = Config::parse(include_str!("../../../configs/experiments/director-original/point-a-fp8-kv.proposed.json")).unwrap();
         assert_eq!(c.export.kernels.kv_cache, "fp8_e4m3fn");
         assert_eq!(c.export.kernels.attention, "torch_sdpa");
+    }
+    #[test]
+    fn point_a_prime_takes_memory_efficient_sdpa_and_rejects_sage_cross() {
+        let c = Config::parse(include_str!("../../../configs/experiments/director-original/point-a-prime.json")).unwrap();
+        assert_eq!(c.export.kernels.attention, "torch_sdpa");
+        assert_eq!(c.export.kernels.cross_attention, ["efficient"]);
+        let mut value = c.value();
+        value[0]["kernels"]["cross_attention"] = serde_json::json!(["sage_sm89"]);
+        assert!(Config::parse(&value.to_string()).is_err());
     }
     #[test]
     fn fp8_recipe_resolves_measured_t5_memory_and_fractional_margin() {
