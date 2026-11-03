@@ -39,11 +39,33 @@ pub fn read_row(file: &File, index: usize, row_bytes: usize, buffer: &mut [u8]) 
         let got = file.seek_read(&mut buffer[done..size], (low + done) as u64)?;
         #[cfg(not(windows))]
         let got = std::os::unix::fs::FileExt::read_at(file, &mut buffer[done..size], (low + done) as u64)?;
-        if got == 0 {
-            break; // the end of the file: its last sector was not whole
-        }
         done += got;
+        if got == 0 || got % SECTOR != 0 {
+            break; // the end of the file: its last sector was not whole, and a read after it would be unaligned
+        }
     }
     Ok(start - low)
 }
 
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_last_row_reads_when_the_file_ends_inside_a_sector() {
+        // 30 rows of the FP8 pack end 4912071360 bytes in, not on a sector: an unbuffered read must not go on at
+        // an unaligned offset after the short read of the file's last sector
+        let row_bytes = 5000;
+        let data: Vec<u8> = (0..3 * row_bytes).map(|i| (i % 251) as u8).collect();
+        let path = std::env::temp_dir().join(format!("wan-disk-test-{}.bin", std::process::id()));
+        std::fs::write(&path, &data).unwrap();
+        let mut storage = vec![0u8; span(row_bytes) + SECTOR];
+        let skip = storage.as_ptr().align_offset(SECTOR);
+        let buffer = &mut storage[skip..skip + span(row_bytes)];
+        let read = read_row(&open_unbuffered(&path).unwrap(), 2, row_bytes, buffer);
+        std::fs::remove_file(&path).unwrap();
+        let at = read.unwrap();
+        assert_eq!(&buffer[at..at + row_bytes], &data[2 * row_bytes..]);
+    }
+}
