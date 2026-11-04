@@ -42,7 +42,7 @@ Q is not computed: it is an order on a grid of videos, x ≻ y if x looks better
 
 $$
 \underbrace{N(x)=\{y:\ y\ \text{differs from}\ x\ \text{in exactly one factor}\}}_{\text{neighbours}},\qquad
-\underbrace{x^*:\ \nexists\,y\in N(x^*)\ \text{feasible},\ y\succ x^*}_{\text{goal: a local optimum}}
+\underbrace{x^{\ast}:\ \nexists\,y\in N(x^{\ast})\ \text{feasible},\ y\succ x^{\ast}}_{\text{goal: a local optimum}}
 $$
 
 <!-- TODO f_live: agree on the number. Option from «Оптимизация»: ρ = T_gen / T_video ≤ 1, i.e. f_live = 24 fps. -->
