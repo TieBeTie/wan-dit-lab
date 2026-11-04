@@ -30,9 +30,9 @@ Same frames from both videos, resized to 928×512. Sharpness: variance of the La
 
 | Scene | Sharpness, left / right | Seam ratio, left / right | Motion, left / right |
 | :--- | ---: | ---: | ---: |
-| teacup_pour | 130 / 97 | 1.06 / 1.09 | 2.38 / 3.12 |
-| astronaut | 193 / 94 | 1.30 / 1.23 | 1.54 / 2.04 |
-| small fox (left: x₀) | 277 / 330 | 1.61 / 1.52 | 1.04 / 1.54 |
+| teacup_pour | 130 / 91 | 1.06 / 1.13 | 2.38 / 3.01 |
+| astronaut | 193 / 133 | 1.30 / 1.09 | 1.54 / 2.37 |
+| small fox (left: x₀) | 277 / 322 | 1.61 / 1.69 | 1.04 / 1.28 |
 
 The smaller frame costs sharpness on two of three scenes; seams stay at the reference level.
 
