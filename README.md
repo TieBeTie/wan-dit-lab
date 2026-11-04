@@ -20,21 +20,21 @@ Each video is a chain of voice commands: continue the same scene or cut to a new
 
 [![astronaut](docs/media/astronaut.webp)](docs/media/astronaut.mp4)
 
-**fox_cabin.** A fox by a cabin → heavy snow → sunset → new scene: the fox by a fireplace at night.
+**small fox.** An empty snowy clearing with a cabin → a small fox runs past the cabin. Here the left video is the starting point x₀ (W4A4, Sage 2, 704×1280, 5.4 fps): the FP8 configuration was not run on this scene.
 
-[![fox_cabin](docs/media/fox_cabin.webp)](docs/media/fox_cabin.mp4)
+[![small fox](docs/media/fox_run.webp)](docs/media/fox_run.mp4)
 
 ### Quality metrics
 
-Same frames from both videos, resized to 928×512. Sharpness: variance of the Laplacian (higher is sharper). Seam ratio: mean frame change at chunk boundaries divided by the mean inside chunks (1 = no visible seam; fox_cabin includes a deliberate scene cut). Motion: mean frame change inside chunks. Script: [scripts/quality_metrics.py](scripts/quality_metrics.py).
+Same frames from both videos, resized to 928×512. Sharpness: variance of the Laplacian (higher is sharper). Seam ratio: mean frame change at chunk boundaries divided by the mean inside chunks (1 = no visible seam). Motion: mean frame change inside chunks. Script: [scripts/quality_metrics.py](scripts/quality_metrics.py).
 
 | Scene | Sharpness, left / right | Seam ratio, left / right | Motion, left / right |
 | :--- | ---: | ---: | ---: |
 | teacup_pour | 130 / 97 | 1.06 / 1.09 | 2.38 / 3.12 |
 | astronaut | 193 / 94 | 1.30 / 1.23 | 1.54 / 2.04 |
-| fox_cabin | 43 / 42 | 4.10 / 3.23 | 1.44 / 1.32 |
+| small fox (left: x₀) | 277 / 330 | 1.61 / 1.52 | 1.04 / 1.54 |
 
-The smaller frame costs sharpness on two of three scenes; seams and motion stay at the reference level.
+The smaller frame costs sharpness on two of three scenes; seams stay at the reference level.
 
 <!-- TODO: CLIP score to prompt and CLIP similarity to the left video (needs CLIP weights) -->
 
