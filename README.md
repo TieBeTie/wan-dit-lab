@@ -1,80 +1,105 @@
-# Wan DiT Lab
+# Wan DiT Lab: real-time 5B video generation on 8 GB
 
-Собственная реализация денойзера Wan на PyTorch с оригинальными обученными весами, проверкой совпадения и последующей оптимизацией инференса.
+Can a 5B-parameter video model stream video on a laptop RTX 4060 (8 GB VRAM, 16 GB RAM)?
+Model: [LongLive-2.0-5B](https://github.com/NVlabs/LongLive) (autoregressive video diffusion on Wan 2.2), 2 denoising steps, trained at 704×1280.
 
-## Границы проекта
+## Videos
 
-Пишем входное преобразование видеолатентов, conditioning по времени, self-attention, cross-attention, FFN, блоки трансформера и выходную голову. Текстовый энкодер, VAE и scheduler сначала используем готовые. Обучение с нуля не входит в начальный этап.
+<!-- Videos are added by dragging the mp4 into this file's editor on github.com -->
 
-## RoPE 3D: проверить и сравнить
+Each video is a chain of voice commands: continue the same scene or cut to a new one. Full prompts: [three-selected-scenes.json](configs/experiments/director-original/three-selected-scenes.json).
+
+**teacup_pour.** A teacup pours water into a glass → stands still → pours red wine → stands still.
+
+VIDEO_1
+
+**astronaut.** An astronaut in a space station → an apple flies in → the apple floats → the astronaut reaches and grabs it → holds it.
+
+VIDEO_2
+
+**fox_cabin.** A fox by a cabin → heavy snow → sunset → new scene: the fox by a fireplace at night.
+
+VIDEO_3
+
+## Problem
+
+A configuration is a point in a space of factors.
+
+$$
+\underbrace{x=(x_1,\ldots,x_k)\in X=X_1\times\cdots\times X_k}_{\text{weights, attention, RoPE, T5, resolution, KV, steps}}
+$$
+
+$$
+\max_{x\in X}\ \underbrace{Q(x)}_{\text{video quality}}
+\quad\text{s.t.}\quad
+\underbrace{\mathrm{fps}(x)\ge f_{\rm live}}_{\text{live}},\quad
+\underbrace{M_{\rm VRAM}(x)\le 8\ \text{GiB}}_{\text{GPU}},\quad
+\underbrace{M_{\rm RAM}(x)\le R}_{\text{host memory}},\quad
+\underbrace{B_{\rm write}(x)=0}_{\text{no SSD writes}}
+$$
+
+Q is not computed: it is an order on a grid of videos, x ≻ y if x looks better. So we do not search for a global maximum.
+
+$$
+\underbrace{N(x)=\{y:\ y\ \text{differs from}\ x\ \text{in exactly one factor}\}}_{\text{neighbours}},\qquad
+\underbrace{x^*:\ \nexists\,y\in N(x^*)\ \text{feasible},\ y\succ x^*}_{\text{goal: a local optimum}}
+$$
+
+<!-- TODO f_live: agree on the number. Option from «Оптимизация»: ρ = T_gen / T_video ≤ 1, i.e. f_live = 24 fps. -->
+
+## Method
+
+There are too many factors to try every combination. The local optimum is found in two stages.
+
+1. **Starting point.** The quality peak is the original model. Drop points that do not fit the machine and take a feasible point next to the peak: x₀ = W4A4, Sage 2, FP8 KV, 704×1280, 5.4 fps.
+2. **Descent into the basin.** Each step changes one factor. The result is a row (Δquality, Δfps, Δmemory) and a video grid. Decisions are made on the grid.
+
+| Step from x₀ | fps | Quality by eye | Decision |
+| :--- | ---: | :--- | :--- |
+| W4A4 → FP8 | 5.4 → 2.2 | not better | rejected |
+| fused Sage + RoPE kernel | 5.41 → 5.45 | same | closed |
+| T5 BF16 → INT8 | 5.41 → 5.58 | not checked by eye yet | deferred |
+| 704×1280 → 512×928 | 5.4 → 11.3 | worse; resolution is the main quality factor | in progress: RoPE profile |
+
+## Meeting the memory constraints
+
+In its original form the model does not fit. Estimate for BF16 at 704×1280:
+
+$$
+\underbrace{9.3}_{\text{DiT weights}}+\underbrace{5.1}_{\text{video KV}}+\underbrace{8.6}_{\text{T5}}\approx 23\ \text{GB VRAM}\ \gg 8.
+$$
+
+| | Before | After |
+| :--- | ---: | ---: |
+| VRAM, GiB | ≈ 23 (estimate) | 4.8 |
+| RAM, GiB | ≈ 10 (E16) | 3.05 |
+| fps, 512×928 | does not run | 14.0–14.6 |
+| fps, 704×1280 | does not run | 5.4 |
+
+<!-- TODO: re-measure 512×928 with a fresh run; currently OOM on chunk 3 -->
+
+How:
+
+- W4A4 weights (SVDQuant, Nunchaku kernels): GEMM 1.30 ms vs 4.61 ms in BF16;
+- SageAttention 2 and an FP8 KV cache;
+- block offloading VRAM ⇄ RAM ⇄ SSD driven by a cost model; the number of prefetch slots is chosen by calibration;
+- a Rust runtime over AOTInductor packages: 13.8 → 17.9 fps and RAM 7.1 → 3.2 GiB vs the same path in Python.
+
+## Chapters
+
+1. [Offloading](notes/research/Offloading.md): which resources live where and when they move.
+2. [Optimization](notes/research/Оптимизация.md): speed and memory.
+3. [Long generation](notes/research/Длительная%20генерация.md): how to continue a video with limited memory.
+4. [Scene change](notes/research/Смена%20сцены.md): hybrid control.
+5. [RoPE positions](notes/research/Позиции%20RoPE.md): a frame smaller than the trained one.
+6. [Experiment log](notes/research/Исследование.md): hypotheses H01–H15, experiments E01–E30.
+
+## Running
+
+One entry point, `bin/wan.exe`; generation is set by a JSON config. Details: [docs/development.md](docs/development.md), [docs/pipeline-config-proposal.md](docs/pipeline-config-proposal.md).
 
 ```powershell
-.\scripts\check_rope.ps1 -OpenReport
+.\build.ps1
+.\bin\wan.exe --config configs/live.json
+.\bin\wan.exe --config configs/offline.json --chains fox_cabin
 ```
-
-Тесты → точность → скорость → отчёт PyTorch / Triton. Всё выполняется локально
-в существующем WSL-окружении, без загрузки весов. `-TestsOnly` запускает только тесты.
-
-[Конфиг](configs/experiments/rope_triton.json) · [Ядро](src/wan_dit_lab/kernels/rope_triton.py) ·
-[Методика и статьи](docs/rope-triton-validation.md).
-
-Результаты сохраняются в `Documents/Experiments/DIT/outputs/experiments/2026-10-26/RoPE_Triton`.
-`latest.json` указывает на последний прогон, включая неудачный. Отчёт доступен
-в HTML и Markdown, все измерения и метаданные сохраняются в JSON.
-
-FP8-запись K/V прямо в кэш: `./scripts/check_rope.ps1 -CacheStore`.
-Сначала локальные тесты, затем парные замеры и Live A/B на Windows.
-`-TestsOnly` сохраняет только проверки. [Контракт и калибровка](docs/cache-fp8-validation.md).
-
-## Быстрый старт
-
-```powershell
-./scripts/setup.ps1
-./.venv/Scripts/python.exe -m pytest -q
-./.venv/Scripts/python.exe -m wan_dit_lab.cli bench-smoke
-```
-
-Настройка окружения и команды разработки: [development.md](docs/development.md).
-
-## Начальная цель
-
-База — Wan2.1 T2V-1.3B. Ревизии кода и checkpoint зафиксированы в `configs/upstream.json`. Загрузка всех необходимых весов и проверка хешей: `python scripts/conversion/prepare_weights.py`. Не подставлять размеры из других моделей или CausalWan без сверки.
-
-Почему эта база и как расширять проект в сторону streaming inference: [выбор проекта и актуальные альтернативы](docs/project-positioning.md).
-
-Официальный исходник: https://github.com/Wan-Video/Wan2.1
-
-## Этапы
-
-1. Зафиксировать оригинал и конфигурацию, описать формы тензоров и имена параметров.
-2. Реализовать один блок и сопоставление его весов. На одинаковых входах сравнить промежуточные и итоговые тензоры с оригиналом.
-3. Собрать полный DiT: вход, conditioning, последовательность блоков, выход. Проверить полный forward.
-4. Подключить готовые encoder, scheduler и VAE. Проверить генерацию с одинаковым seed и настройками.
-5. Измерить eager и torch.compile, затем подключать W8A8 Linear и другие оптимизации по данным профиля.
-6. Разреженное attention и кеширование без дообучения на полной последовательности 32760 токенов: скорость против качества.
-7. Streaming-режим на чекпойнте Causal Forcing: своё Triton-ядро attention по тайлам и KV-кеш в INT8/INT4, чтобы полный ролаут поместился в 8 ГБ.
-8. Несколько одновременных стримов: страничный KV-кеш, планировщик чанков, приём запросов по свободной памяти.
-
-Подробности: [план работ](docs/roadmap.md).
-
-## Структура
-
-- `src/wan_dit_lab/models/` — модель, T5, VAE и исходные операции.
-- `src/wan_dit_lab/kernels/`, `quantization/` — ускоренные операции и квантование.
-- `src/wan_dit_lab/generation/`, `offloading/` — генерация и управление ресурсами.
-- `src/wan_dit_lab/harness/`, `runtime/` — измерения, конфиги и pipeline.
-- `src/wan_dit_lab/experiments/`, `reports/` — сценарии и отчёты.
-- `tests/` — проверки против оригинала и граничные случаи.
-- `benchmarks/` — воспроизводимые измерения.
-- `configs/` — проверенные конфигурации модели и экспериментов.
-- `docs/` — архитектура, план и результаты.
-
-[Harness: конфиг, запуск, метрики памяти](docs/harness.md).
-
-## Правила измерений
-
-На RTX 4060 с 8 ГБ начинать с одного блока и сохранённых реальных входов. Полная генерация может потребовать offload. Всегда разделять время вычислений и переносов CPU/GPU.
-
-Измерять весь оптимизируемый участок: квантование активаций, GEMM, скейлы и bias. Исключать компиляцию и autotune из steady-state замеров, но отдельно сообщать стоимость первого запуска. Сохранять версии ПО, GPU, формы, dtype, режим измерений и проверку точности. Ускорение отдельного кернела не считать ускорением модели.
-
-Проверенные версии CUDA/PyTorch описаны в `docs/development.md`; установка пакета сама по себе не устанавливает GPU-стек.
