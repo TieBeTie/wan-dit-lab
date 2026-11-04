@@ -5,21 +5,21 @@ Model: [LongLive-2.0-5B](https://github.com/NVlabs/LongLive) (autoregressive vid
 
 ## Videos
 
-<!-- Videos are added by dragging the mp4 into this file's editor on github.com -->
+704×1280, the starting point x₀ (W4A4, Sage 2, FP8 KV), 5.4 fps, seed 0. Previews are 640 px at 12 fps; click for the mp4.
 
 Each video is a chain of voice commands: continue the same scene or cut to a new one. Full prompts: [three-selected-scenes.json](configs/experiments/director-original/three-selected-scenes.json).
 
 **teacup_pour.** A teacup pours water into a glass → stands still → pours red wine → stands still.
 
-VIDEO_1
+[![teacup_pour](docs/media/teacup_pour.webp)](docs/media/teacup_pour.mp4)
 
 **astronaut.** An astronaut in a space station → an apple flies in → the apple floats → the astronaut reaches and grabs it → holds it.
 
-VIDEO_2
+[![astronaut](docs/media/astronaut.webp)](docs/media/astronaut.mp4)
 
 **fox_cabin.** A fox by a cabin → heavy snow → sunset → new scene: the fox by a fireplace at night.
 
-VIDEO_3
+[![fox_cabin](docs/media/fox_cabin.webp)](docs/media/fox_cabin.mp4)
 
 ## Problem
 
