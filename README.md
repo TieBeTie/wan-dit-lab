@@ -8,7 +8,7 @@ Model: [LongLive-2.0-5B](https://github.com/NVlabs/LongLive) (autoregressive vid
 
 ## Videos
 
-Left: the configuration closest to the original that fits the machine (FP8 weights, PyTorch SDPA attention, 704×1280), 1.3 fps. Right: where we arrived (W4A4, SageAttention 2, 512×928), 11.3 fps, 8.7× faster. Same prompts, seed 0. Click a preview for the mp4.
+Left: the configuration closest to the original that fits the machine (FP8 weights, PyTorch SDPA attention, 704×1280), 1.3 fps. Right: where we arrived (W4A4, SageAttention 2, NTK-aware RoPE ×1.1, 512×928), 11.2 fps, 8.6× faster. Same prompts, seed 0. Click a preview for the mp4.
 
 Each video is a chain of voice commands: continue the same scene or cut to a new one. Full prompts: [three-selected-scenes.json](configs/experiments/director-original/three-selected-scenes.json).
 
