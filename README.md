@@ -24,6 +24,20 @@ Each video is a chain of voice commands: continue the same scene or cut to a new
 
 [![fox_cabin](docs/media/fox_cabin.webp)](docs/media/fox_cabin.mp4)
 
+### Quality metrics
+
+Same frames from both videos, resized to 928×512. Sharpness: variance of the Laplacian (higher is sharper). Seam ratio: mean frame change at chunk boundaries divided by the mean inside chunks (1 = no visible seam; fox_cabin includes a deliberate scene cut). Motion: mean frame change inside chunks. Script: [scripts/quality_metrics.py](scripts/quality_metrics.py).
+
+| Scene | Sharpness, left / right | Seam ratio, left / right | Motion, left / right |
+| :--- | ---: | ---: | ---: |
+| teacup_pour | 130 / 97 | 1.06 / 1.09 | 2.38 / 3.12 |
+| astronaut | 193 / 94 | 1.30 / 1.23 | 1.54 / 2.04 |
+| fox_cabin | 43 / 42 | 4.10 / 3.23 | 1.44 / 1.32 |
+
+The smaller frame costs sharpness on two of three scenes; seams and motion stay at the reference level.
+
+<!-- TODO: CLIP score to prompt and CLIP similarity to the left video (needs CLIP weights) -->
+
 ## Problem
 
 A configuration is a point in a space of factors.
@@ -41,7 +55,7 @@ $$
 \underbrace{B_{\rm write}(x)=0}_{\text{no SSD writes}}
 $$
 
-Q is not computed: it is an order on a grid of videos, x ≻ y if x looks better. So we do not search for a global maximum.
+Q has no single number: x ≻ y when x wins a side-by-side review of the same prompts and seed, backed by the automatic metrics below. So we do not search for a global maximum.
 
 $$
 \underbrace{N(x)=\{y:\ y\ \text{differs from}\ x\ \text{in exactly one factor}\}}_{\text{neighbours}},\qquad
@@ -57,7 +71,7 @@ There are too many factors to try every combination. The local optimum is found 
 1. **Starting point.** The quality peak is the original model. Drop points that do not fit the machine and take a feasible point next to the peak: x₀ = W4A4, Sage 2, FP8 KV, 704×1280, 5.4 fps.
 2. **Descent into the basin.** Each step changes one factor. The result is a row (Δquality, Δfps, Δmemory) and a video grid. Decisions are made on the grid.
 
-| Step from x₀ | fps | Quality by eye | Decision |
+| Step from x₀ | fps | Quality (pairwise grid review) | Decision |
 | :--- | ---: | :--- | :--- |
 | W4A4 → FP8 | 5.4 → 2.2 | not better | rejected |
 | fused Sage + RoPE kernel | 5.41 → 5.45 | same | closed |
