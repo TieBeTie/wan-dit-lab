@@ -1,11 +1,14 @@
 # Wan DiT Lab: real-time 5B video generation on 8 GB
 
 Can a 5B-parameter video model stream video on a laptop RTX 4060 (8 GB VRAM, 16 GB RAM)?
+
+**Yes, close to real time.** The original model needs ≈ 23 GB of VRAM and does not run here. Our runtime runs it in 4.8 GiB of VRAM and 3 GiB of RAM at 11–14 fps (512×928), against 24 fps playback; at the native 704×1280 it runs at 5.4 fps.
+
 Model: [LongLive-2.0-5B](https://github.com/NVlabs/LongLive) (autoregressive video diffusion on Wan 2.2), 2 denoising steps, trained at 704×1280.
 
 ## Videos
 
-704×1280, the starting point x₀ (W4A4, Sage 2, FP8 KV), 5.4 fps, seed 0. Previews are 640 px at 12 fps; click for the mp4.
+Left: the configuration closest to the original that fits the machine (FP8 weights, PyTorch SDPA attention, 704×1280), 1.3 fps. Right: where we arrived (W4A4, SageAttention 2, 512×928), 11.3 fps, 8.7× faster. Same prompts, seed 0. Click a preview for the mp4.
 
 Each video is a chain of voice commands: continue the same scene or cut to a new one. Full prompts: [three-selected-scenes.json](configs/experiments/director-original/three-selected-scenes.json).
 
