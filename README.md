@@ -1,122 +1,115 @@
+[Русский](docs/README.ru.md)
+
 # Wan DiT Lab: real-time 5B video generation on 8 GB
 
 Can a 5B-parameter video model stream video on a laptop RTX 4060 (8 GB VRAM, 16 GB RAM)?
 
-**Yes, close to real time.** The original model needs ≈ 23 GB of VRAM and does not run here. Our runtime runs it in 4.8 GiB of VRAM and 3 GiB of RAM at 11–14 fps (512×928), against 24 fps playback; at the native 704×1280 it runs at 5.4 fps.
+**Yes.**
 
-Model: [LongLive-2.0-5B](https://github.com/NVlabs/LongLive) (autoregressive video diffusion on Wan 2.2), 2 denoising steps, trained at 704×1280.
+$$
+\underbrace{M_{\rm VRAM}^{\rm original}\approx 23\ \text{GB}}_{\text{does not fit}}\ \gg\ 8\ \text{GB}\ >\ \underbrace{M_{\rm VRAM}^{\rm ours}=4.8\ \text{GiB}}_{\text{fits}},
+\qquad
+\underbrace{\mathrm{FPS}^{\rm ours}=11\text{–}14}_{512\times928}
+$$
 
 ## Videos
 
-Left: the configuration closest to the original that fits the machine (FP8 weights, PyTorch SDPA attention, 704×1280), 1.3 fps. Right: where we arrived (W4A4, SageAttention 2, NTK-aware RoPE ×1.1, 512×928), 11.2 fps, 8.6× faster. Same prompts, seed 0. Click a preview for the mp4.
-
-Each video is a chain of voice commands: continue the same scene or cut to a new one. Full prompts: [three-selected-scenes.json](configs/experiments/director-original/three-selected-scenes.json).
-
-**teacup_pour.** A teacup pours water into a glass → stands still → pours red wine → stands still.
+**teacup_pour**
+- Prompts: a teacup pours water into a glass → stands still → pours red wine → stands still.
 
 [![teacup_pour](docs/media/teacup_pour.webp)](docs/media/teacup_pour.mp4)
 
-**astronaut.** An astronaut in a space station → an apple flies in → the apple floats → the astronaut reaches and grabs it → holds it.
+**astronaut**
+- Prompts: an astronaut in a space station → an apple flies in → it floats → the astronaut grabs it → holds it.
 
 [![astronaut](docs/media/astronaut.webp)](docs/media/astronaut.mp4)
 
-**small fox.** An empty snowy clearing with a cabin → a small fox runs past the cabin. Here the left video is the starting point x₀ (W4A4, Sage 2, 704×1280, 5.4 fps): the FP8 configuration was not run on this scene.
+**small fox**
+- Prompts: an empty snowy clearing with a cabin → a small fox runs past the cabin.
 
 [![small fox](docs/media/fox_run.webp)](docs/media/fox_run.mp4)
 
-### Quality metrics
-
-Same frames from both videos, resized to 928×512. Sharpness: variance of the Laplacian (higher is sharper). Seam ratio: mean frame change at chunk boundaries divided by the mean inside chunks (1 = no visible seam). Motion: mean frame change inside chunks. Script: [scripts/quality_metrics.py](scripts/quality_metrics.py).
-
-| Scene | Sharpness, left / right | Seam ratio, left / right | Motion, left / right |
-| :--- | ---: | ---: | ---: |
-| teacup_pour | 130 / 91 | 1.06 / 1.13 | 2.38 / 3.01 |
-| astronaut | 193 / 133 | 1.30 / 1.09 | 1.54 / 2.37 |
-| small fox (left: x₀) | 277 / 322 | 1.61 / 1.69 | 1.04 / 1.28 |
-
-The smaller frame costs sharpness on two of three scenes; seams stay at the reference level.
-
 <!-- TODO: CLIP score to prompt and CLIP similarity to the left video (needs CLIP weights) -->
 
-## Problem
+<span class="wan-scene-style wan-scene-math wan-scene-grid wan-version-matrix"></span>
 
-A configuration is a point in a space of factors.
-
-$$
-\underbrace{x=(x_1,\ldots,x_k)\in X=X_1\times\cdots\times X_k}_{\text{weights, attention, RoPE, T5, resolution, KV, steps}}
-$$
+## Context
 
 $$
-\max_{x\in X}\ \underbrace{Q(x)}_{\text{video quality}}
-\quad\text{s.t.}\quad
-\underbrace{\mathrm{fps}(x)\ge f_{\rm live}}_{\text{live}},\quad
-\underbrace{M_{\rm VRAM}(x)\le 8\ \text{GiB}}_{\text{GPU}},\quad
-\underbrace{M_{\rm RAM}(x)\le R}_{\text{host memory}},\quad
-\underbrace{B_{\rm write}(x)=0}_{\text{no SSD writes}}
+\begin{aligned}
+\mathrm{prompt}&\xrightarrow{\mathrm{cfg}}\mathrm{video},&&\text{consider video generation from a prompt in live mode,}\\[6pt]
+\mathrm{cfg}&\in\mathcal C,&&\text{with configurations from the set C,}\\[6pt]
+\mathrm{FPS}(\mathrm{cfg})&=\frac{N_{\rm frames}}{T_{\rm generation}(\mathrm{cfg})}\ge 15,&&\text{Live mode requires a rate of at least 15 frames per second.}\\[6pt]
+M_{\rm VRAM}(\mathrm{cfg})&\le 8\ \text{GB},\quad M_{\rm RAM}(\mathrm{cfg})\le 16\ \text{GB},&&\text{The difficulty is that memory on the NVIDIA GeForce RTX 4060 Laptop graphics card is limited,}\\[6pt]
+\mathcal L(\mathrm{cfg})&=\mathrm{LPIPS}_{\rm align}(\mathrm{cfg})+\bigl(1-\mathrm{DINO}(\mathrm{cfg})\bigr).&&\text{and when video generation is accelerated, the video quality drops, which we measure by the loss.}
+\end{aligned}
 $$
 
-Q has no single number: x ≻ y when x wins a side-by-side review of the same prompts and seed, backed by the automatic metrics below. So we do not search for a global maximum.
+## Goal
+
+Find the configuration that achieves the smallest loss of video quality<br>at a rate of at least 15 frames per second<br>on the NVIDIA GeForce RTX 4060 Laptop (8 GB of video memory, 16 GB of RAM).
+
+Let us state the optimization problem
 
 $$
-\underbrace{N(x)=\{y:\ y\ \text{differs from}\ x\ \text{in exactly one factor}\}}_{\text{neighbours}},\qquad
-\underbrace{x^{\ast}:\ \nexists\,y\in N(x^{\ast})\ \text{feasible},\ y\succ x^{\ast}}_{\text{goal: a local optimum}}
+\begin{aligned}
+\min_{\mathrm{cfg}\in\mathcal C}\quad&\mathcal L(\mathrm{cfg})\\[8pt]
+\text{subject to}\quad&\mathrm{FPS}(\mathrm{cfg})\ge 15,\\
+&M_{\rm VRAM}(\mathrm{cfg})\le 8\ \text{GB},\\
+&M_{\rm RAM}(\mathrm{cfg})\le 16\ \text{GB}.
+\end{aligned}
 $$
 
-<!-- TODO f_live: agree on the number. Option from «Оптимизация»: ρ = T_gen / T_video ≤ 1, i.e. f_live = 24 fps. -->
+# Task 1
 
-## Method
-
-There are too many factors to try every combination. The local optimum is found in two stages.
-
-1. **Starting point.** The quality peak is the original model. Drop points that do not fit the machine and take a feasible point next to the peak: x₀ = W4A4, Sage 2, FP8 KV, 704×1280, 5.4 fps.
-2. **Descent into the basin.** Each step changes one factor. The result is a row (Δquality, Δfps, Δmemory) and a video grid. Decisions are made on the grid.
-
-| Step from x₀ | fps | Quality (pairwise grid review) | Decision |
-| :--- | ---: | :--- | :--- |
-| W4A4 → FP8 | 5.4 → 2.2 | not better | rejected |
-| fused Sage + RoPE kernel | 5.41 → 5.45 | same | closed |
-| T5 BF16 → INT8 | 5.41 → 5.58 | not checked by eye yet | deferred |
-| 704×1280 → 512×928 | 5.4 → 11.3 | worse; resolution is the main quality factor | in progress: RoPE profile |
-
-## Meeting the memory constraints
-
-In its original form the model does not fit. Estimate for BF16 at 704×1280:
+Build a mathematical model that predicts $\mathrm{FPS}$, memory and $\mathcal L$ from a configuration $\mathrm{cfg}$, so as to discard configurations that violate the constraints even before the experiments.
 
 $$
-\underbrace{9.3}_{\text{DiT weights}}+\underbrace{5.1}_{\text{video KV}}+\underbrace{8.6}_{\text{T5}}\approx 23\ \text{GB VRAM}\ \gg 8.
+\mathrm{cfg}=\Bigl(\underbrace{\mathrm{cfg}_{\rm offloading}}_{\text{system loading plan}},\quad \underbrace{\mathrm{cfg}_{\rm input}}_{\text{input}},\quad \underbrace{\mathrm{cfg}_{\rm text\ encoder},\ \underbrace{\mathrm{cfg}_{\rm DiT}}_{\text{transformer block configuration}},\ \mathrm{cfg}_{\rm VAE}}_{\text{video generation}}\Bigr)
 $$
 
-| | Before | After |
-| :--- | ---: | ---: |
-| VRAM, GiB | ≈ 23 (estimate) | 4.8 |
-| RAM, GiB | ≈ 10 (E16) | 3.05 |
-| fps, 512×928 | does not run | 14.0–14.6 |
-| fps, 704×1280 | does not run | 5.4 |
 
-<!-- TODO: re-measure 512×928 with a fresh run; currently OOM on chunk 3 -->
 
-How:
+| Version       | [Model](docs/research/mvp1/Model.md)                                                                                                                                                                                                                                                                                                                                           | [Quantization](docs/research/mvp2/E30.%20Starting%20point%20W4A4%20704%C3%971280%20and%20postponed%20steps.md)                 | [Compilation](docs/research/MVP1.md#compilation--mvp1)                                                                                                                                                            | [Resolution change](docs/research/mvp1/RoPE-positions.md)                                          | [Offloading](docs/research/mvp1/Offloading.md)                                                                                                                                                                                                                                                                                                      | [Video continuation](docs/research/mvp1/Long-generation.md)                                                                        | [Scene change](docs/research/mvp1/Scene-change.md)                                                                                                                                                                                               |
+| :------------ | :----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | :----------------------------------------------------------------------------------------------------------------------------- | :---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | :------------------------------------------------------------------------------------------------- | :-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | :--------------------------------------------------------------------------------------------------------------------------------- | :----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| General model | $\displaystyle \begin{aligned} \mathrm{prompt}_j&\xrightarrow{\mathrm{T5}}\mathrm{ctx}_j,\qquad \mathrm{KVtext}_j=\mathrm{KV}^{\rm cross}(\mathrm{ctx}_j),\\[6pt] (\epsilon_{n+1},\mathrm{ctx},\mathrm{KVvid}_n)&\xrightarrow{\mathrm{DiT}}(\mathrm{lat}_{n+1},\mathrm{KVvid}_{n+1}),\\[6pt] \mathrm{lat}_{n+1}&\xrightarrow{\mathrm{VAE}}\mathrm{frame}_{n+1}. \end{aligned}$ | $\displaystyle \mathcal Q:(W_{\rm DiT},W_{\rm T5},\mathrm{KV})\mapsto(\hat W_{\rm DiT},\hat W_{\rm T5},\widehat{\mathrm{KV}})$ | $\displaystyle \begin{aligned}&G=(V,E)\\&\mathcal O:\ G\mapsto G'\\&\mathcal C_{\rm compile}:\ G'\xrightarrow{\rm torch.export}G_{\rm FX}\\&G_{\rm FX}\xrightarrow{\rm AOTInductor}\mathrm{package}\end{aligned}$ | $\displaystyle \Phi_{\rm pos}:(\mathrm{pos},\theta)\mapsto(\mathrm{pos}^{\prime},\theta^{\prime})$ | $\displaystyle \begin{aligned}&\underbrace{G=(V,E)}_{\text{computational graph}},\quad\underbrace{\mathcal R_i\subseteq\mathcal R}_{\text{resources}}\\[5pt]&\mathrm{plan}^{\star}\in\operatorname*{arg\,min}_{\mathrm{plan}}\widehat t_{\rm end}(\mathrm{plan})\\[5pt]&M_{\rm VRAM}\le B_{\rm VRAM},\quad M_{\rm RAM}\le B_{\rm RAM}\end{aligned}$ | $\displaystyle \Phi_{\rm continue}:(\epsilon_{n+1},\mathrm{ctx},\mathrm{KVvid}_n)\mapsto(\mathrm{lat}_{n+1},\mathrm{KVvid}_{n+1})$ | $\displaystyle \Phi_{\rm scene}:(\mathrm{KVvid}_0,\mathrm{KVtext}_0,\mathrm{prompt}_1)\mapsto\begin{cases} (\varnothing,\mathrm{KVtext}_1),&\text{new scene},\\[3pt] \Phi(\mathrm{KVvid}_0,\mathrm{KVtext}_0),&\text{continuation}. \end{cases}$ |
 
-- W4A4 weights (SVDQuant, Nunchaku kernels): GEMM 1.30 ms vs 4.61 ms in BF16;
-- SageAttention 2 and an FP8 KV cache;
-- block offloading VRAM ⇄ RAM ⇄ SSD driven by a cost model; the number of prefetch slots is chosen by calibration;
-- a Rust runtime over AOTInductor packages: 13.8 → 17.9 fps and RAM 7.1 → 3.2 GiB vs the same path in Python.
+## MVP1
 
-## Chapters
+| Version                                                      | [Model](docs/research/mvp1/Model.md)                                                                                                                                                                                                                              | [Quantization](docs/research/mvp2/E30.%20Starting%20point%20W4A4%20704%C3%971280%20and%20postponed%20steps.md)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       | [Compilation](docs/research/MVP1.md#compilation--mvp1)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 | [Resolution change](docs/research/mvp1/RoPE-positions.md)                                                                                                                         | [Offloading](docs/research/mvp1/Offloading.md)                                                                                                                                                                                            | [Video continuation](docs/research/mvp1/Long-generation.md)                                                                                                                                 | [Scene change](docs/research/mvp1/Scene-change.md)                                                                                                      |
+| :----------------------------------------------------------- | :---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | :------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | :------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | :-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | :---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | :------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | :------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| [MVP1](docs/research/MVP1.md)<br>[Live 1](configs/live.json) | $\displaystyle \begin{aligned}&\mathrm{T5}=\mathrm{UMT5\mbox{-}XXL}\\&\mathrm{DiT}:\ \mathrm{Wan}\mapsto\mathrm{LongLive\,2.0\mbox{-}5B\ S2}\\&\mathrm{decoder}:\ \mathrm{Wan\ VAE}\mapsto\mathrm{TAEHV}\end{aligned}$<br>[Experiments](docs/research/mvp1/Model.md) | $\displaystyle \begin{aligned}&\mathcal Q^{(1)}:\\[4pt]&W_{\rm DiT}^{\rm BF16}\mapsto\widehat W_{\rm DiT}^{\rm W4A4}&&\substack{\mathrm{FPS}:6.28\to11.29\\\mathrm{FP8}\to\mathrm{W4A4},\ 512\times928}\\&W_{\rm T5}^{\rm BF16}\mapsto\widehat W_{\rm T5}^{\rm INT8}&&T_{\rm prompt}:2.86\to1.63\ \mathrm{s}\\&\mathrm{KV}^{\rm BF16}\mapsto\widehat{\mathrm{KV}}^{\rm FP8\ E4M3}&&\substack{M_{\rm KV}:9.819\to4.985\ \mathrm{GiB}\\704\times1280}\end{aligned}$<br>FPS and T5 · KV size | $\displaystyle \begin{aligned}&\mathcal O^{(1)}:\\[4pt]&\mathrm{Attn}_{\rm self}:\ \mathrm{SDPA}\mapsto\mathrm{Sage\,2}&&\substack{T_{\rm block}:186.8\to77.3\ \mathrm{ms}\\\mathrm{FP8},\ 704\times1280}\\&\mathrm{Attn}_{\rm cross}:\ \mathrm{SDPA}\mapsto\mathrm{Sage\,2}\\&\underbrace{(W_Q,W_K,W_V)\mapsto W_{\rm QKV}}_{\text{self-attention}}\\&\mathrm{FFN}\mapsto\underbrace{\mathrm{GEMM}_1\to\mathrm{GELU}\to\mathrm{Quant}_4}_{\text{fuse}}\to\mathrm{GEMM}_2\\&\mathrm{RoPE}\overset{\rm fuse}{\hookrightarrow}\mathrm{Attn}_{\rm Sage}\end{aligned}$<br>[In detail](docs/research/MVP1.md) · Measurement | $\displaystyle \begin{aligned}&704\times1280\mapsto512\times928\\&\mathrm{PI},\quad t=1\\&N_{\rm steps}=2,\quad\mathrm{shift}=5\end{aligned}$<br>[RoPE positions](docs/research/mvp1/RoPE-positions.md) | $\displaystyle \begin{aligned}&\mathrm{policy}_1=\mathrm{greedy\_ram}\\&B_{\rm VRAM}^{\rm margin}=1.5\ \mathrm{GiB}\\&B_{\rm RAM}^{\rm margin}=0\ \mathrm{GiB}\\&B_{\rm T5}^{\rm first}=1.0\ \mathrm{GiB}\end{aligned}$<br>[Offloading](docs/research/mvp1/Offloading.md) | $\displaystyle \Phi_{\rm continue}^{(1)}:=\left.\Phi_{\rm continue}\right\rvert_{\substack{F_{\rm chunk}=8,\ F_{\rm anch}=8\\F_{\rm win}=32}}$<br>[Long generation](docs/research/mvp1/Long-generation.md) | $\displaystyle \Phi_{\rm scene}^{(1)}:=\left.\Phi_{\rm scene}\right\rvert_{F_{\rm scene\ offset}=8}$<br>Mode: not set.<br>[Scene change](docs/research/mvp1/Scene-change.md) |
 
-1. [Offloading](notes/research/Offloading.md): which resources live where and when they move.
-2. [Optimization](notes/research/Оптимизация.md): speed and memory.
-3. [Long generation](notes/research/Длительная%20генерация.md): how to continue a video with limited memory.
-4. [Scene change](notes/research/Смена%20сцены.md): hybrid control.
-5. [RoPE positions](notes/research/Позиции%20RoPE.md): a frame smaller than the trained one.
-6. [Experiment log](notes/research/Исследование.md): hypotheses H01–H15, experiments E01–E30.
+# Task 2
 
-## Running
+MVP1 gave a working generation. Now we start from the 704×1280 reference, take a starting configuration that fits in memory, and change one factor at a time, measuring $\mathrm{FPS}$, memory and $\mathcal L$ for MVP1 and MVP2. The goal is the smallest $\mathcal L$ at $\mathrm{FPS}\ge 15$.
 
-One entry point, `bin/wan.exe`; generation is set by a JSON config. Details: [docs/development.md](docs/development.md), [docs/pipeline-config-proposal.md](docs/pipeline-config-proposal.md).
+$$
+\begin{aligned}
+\underbrace{\mathrm{cfg}_0}_{\text{reference for comparison}}&:\quad 704\times1280,\\[6pt]
+\underbrace{\mathcal C_{\rm mem}}_{\text{feasible placement}}&=\{\mathrm{cfg}:M_{\rm VRAM}\le8\ \text{GB},\ M_{\rm RAM}\le16\ \text{GB}\},\\[6pt]
+\underbrace{\mathrm{cfg}_{\rm start}}_{\text{chosen starting point}}&=\mathrm{point\mbox{-}b2}\in\mathcal C_{\rm mem},\\[6pt]
+\underbrace{\mathcal B_{\rm PI},\mathcal B_{\rm NTK}}_{\text{two search regions}}&\subseteq\mathcal C_{\rm mem},\\[6pt]
+\min_{\mathrm{cfg}\in\mathcal B_b}\ \mathcal L(\mathrm{cfg})
+&\quad\text{subject to }\mathrm{FPS}(\mathrm{cfg})\ge15,\quad b\in\{\mathrm{PI},\mathrm{NTK}\}.
+\end{aligned}
+$$
 
-```powershell
-.\build.ps1
-.\bin\wan.exe --config configs/live.json
-.\bin\wan.exe --config configs/offline.json --chains fox_cabin
-```
+Result 12.11: the loss changes little in both regions; PI chosen by the token grid ratio.
+
+$$
+\begin{aligned}
+\mathrm{cfg}_{\rm MVP2}&:\quad 544\times960,\quad\underbrace{M_H=\tfrac{22}{17},\quad M_W=\tfrac{40}{30}}_{\text{PI by the grid ratio}},\quad F_{\rm win}=32,\\[6pt]
+\overline{\mathcal L}_1&=0.426,\qquad\underbrace{\mathrm{FPS}=13.44<15}_{\text{constraint not met}}.
+\end{aligned}
+$$
+
+The nearest point with $\mathrm{FPS}\ge15$: $512\times928$, $\overline{\mathcal L}_1=0.484$. The missing $11.6\%$ of speed is sought in the kernels.
+
+Start and decisions E30 · [Descent 09.11](D:/Experiments/DIT/outputs/res-descent-2026-11-09/REPORT.md) · Latest PI / NTK comparisons
+
+## MVP2
+
+| Version                                                                                                                                          | [Model](docs/research/mvp1/Model.md)                                                                                                                                    | [Quantization](docs/research/mvp2/E30.%20Starting%20point%20W4A4%20704%C3%971280%20and%20postponed%20steps.md)                                                                                                                                                                                                          | [Compilation](docs/research/MVP2.md)                                                                                                                                                                                                                                                                                 | [Resolution change](docs/research/mvp2/RoPE-positions.md)                                                                                                                                                                                                                                                                                                                                                                                | [Offloading](docs/research/mvp2/Offloading-MVP2.md)                                                                                                                                     | [Video continuation](docs/research/mvp2/Long-generation.md)                                                                     | [Scene change](docs/research/mvp1/Scene-change.md)                                                                  |
+| :----------------------------------------------------------------------------------------------------------------------------------------------- | :---------------------------------------------------------------------------------------------------------------------------------------------------------------------- | :---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | :------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | :--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | :-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | :------------------------------------------------------------------------------------------------------------------------------ | :------------------------------------------------------------------------------------------------------------------ |
+| [MVP2](docs/research/MVP2.md) · point fixed 12.11<br>Live 2<br>Working point | $\displaystyle \begin{aligned}&\mathrm{T5}=\mathrm{UMT5\mbox{-}XXL}\\&\mathrm{DiT}=\mathrm{LongLive\,2.0\mbox{-}5B\ S2}\\&\mathrm{decoder}=\mathrm{TAEHV}\end{aligned}$ | $\displaystyle \begin{aligned}&\mathcal Q^{(2)}:\\[4pt]&W_{\rm DiT}^{\rm BF16}\mapsto\widehat W_{\rm DiT}^{\rm W4A4}&&\text{MVP1}\\&W_{\rm T5}^{\rm BF16}\xrightarrow{\rm id}W_{\rm T5}^{\rm BF16}&&\text{INT8 — later}\\&\mathrm{KV}^{\rm BF16}\mapsto\widehat{\mathrm{KV}}^{\rm FP8\ E4M3}&&\text{MVP1}\end{aligned}$ | $\displaystyle \begin{aligned}&\mathcal O^{(2)}:\quad\mathcal O^{(1)},\ \text{except}\\[4pt]&\mathrm{RoPE}\overset{\rm fuse}{\hookrightarrow}\mathrm{Attn}_{\rm Sage}\ \mapsto\ \mathrm{RoPE}_{\rm LongLive}\to\mathrm{Attn}_{\rm Sage}&&\text{separate kernels}\end{aligned}$<br>[In detail](docs/research/MVP2.md) | $\displaystyle \begin{aligned}&704\times1280\mapsto544\times960\\&\underbrace{M_H=\tfrac{22}{17},\quad M_W=\tfrac{40}{30}}_{\text{PI by the token grid ratio}}\\&\overline{\mathcal L}_1=0.426,\quad\mathrm{FPS}=13.44\\&F_{\rm win}=32\\&N_{\rm steps}=2,\quad\mathrm{shift}=5\\&\text{3 seeds, 4 scenes, first chunk}\end{aligned}$<br>[In detail](docs/research/MVP2.md) · Report | $\displaystyle \begin{aligned}&\mathrm{policy}_2=\mathrm{greedy\_vram}\\&B_{\rm VRAM}^{\rm margin}=0\ \mathrm{GiB}\end{aligned}$<br>[Offloading](docs/research/mvp2/Offloading-MVP2.md) | $\displaystyle \Phi_{\rm continue}^{(2)}=\Phi_{\rm continue}^{(1)}$<br>[Long generation](docs/research/mvp2/Long-generation.md) | $\displaystyle \Phi_{\rm scene}^{(2)}=\Phi_{\rm scene}^{(1)}$<br>[Scene change](docs/research/mvp1/Scene-change.md) |
