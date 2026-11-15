@@ -215,7 +215,7 @@ $$
 
 $$
 \begin{aligned}
-\mathrm{cfg}_{\rm MVP2}&:\quad H\times W=544\times960,\quad h\times w=17\times30,\\
+&\mathrm{cfg}_{\rm MVP2}:\quad H\times W=544\times960,\quad h\times w=17\times30,\\
 &\underbrace{M_H=\tfrac{22}{17},\quad M_W=\tfrac{40}{30}}_{\text{PI by the grid ratio}},\quad
 \underbrace{(F_{\rm chunk},F_{\rm anch},F_{\rm win})=(8,8,32)}_{\text{MVP1 video memory}},\\
 &\underbrace{W_{\rm DiT}=\mathrm{W4A4},\quad W_{\rm T5}=\mathrm{BF16},\quad\mathrm{KV}=\mathrm{FP8}}_{\text{precision}},\quad

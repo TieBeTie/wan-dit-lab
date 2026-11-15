@@ -5,10 +5,10 @@
 
 $$
 \begin{aligned}
-\mathrm{prompt}&\xrightarrow{\mathrm{cfg}}\mathrm{video},&&\text{consider video generation from a prompt in live mode,}\\
-\mathrm{cfg}&\in\mathcal C,&&\text{with configurations from the set C,}\\
-\mathrm{FPS}(\mathrm{cfg})&=\frac{N_{\rm frames}}{T_{\rm generation}(\mathrm{cfg})}\ge 15,&&\text{Live mode requires a rate of at least 15 frames per second.}\\
-M_{\rm VRAM}(\mathrm{cfg})&\le 8\ \text{GB},\quad M_{\rm RAM}(\mathrm{cfg})\le 16\ \text{GB},&&\text{The difficulty is that the memory of the NVIDIA GeForce RTX 4060 Laptop GPU is limited,}\\
+&\mathrm{prompt}\xrightarrow{\mathrm{cfg}}\mathrm{video},&&\text{consider video generation from a prompt in live mode,}\\
+&\mathrm{cfg}\in\mathcal C,&&\text{with configurations from the set C,}\\
+&\mathrm{FPS}(\mathrm{cfg})=\frac{N_{\rm frames}}{T_{\rm generation}(\mathrm{cfg})}\ge 15,&&\text{Live mode requires a rate of at least 15 frames per second.}\\
+&M_{\rm VRAM}(\mathrm{cfg})\le 8\ \text{GB},\quad M_{\rm RAM}(\mathrm{cfg})\le 16\ \text{GB},&&\text{The difficulty is that the memory of the NVIDIA GeForce RTX 4060 Laptop GPU is limited,}\\
 \mathcal L(\mathrm{cfg})&=\mathrm{LPIPS}_{\rm align}(\mathrm{cfg})+\bigl(1-\mathrm{DINO}(\mathrm{cfg})\bigr).&&\text{and speeding up video generation lowers the video quality, which we measure by the loss.}
 \end{aligned}
 $$
@@ -40,7 +40,7 @@ $$
 
 | Version | Model | Quantization | Compilation | Resolution change | Offloading | Video continuation | Scene change |
 | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
-| General model | $`\displaystyle \begin{aligned} \mathrm{prompt}_j&\xrightarrow{\mathrm{T5}}\mathrm{ctx}_j,\qquad \mathrm{KVtext}_j=\mathrm{KV}^{\rm cross}(\mathrm{ctx}_j),\\ (\epsilon_{n+1},\mathrm{ctx},\mathrm{KVvid}_n)&\xrightarrow{\mathrm{DiT}}(\mathrm{lat}_{n+1},\mathrm{KVvid}_{n+1}),\\ \mathrm{lat}_{n+1}&\xrightarrow{\mathrm{VAE}}\mathrm{frame}_{n+1}. \end{aligned}`$ | $`\displaystyle \mathcal Q:(W_{\rm DiT},W_{\rm T5},\mathrm{KV})\mapsto(\hat W_{\rm DiT},\hat W_{\rm T5},\widehat{\mathrm{KV}})`$ | $`\displaystyle \begin{aligned}&G=(V,E)\\&\mathcal O:\ G\mapsto G'\\&\mathcal C_{\rm compile}:\ G'\xrightarrow{\rm torch.export}G_{\rm FX}\\&G_{\rm FX}\xrightarrow{\rm AOTInductor}\mathrm{package}\end{aligned}`$ | $`\displaystyle \Phi_{\rm pos}:(\mathrm{pos},\theta)\mapsto(\mathrm{pos}^{\prime},\theta^{\prime})`$ | $`\displaystyle \begin{aligned}&\underbrace{G=(V,E)}_{\text{computation graph}},\quad\underbrace{\mathcal R_i\subseteq\mathcal R}_{\text{resources}}\\&\mathrm{plan}^{\star}\in\mathop{\mathrm{arg\,min}}\limits_{\mathrm{plan}}\widehat t_{\rm end}(\mathrm{plan})\\&M_{\rm VRAM}\le B_{\rm VRAM},\quad M_{\rm RAM}\le B_{\rm RAM}\end{aligned}`$ | $`\displaystyle \Phi_{\rm continue}:(\epsilon_{n+1},\mathrm{ctx},\mathrm{KVvid}_n)\mapsto(\mathrm{lat}_{n+1},\mathrm{KVvid}_{n+1})`$ | $`\displaystyle \Phi_{\rm scene}:(\mathrm{KVvid}_0,\mathrm{KVtext}_0,\mathrm{prompt}_1)\mapsto\begin{cases} (\varnothing,\mathrm{KVtext}_1),&\text{new scene},\\ \Phi(\mathrm{KVvid}_0,\mathrm{KVtext}_0),&\text{continuation}. \end{cases}`$ |
+| General model | $`\displaystyle \begin{aligned} &\mathrm{prompt}_j\xrightarrow{\mathrm{T5}}\mathrm{ctx}_j,\qquad \mathrm{KVtext}_j=\mathrm{KV}^{\rm cross}(\mathrm{ctx}_j),\\ &(\epsilon_{n+1},\mathrm{ctx},\mathrm{KVvid}_n)\xrightarrow{\mathrm{DiT}}(\mathrm{lat}_{n+1},\mathrm{KVvid}_{n+1}),\\ &\mathrm{lat}_{n+1}\xrightarrow{\mathrm{VAE}}\mathrm{frame}_{n+1}. \end{aligned}`$ | $`\displaystyle \mathcal Q:(W_{\rm DiT},W_{\rm T5},\mathrm{KV})\mapsto(\hat W_{\rm DiT},\hat W_{\rm T5},\widehat{\mathrm{KV}})`$ | $`\displaystyle \begin{aligned}&G=(V,E)\\&\mathcal O:\ G\mapsto G'\\&\mathcal C_{\rm compile}:\ G'\xrightarrow{\rm torch.export}G_{\rm FX}\\&G_{\rm FX}\xrightarrow{\rm AOTInductor}\mathrm{package}\end{aligned}`$ | $`\displaystyle \Phi_{\rm pos}:(\mathrm{pos},\theta)\mapsto(\mathrm{pos}^{\prime},\theta^{\prime})`$ | $`\displaystyle \begin{aligned}&\underbrace{G=(V,E)}_{\text{computation graph}},\quad\underbrace{\mathcal R_i\subseteq\mathcal R}_{\text{resources}}\\&\mathrm{plan}^{\star}\in\mathop{\mathrm{arg\,min}}\limits_{\mathrm{plan}}\widehat t_{\rm end}(\mathrm{plan})\\&M_{\rm VRAM}\le B_{\rm VRAM},\quad M_{\rm RAM}\le B_{\rm RAM}\end{aligned}`$ | $`\displaystyle \Phi_{\rm continue}:(\epsilon_{n+1},\mathrm{ctx},\mathrm{KVvid}_n)\mapsto(\mathrm{lat}_{n+1},\mathrm{KVvid}_{n+1})`$ | $`\displaystyle \Phi_{\rm scene}:(\mathrm{KVvid}_0,\mathrm{KVtext}_0,\mathrm{prompt}_1)\mapsto\begin{cases} (\varnothing,\mathrm{KVtext}_1),&\text{new scene},\\ \Phi(\mathrm{KVvid}_0,\mathrm{KVtext}_0),&\text{continuation}. \end{cases}`$ |
 
 ## MVP1
 

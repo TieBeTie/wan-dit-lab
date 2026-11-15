@@ -103,7 +103,7 @@ PI и NTK задают две области поиска; минимум ост
 
 $$
 \begin{aligned}
-\mathrm{cfg}_{\rm MVP2}&:\quad 544\times960,\quad\underbrace{M_H=\tfrac{22}{17},\quad M_W=\tfrac{40}{30}}_{\text{PI по отношению сеток}},\quad F_{\rm win}=32,\\
+&\mathrm{cfg}_{\rm MVP2}:\quad 544\times960,\quad\underbrace{M_H=\tfrac{22}{17},\quad M_W=\tfrac{40}{30}}_{\text{PI по отношению сеток}},\quad F_{\rm win}=32,\\
 \overline{\mathcal L}_1&=0.426,\qquad\underbrace{\mathrm{FPS}=13.44<15}_{\text{ограничение не выполнено}}.
 \end{aligned}
 $$
