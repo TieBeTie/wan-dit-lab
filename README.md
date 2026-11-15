@@ -37,11 +37,11 @@ $$
 
 $$
 \begin{aligned}
-\mathrm{prompt}&\xrightarrow{\mathrm{cfg}}\mathrm{video},&&\text{consider video generation from a prompt in live mode,}\\
-\mathrm{cfg}&\in\mathcal C,&&\text{with configurations from the set C,}\\
-\mathrm{FPS}(\mathrm{cfg})&=\frac{N_{\rm frames}}{T_{\rm generation}(\mathrm{cfg})}\ge 15,&&\text{Live mode requires a rate of at least 15 frames per second.}\\
-M_{\rm VRAM}(\mathrm{cfg})&\le 8\ \text{GB},\quad M_{\rm RAM}(\mathrm{cfg})\le 16\ \text{GB},&&\text{The difficulty is that memory on the NVIDIA GeForce RTX 4060 Laptop graphics card is limited,}\\
-\mathcal L(\mathrm{cfg})&=\mathrm{LPIPS}_{\rm align}(\mathrm{cfg})+\bigl(1-\mathrm{DINO}(\mathrm{cfg})\bigr).&&\text{and when video generation is accelerated, the video quality drops, which we measure by the loss.}
+&\mathrm{prompt}\xrightarrow{\mathrm{cfg}}\mathrm{video},&&\text{consider video generation from a prompt in live mode,}\\
+&\mathrm{cfg}\in\mathcal C,&&\text{with configurations from the set C,}\\
+&\mathrm{FPS}(\mathrm{cfg})=\frac{N_{\rm frames}}{T_{\rm generation}(\mathrm{cfg})}\ge 15,&&\text{Live mode requires a rate of at least 15 frames per second.}\\
+&M_{\rm VRAM}(\mathrm{cfg})\le 8\ \text{GB},\quad M_{\rm RAM}(\mathrm{cfg})\le 16\ \text{GB},&&\text{The difficulty is that memory on the NVIDIA GeForce RTX 4060 Laptop graphics card is limited,}\\
+&\mathcal L(\mathrm{cfg})=\mathrm{LPIPS}_{\rm align}(\mathrm{cfg})+\bigl(1-\mathrm{DINO}(\mathrm{cfg})\bigr).&&\text{and when video generation is accelerated, the video quality drops, which we measure by the loss.}
 \end{aligned}
 $$
 

@@ -35,11 +35,11 @@ $$
 
 $$
 \begin{aligned}
-\mathrm{prompt}&\xrightarrow{\mathrm{cfg}}\mathrm{video},&&\text{рассмотрим видеогенерацию по промпту в режиме live,}\\
-\mathrm{cfg}&\in\mathcal C,&&\text{с конфигурациями из множества C,}\\
-\mathrm{FPS}(\mathrm{cfg})&=\frac{N_{\rm frames}}{T_{\rm generation}(\mathrm{cfg})}\ge 15,&&\text{Режим live требует частоты не ниже 15 кадров в секунду.}\\
-M_{\rm VRAM}(\mathrm{cfg})&\le 8\ \text{ГБ},\quad M_{\rm RAM}(\mathrm{cfg})\le 16\ \text{ГБ},&&\text{Трудность в том, что на видеокарте NVIDIA GeForce RTX 4060 Laptop память ограничена,}\\
-\mathcal L(\mathrm{cfg})&=\mathrm{LPIPS}_{\rm align}(\mathrm{cfg})+\bigl(1-\mathrm{DINO}(\mathrm{cfg})\bigr).&&\text{а при ускорении видеогенерации падает качество видео, которое измеряем потерей.}
+&\mathrm{prompt}\xrightarrow{\mathrm{cfg}}\mathrm{video},&&\text{рассмотрим видеогенерацию по промпту в режиме live,}\\
+&\mathrm{cfg}\in\mathcal C,&&\text{с конфигурациями из множества C,}\\
+&\mathrm{FPS}(\mathrm{cfg})=\frac{N_{\rm frames}}{T_{\rm generation}(\mathrm{cfg})}\ge 15,&&\text{Режим live требует частоты не ниже 15 кадров в секунду.}\\
+&M_{\rm VRAM}(\mathrm{cfg})\le 8\ \text{ГБ},\quad M_{\rm RAM}(\mathrm{cfg})\le 16\ \text{ГБ},&&\text{Трудность в том, что на видеокарте NVIDIA GeForce RTX 4060 Laptop память ограничена,}\\
+&\mathcal L(\mathrm{cfg})=\mathrm{LPIPS}_{\rm align}(\mathrm{cfg})+\bigl(1-\mathrm{DINO}(\mathrm{cfg})\bigr).&&\text{а при ускорении видеогенерации падает качество видео, которое измеряем потерей.}
 \end{aligned}
 $$
 
