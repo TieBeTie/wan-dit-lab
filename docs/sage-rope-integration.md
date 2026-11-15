@@ -1,8 +1,10 @@
 # Sage + RoPE: объединённая подготовка для sm89
 
 `kernels/sage_rope.py` реализует подготовку Wan Q/K непосредственно в формат Sage2++.
-Экспортёр выбирает её через `attention: "sage_rope_sm89"`; отдельный `kernels.rope`
-для этого backend запрещён. Подготовка компилируется в AOT-пакет, который исполняет Rust.
+Экспортёр выбирает её флагом `kernels.fuse.rope_into_sage` (с 2026-11-06; раньше это было имя
+`attention: "sage_rope_sm89"`). `kernels.rope` при этом обязателен и задаёт округление, которое
+слитое ядро воспроизводит: `longlive_triton` (как отдельный RoPE LongLive, та же ошибка, что у
+оригинала) или `fused_float32` (FP32 без промежуточных BF16, другая ошибка, только для сравнения). Подготовка компилируется в AOT-пакет, который исполняет Rust.
 Существующий Sage GEMM сохранён. Python в вычислительном пути генерации отсутствует.
 
 ## Что объединено
@@ -73,17 +75,22 @@ W4A4 использует недетерминированные атомарн�
 
 ```json
 "kernels": {
-  "attention": "sage_rope_sm89",
+  "attention": "sage_sm89",
+  "fuse": {"rope_into_sage": true, "qkv": true, "gelu_mlp": true},
   "cross_attention": ["sage_sm89"],
   "linear": "nunchaku_w4a4",
   "kv_cache": "fp8_e4m3fn",
   "kv_store": "triton",
+  "rope": "longlive_triton",
   "rope_dtype": "float32"
 }
 ```
 
-Для сравнения остаётся `attention: "sage_sm89"` с обязательным `rope: "torch_inductor"`.
-Отдельный `rope: "triton"` поддержан экспериментально, но не заменяет объединённый путь.
+Каждое слияние отдельный флаг `fuse`. `rope_into_sage: false` даёт раздельный путь: RMSNorm,
+ядро `rope` (`torch_inductor`, `triton` или `longlive_triton`), затем Sage по FP8-кэшу. `qkv` и
+`gelu_mlp` зашиты в пакет весов (block_w4a4_v2 сливает оба), экспорт сверяет их с его раскладкой;
+выключить их можно только пакетом без слияний. `kernels.sparse` требует `rope_into_sage`.
+Старые конфиги переносит `bin\wan.exe migrate [--check]`.
 
 ## Первичные источники
 

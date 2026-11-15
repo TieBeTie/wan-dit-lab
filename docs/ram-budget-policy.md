@@ -19,12 +19,14 @@ If the mandatory working buffers do not fit, stop with the measured required
 and available amounts. Do not rely on the pagefile as pinned-memory capacity.
 
 During generation, reassess at safe chunk boundaries. When system headroom
-falls below the reserve, shrink managed RAM caches and move eligible data to
-SSD. Do not re-admit during the same run after pressure eviction. This conservative policy avoids oscillation; adaptive readmission is deferred. Changes
+falls below the reserve, discard eligible immutable weight caches and read them
+from their existing disk packs. Automatic KV placement stays in RAM/VRAM or
+refuses startup; it must never create mutable SSD backing. Do not re-admit during the same run after pressure eviction. This conservative policy avoids oscillation; adaptive readmission is deferred. Changes
 by unrelated processes can temporarily violate the target; a scalar setting
 cannot guarantee desktop responsiveness. Monitor disk contention as well.
 
-For mutable KV, persist changed committed ranges only. Use bounded pinned
+Only an explicitly authorized `kv_cache: "disk"` uses mutable disk backing.
+For that opt-in path, persist changed committed ranges only. Use bounded pinned
 staging and prefetch through the common native pipeline. Temporary backing
 files have an explicit lifetime and are removed when the run closes normally.
 Keep output videos, configurations and reports independently of backing files.
@@ -44,7 +46,8 @@ native smoke measuring steady FPS, prompt-change latency, available RAM minimum,
 process working set/private commit, pinned RAM, disk bytes read/written and
 transfer waits. Estimate the three selected scenes (57 chunks, 13 prompt steps)
 from these measurements, including encoding overhead and startup separately.
-The user permits a full run if it does not take several hours per video.
+A full generation requires the user's current go-ahead; old timing estimates
+do not authorize a new experiment.
 
 Sources:
 
