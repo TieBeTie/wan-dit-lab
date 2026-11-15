@@ -27,7 +27,7 @@ $$
 $$
 $$
 \underbrace{\mathrm{KVnew}_{n+1}=(K_{\rm new},V_{\rm new})}_{\text{K/V of the new chunk}},\qquad
-
+\\
 \underbrace{N_{\rm max}}_{\text{maximum number of tokens in attention}}
 $$
 
