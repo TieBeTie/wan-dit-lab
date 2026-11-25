@@ -68,6 +68,14 @@
    ]
   },
   "seed": 0,
+  "sampling": {
+    "noise": {
+      "mode": "fresh"
+    },
+    "schedule": {
+      "timestep_shift": null
+    }
+  },
   "cache_write": "clean_pass",
   "offloading": {
    "enabled": true,

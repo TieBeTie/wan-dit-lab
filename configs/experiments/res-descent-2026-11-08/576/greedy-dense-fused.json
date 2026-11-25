@@ -68,6 +68,14 @@
    ]
   },
   "seed": 0,
+  "sampling": {
+    "noise": {
+      "mode": "fresh"
+    },
+    "schedule": {
+      "timestep_shift": null
+    }
+  },
   "cache_write": "clean_pass",
   "offloading": {
    "enabled": true,
@@ -102,9 +110,7 @@
   },
   "descent": {
    "attn_logit_scale": 1.0,
-   "timestep_shift": null,
-   "reference": null,
-   "noise": "fresh"
+   "reference": null
   }
  }
 ]

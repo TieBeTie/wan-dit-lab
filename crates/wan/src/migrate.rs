@@ -120,6 +120,77 @@ pub fn upgrade_cache_write(text: &str) -> Result<Option<String>, String> {
     Ok(Some(edited))
 }
 
+/// `generate.sampling` (2026-11-25) became a key of every recipe and took over the noise and the timestep shift of
+/// `generate.descent`: what each one ran until then, the descent's noise (with the native size of `export.rope`, the
+/// one it was always resized from) and shift, or the fresh noise and the packages' schedule where there was no
+/// descent. The two keys leave the descent, which keeps `attn_logit_scale` and `reference`. The node is written after
+/// the generate `seed` line. None when the file is no pipeline configuration or has the node already.
+pub fn upgrade_sampling(text: &str) -> Result<Option<String>, String> {
+    let Ok(value) = serde_json::from_str::<Value>(text) else { return Ok(None) };
+    let pipeline = value.as_array().is_some_and(|s| s.len() == 2 && s[1]["component"] == "generate");
+    if !pipeline || value[1].get("sampling").is_some() { return Ok(None); }
+    let descent = value[1].get("descent");
+    let mode = descent.and_then(|d| d.get("noise")).and_then(Value::as_str).unwrap_or("fresh");
+    let shift = descent.and_then(|d| d.get("timestep_shift")).cloned().unwrap_or(Value::Null);
+    let noise = if mode == "fresh" { json!({"mode": "fresh"}) } else {
+        let native = value[0]["rope"]["native_size"].as_str().ok_or("export.rope.native_size is not a size")?;
+        json!({"mode": mode, "native": native})
+    };
+    let mut expected = value.clone();
+    if let Some(d) = expected[1].get_mut("descent").and_then(Value::as_object_mut) { d.remove("noise"); d.remove("timestep_shift"); }
+    expected[1]["sampling"] = json!({"noise": noise, "schedule": {"timestep_shift": shift}});
+
+    let newline = if text.contains("\r\n") { "\r\n" } else { "\n" };
+    let block = text.find("\"generate\"").ok_or("no generate block in the text")?;
+    // the two keys leave the descent block: their lines go, and the comma of what is last in the block with them
+    let mut edited = text.to_string();
+    if descent.is_some() {
+        let key = block + text[block..].find("\"descent\":").ok_or("no descent block in the text")?;
+        let open = key + text[key..].find('{').ok_or("the descent block does not open")?;
+        let mut depth = 0;
+        let mut close = None;
+        for (i, c) in text[open..].char_indices() {
+            match c { '{' => depth += 1, '}' => { depth -= 1; if depth == 0 { close = Some(open + i); break; } } _ => {} }
+        }
+        let close = close.ok_or("the descent block does not close")?;
+        let start = text[..open].rfind('\n').map_or(0, |i| i + 1);
+        let end = close + text[close..].find(newline).map_or(text.len() - close, |i| i);
+        let mut lines: Vec<&str> = text[start..end].split(newline).collect();
+        // the first line holds the opening brace, the last the closing one
+        let last = lines.len() - 1;
+        let mut kept: Vec<String> = Vec::new();
+        for (i, line) in lines.drain(..).enumerate() {
+            let trimmed = line.trim_start();
+            let moved = i > 0 && i < last && (trimmed.starts_with("\"noise\":") || trimmed.starts_with("\"timestep_shift\":"));
+            if !moved { kept.push(line.to_string()); }
+        }
+        let closing = kept.len() - 1;
+        if let Some(line) = kept[closing - 1].trim_end().strip_suffix(',').map(str::to_string) { kept[closing - 1] = line; }
+        edited = format!("{}{}{}", &text[..start], kept.join(newline), &text[end..]);
+    }
+    let block = edited.find("\"generate\"").ok_or("no generate block in the text")?;
+    let at = block + edited[block..].find("\"seed\"").ok_or("no seed line in the generate block")?;
+    let start = edited[..at].rfind('\n').map_or(0, |i| i + 1);
+    let end = at + edited[at..].find(newline).ok_or("the seed line does not end")?;
+    let indent = edited[start..at].to_string();
+    let line = &edited[start..end];
+    let mut node = vec![format!("\"sampling\": {{"), "  \"noise\": {".to_string(), format!("    \"mode\": \"{mode}\"")];
+    if mode != "fresh" {
+        node[2].push(',');
+        node.push(format!("    \"native\": {}", noise["native"]));
+    }
+    node.extend(["  },".to_string(), "  \"schedule\": {".to_string(), format!("    \"timestep_shift\": {shift}"), "  }".to_string(), "}".to_string()]);
+    let node = node.iter().map(|l| format!("{indent}{l}")).collect::<Vec<_>>().join(newline);
+    let inserted = match line.strip_suffix(',') {
+        Some(_) => format!("{line}{newline}{node},"),
+        None => format!("{line},{newline}{node}"),
+    };
+    let edited = format!("{}{inserted}{}", &edited[..start], &edited[end..]);
+    let parsed: Value = serde_json::from_str(&edited).map_err(|e| format!("the edited text is no JSON: {e}"))?;
+    if parsed != expected { return Err("the text edit differs from the JSON change".into()); }
+    Ok(Some(edited))
+}
+
 pub fn main(args: &[String]) -> i32 {
     let check = args.iter().any(|a| a == "--check");
     if let Some(bad) = args.iter().find(|a| *a != "--check") {
@@ -144,7 +215,9 @@ pub fn main(args: &[String]) -> i32 {
             let current = fused.as_deref().unwrap_or(&text);
             let summed = upgrade_lora_sum(current)?.or(fused);
             let current = summed.as_deref().unwrap_or(&text);
-            Ok(upgrade_cache_write(current)?.or(summed))
+            let cached = upgrade_cache_write(current)?.or(summed);
+            let current = cached.as_deref().unwrap_or(&text);
+            Ok(upgrade_sampling(current)?.or(cached))
         });
         match steps {
             Ok(None) => {}
@@ -247,6 +320,65 @@ mod tests {
             assert_eq!(upgrade_cache_write(&new).unwrap(), None);
         }
         assert_eq!(upgrade_cache_write("{\"prompts\": []}").unwrap(), None);
+    }
+
+    const SAMPLED: &str = "[\n  {\n    \"component\": \"export\",\n    \"rope\": {\n      \"native_size\": \"704x1280\"\n    }\n  },\n  {\n    \"component\": \"generate\",\n    \"seed\": 0,\n    \"descent\": {\n      \"attn_logit_scale\": 1.0,\n      \"timestep_shift\": 3.63,\n      \"reference\": null,\n      \"noise\": \"native_spectral\"\n    }\n  }\n]\n";
+
+    /// the value the text must parse to: sampling written, the noise and the shift gone from the descent
+    fn sampled(text: &str, noise: Value, shift: Value) -> Value {
+        let mut expected: Value = serde_json::from_str(text).unwrap();
+        if let Some(d) = expected[1].get_mut("descent").and_then(Value::as_object_mut) { d.remove("noise"); d.remove("timestep_shift"); }
+        expected[1]["sampling"] = json!({"noise": noise, "schedule": {"timestep_shift": shift}});
+        expected
+    }
+
+    #[test]
+    fn the_descents_noise_and_shift_move_into_the_sampling_node() {
+        let native = json!({"mode": "native_spectral", "native": "704x1280"});
+        for text in [SAMPLED.to_string(), SAMPLED.replace('\n', "\r\n")] {
+            let new = upgrade_sampling(&text).unwrap().unwrap();
+            assert_eq!(serde_json::from_str::<Value>(&new).unwrap(), sampled(&text, native.clone(), json!(3.63)), "{new}");
+            assert!(!new.contains("\"noise\": \"native_spectral\""), "the descent keeps no noise: {new}");
+            assert_eq!(upgrade_sampling(&new).unwrap(), None, "a migrated file comes out unchanged");
+        }
+        let new = upgrade_sampling(SAMPLED).unwrap().unwrap();
+        let block = "    \"seed\": 0,\n    \"sampling\": {\n      \"noise\": {\n        \"mode\": \"native_spectral\",\n        \"native\": \"704x1280\"\n      },\n      \"schedule\": {\n        \"timestep_shift\": 3.63\n      }\n    },\n    \"descent\": {";
+        assert!(new.contains(block), "{new}");
+        let crlf = upgrade_sampling(&SAMPLED.replace('\n', "\r\n")).unwrap().unwrap();
+        assert!(!crlf.replace("\r\n", "").contains('\n'), "mixed line endings");
+    }
+
+    #[test]
+    fn whatever_key_order_the_descent_had_its_commas_stay_valid() {
+        let noise = "\"noise\": \"native_resized\"";
+        let orders: [[&str; 4]; 4] = [
+            [noise, "\"attn_logit_scale\": 1.0", "\"timestep_shift\": null", "\"reference\": null"],
+            ["\"attn_logit_scale\": 1.0", noise, "\"reference\": null", "\"timestep_shift\": null"],
+            ["\"attn_logit_scale\": 1.0", "\"reference\": null", "\"timestep_shift\": null", noise],
+            ["\"timestep_shift\": null", noise, "\"attn_logit_scale\": 1.0", "\"reference\": null"],
+        ];
+        for order in orders {
+            let body = order.iter().map(|l| format!("      {l}")).collect::<Vec<_>>().join(",\n");
+            let text = SAMPLED.replace("      \"attn_logit_scale\": 1.0,\n      \"timestep_shift\": 3.63,\n      \"reference\": null,\n      \"noise\": \"native_spectral\"", &body);
+            let new = upgrade_sampling(&text).unwrap().unwrap_or_else(|| panic!("{order:?}"));
+            let want = sampled(&text, json!({"mode": "native_resized", "native": "704x1280"}), json!(null));
+            assert_eq!(serde_json::from_str::<Value>(&new).unwrap(), want, "{order:?}\n{new}");
+        }
+    }
+
+    #[test]
+    fn a_recipe_without_a_descent_gets_the_fresh_noise_and_the_packages_schedule() {
+        let text = "[\n  {\n    \"component\": \"export\"\n  },\n  {\n    \"component\": \"generate\",\n    \"seed\": 0,\n    \"mode\": \"offline\"\n  }\n]\n";
+        for t in [text.to_string(), text.replace(",\n    \"mode\": \"offline\"", "")] {
+            let new = upgrade_sampling(&t).unwrap().unwrap();
+            assert_eq!(serde_json::from_str::<Value>(&new).unwrap(), sampled(&t, json!({"mode": "fresh"}), json!(null)), "{new}");
+        }
+        // a descent that already named the fresh noise and no shift
+        let fresh = SAMPLED.replace("\"native_spectral\"", "\"fresh\"").replace("3.63", "null");
+        let new = upgrade_sampling(&fresh).unwrap().unwrap();
+        assert_eq!(serde_json::from_str::<Value>(&new).unwrap(), sampled(&fresh, json!({"mode": "fresh"}), json!(null)), "{new}");
+        assert_eq!(upgrade_sampling("{\"prompts\": []}").unwrap(), None);
+        assert_eq!(upgrade_sampling("not json").unwrap(), None);
     }
 
     #[test]

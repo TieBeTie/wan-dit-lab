@@ -66,6 +66,15 @@
    ]
   },
   "seed": 2,
+  "sampling": {
+    "noise": {
+      "mode": "native_spectral",
+      "native": "704x1280"
+    },
+    "schedule": {
+      "timestep_shift": null
+    }
+  },
   "cache_write": "clean_pass",
   "offloading": {
    "enabled": true,
@@ -100,9 +109,7 @@
   },
   "descent": {
    "attn_logit_scale": 1.0,
-   "timestep_shift": null,
-   "reference": null,
-   "noise": "native_spectral"
+   "reference": null
   }
  }
 ]

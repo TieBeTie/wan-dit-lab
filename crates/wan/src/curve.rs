@@ -128,11 +128,11 @@ pub fn tag_shift(size: &str, m: f64, shift: Option<f64>) -> String {
     }
 }
 
-/// A point with a shift: the config of `point_config` with generate.descent.timestep_shift (the packages stay those of M).
+/// A point with a shift: the config of `point_config` with generate.sampling.schedule.timestep_shift (the packages stay those of M).
 pub fn point_config_shift(template: &Value, size: &str, m: f64, shift: Option<f64>, packages: &str, output: &str) -> Result<Value, String> {
     let mut c = point_config(template, size, m, packages, output)?;
     if let Some(s) = shift.filter(|s| (s - 5.0).abs() > 1e-9) {
-        c[1]["descent"]["timestep_shift"] = json!(s);
+        c[1]["sampling"]["schedule"]["timestep_shift"] = json!(s);
     }
     c[1]["output"]["directory"] = json!(format!("{output}/points/{}/videos", tag_shift(size, m, shift)));
     Ok(c)
@@ -510,7 +510,7 @@ mod tests {
     #[test]
     fn a_point_can_take_the_by_parts_profile() {
         let template = json!([{"component": "export", "video": {"size": "704x1280"}, "rope": {"scene_offset_frames": 8}, "output": "x"},
-                              {"component": "generate", "descent": {"timestep_shift": null}, "output": {"directory": "o"}}]);
+                              {"component": "generate", "sampling": {"schedule": {"timestep_shift": null}}, "output": {"directory": "o"}}]);
         let parts = json!({"alpha": 0.25, "beta": 2.0});
         let c = point_config_profile(&template, "640x1184", 1.2, None, Some(&parts), "artifacts/live", "D:/out").unwrap();
         assert_eq!(c[0]["rope"]["by_parts"], parts);
@@ -530,11 +530,11 @@ mod tests {
         assert_eq!(tag_shift("640x1184", 1.029, Some(5.0)), "640x1184-m1029");
         assert_eq!(tag_shift("640x1184", 1.029, Some(3.63)), "640x1184-m1029-s363");
         let template = json!([{"component": "export", "video": {"size": "704x1280"}, "rope": {"scene_offset_frames": 8}, "output": "x"},
-                              {"component": "generate", "descent": {"timestep_shift": null}, "output": {"directory": "o"}}]);
+                              {"component": "generate", "sampling": {"schedule": {"timestep_shift": null}}, "output": {"directory": "o"}}]);
         let plain = point_config_shift(&template, "640x1184", 1.029, None, "artifacts/live", "D:/out").unwrap();
         let shifted = point_config_shift(&template, "640x1184", 1.029, Some(3.63), "artifacts/live", "D:/out").unwrap();
-        assert_eq!(plain[1]["descent"]["timestep_shift"], Value::Null);
-        assert_eq!(shifted[1]["descent"]["timestep_shift"], json!(3.63));
+        assert_eq!(plain[1]["sampling"]["schedule"]["timestep_shift"], Value::Null);
+        assert_eq!(shifted[1]["sampling"]["schedule"]["timestep_shift"], json!(3.63));
         assert_eq!(plain[0], shifted[0], "the same packages");
         assert_eq!(shifted[1]["output"]["directory"], "D:/out/points/640x1184-m1029-s363/videos");
     }

@@ -77,6 +77,15 @@
       ]
     },
     "seed": 0,
+    "sampling": {
+      "noise": {
+        "mode": "native_spectral",
+        "native": "704x1280"
+      },
+      "schedule": {
+        "timestep_shift": null
+      }
+    },
     "cache_write": "clean_pass",
     "offloading": {
       "calibration": "if_needed",
@@ -101,6 +110,10 @@
       "crf": 16,
       "directory": "D:/Experiments/DIT/outputs/readme-mvp-2026-11-25/mvp3",
       "pixel_format": "yuv420p"
+    },
+    "descent": {
+      "attn_logit_scale": 1.0,
+      "reference": null
     }
   }
 ]

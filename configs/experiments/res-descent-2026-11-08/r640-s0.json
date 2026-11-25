@@ -68,6 +68,14 @@
       ]
     },
     "seed": 0,
+    "sampling": {
+      "noise": {
+        "mode": "fresh"
+      },
+      "schedule": {
+        "timestep_shift": null
+      }
+    },
     "cache_write": "clean_pass",
     "offloading": {
       "enabled": true,
@@ -101,9 +109,7 @@
     },
     "descent": {
       "attn_logit_scale": 1.0,
-      "timestep_shift": null,
-      "reference": "D:/Experiments/DIT/outputs/res-descent-2026-11-08/r704-native/2026-11-08_1239-31216",
-      "noise": "fresh"
+      "reference": "D:/Experiments/DIT/outputs/res-descent-2026-11-08/r704-native/2026-11-08_1239-31216"
     }
   }
 ]

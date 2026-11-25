@@ -36,8 +36,8 @@ pub fn load(args: &Args) -> Result<(Video, T5, DeviceBuffer)> {
         video.set_hw_rope(&table)?;
     }
     let g = &args.pipeline.generate;
-    video.set_descent(&args.packages(), g.descent.as_ref(), args.pipeline.export.sampling.timestep_shift,
-                      g.debug.includes(crate::config::DebugTool::Descent), g.seed, native_size(&args.pipeline.export.rope.native_size)?)?;
+    video.set_descent(&args.packages(), g.descent.as_ref(), &g.sampling, args.pipeline.export.sampling.timestep_shift,
+                      g.debug.includes(crate::config::DebugTool::Descent), g.seed)?;
     video.set_kv_write(g.debug.includes(crate::config::DebugTool::KvWrite), g.kv_probe.as_deref().unwrap_or(&[]))?;
     video.set_cache_write(g.cache_write);
     #[cfg(feature = "debug-tools")]
@@ -67,12 +67,6 @@ pub fn load(args: &Args) -> Result<(Video, T5, DeviceBuffer)> {
     used("T5");
     let embeddings = DeviceBuffer::new(video.m.text_len * video.m.text_dim * 4)?;
     Ok((video, t5, embeddings))
-}
-
-/// Height and width of "HxW".
-fn native_size(size: &str) -> Result<(usize, usize)> {
-    let (h, w) = size.split_once('x').ok_or("rope.native_size must be HxW")?;
-    Ok((h.parse()?, w.parse()?))
 }
 
 /// GPU bytes T5's resident rows may take: what is free beyond the reserve, the model's workspace and what the

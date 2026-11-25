@@ -328,10 +328,12 @@ impl Video {
 
     /// The descent's knobs and metrics: lambda written over norm_q of the rows on the GPU (no new export), the
     /// sampler of another shift (checked against the packages' `packaged` one), the probe package for the metrics.
-    pub fn set_descent(&mut self, directory: &Path, config: Option<&crate::config::Descent>, packaged: f64, metrics: bool,
-                       seed: u64, native: (usize, usize)) -> Result<()> {
+    pub fn set_descent(&mut self, directory: &Path, config: Option<&crate::config::Descent>, sampling: &crate::config::GenerateSampling,
+                       packaged: f64, metrics: bool, seed: u64) -> Result<()> {
         use crate::descent;
-        if config.is_none() && !metrics { return Ok(()); }
+        let native_noise = sampling.noise.native_grid()?;
+        let shift = sampling.schedule.timestep_shift;
+        if config.is_none() && !metrics && native_noise.is_none() && shift.is_none() { return Ok(()); }
         let one = serde_json::json!(1.0);
         let lambda = descent::lambda_table(config.map_or(&one, |c| &c.attn_logit_scale), self.m.blocks, self.m.heads)?;
         let patch = if lambda.iter().flatten().all(|v| *v == 1.0) { None } else {
@@ -354,7 +356,7 @@ impl Video {
                      lambda.iter().flatten().sum::<f64>() / (self.m.blocks * self.m.heads) as f64);
             Some((buffer, offset, bytes))
         };
-        if let Some(shift) = config.and_then(|c| c.timestep_shift) {
+        if let Some(shift) = shift {
             let (t, c) = descent::sampler(&self.m.timesteps, &self.m.sampler, packaged, Some(shift))?;
             println!("descent: timestep_shift {shift} instead of {packaged}: timesteps {t:?}, coefficients {c:?}");
             (self.m.timesteps, self.m.sampler) = (t, c);
@@ -368,7 +370,6 @@ impl Video {
         } else { None };
         let [_, f, h, w] = self.m.latent;
         let report = descent::Report { grid: Some(descent::Grid { frames: f, height: h / 2, width: w / 2 }), ..Default::default() };
-        let native_noise = config.filter(|c| c.noise != "fresh").map(|c| (native.0 / 16, native.1 / 16, c.noise == "native_spectral"));
         if let Some((h, w, _)) = native_noise { println!("descent: noise of the native latent {h}x{w} resized to {}x{}", self.m.latent[2], self.m.latent[3]); }
         self.descent = Some(Descent { lambda, patch, probe, native_noise, report });
         Ok(())

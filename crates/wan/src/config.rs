@@ -108,6 +108,8 @@ pub struct Generate {
     /// where a chunk's keys and values come from: a pass at t = 0 over the clean chunk (as trained) or the sampler's
     /// last pass (one pass a chunk fewer); video.rs chunk_passes
     pub cache_write: CacheWrite,
+    /// how the descent starts and walks: the noise of every chunk and the sampler's timestep schedule
+    pub sampling: GenerateSampling,
     pub offloading: Offloading,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub output: Option<Output>,
@@ -140,14 +142,55 @@ pub enum CacheWrite {
 pub struct Descent {
     /// lambda: a number, a number per block, or per block a number or a list per head (descent::lambda_table)
     pub attn_logit_scale: serde_json::Value,
-    /// the sampler's shift instead of the packages' one, or null
-    pub timestep_shift: Option<f64>,
     /// a run folder (descent.json, latent.f32, <chain>.mp4) to compare with, or null
     pub reference: Option<std::path::PathBuf>,
-    /// "fresh": noise drawn at this size; "native_resized": the native size's noise of the same seed resized by area
-    /// with unit variance (descent::resize_noise; correlated, the model answers with colour blotches);
-    /// "native_spectral": its lowest frequencies, white again (descent::spectral_noise)
-    pub noise: String,
+}
+
+/// generate.sampling: the noise every chunk starts from and the schedule the sampler walks, each with all its keys.
+/// (They were generate.descent's noise and timestep_shift until 2026-11-25.)
+#[derive(Deserialize, Serialize, Debug, Clone, PartialEq)]
+#[serde(deny_unknown_fields)]
+pub struct GenerateSampling {
+    pub noise: Noise,
+    pub schedule: Schedule,
+}
+
+/// The sampler's timestep schedule: null keeps the packages' sampler, a number recomputes UniPC with that shift
+/// (descent::sampler), refused unless the packages carry UniPC.
+#[derive(Deserialize, Serialize, Debug, Clone, PartialEq)]
+#[serde(deny_unknown_fields)]
+pub struct Schedule {
+    pub timestep_shift: Option<f64>,
+}
+
+/// The noise of a chunk. "fresh": drawn at the size of the run. "native_resized": the native size's noise of the same
+/// seed resized by area with unit variance (descent::resize_noise; correlated, the model answers with colour
+/// blotches). "native_spectral": the native noise's lowest frequencies, white again (descent::spectral_noise). The
+/// native modes name the native size, "HxW" in pixels.
+#[derive(Deserialize, Serialize, Debug, Clone, PartialEq)]
+#[serde(tag = "mode", rename_all = "snake_case")]
+pub enum Noise {
+    Fresh,
+    NativeResized { native: String },
+    NativeSpectral { native: String },
+}
+
+impl Noise {
+    /// The native latent's height and width (a sixteenth of the size in pixels) and whether the noise is the spectral
+    /// one, or None for the fresh noise; an error for a size that is no HxW of multiples of 16.
+    pub fn native_grid(&self) -> Result<Option<(usize, usize, bool)>, String> {
+        let (native, spectral) = match self {
+            Self::Fresh => return Ok(None),
+            Self::NativeResized { native } => (native, false),
+            Self::NativeSpectral { native } => (native, true),
+        };
+        let bad = || format!("generate.sampling.noise.native must be HxW in pixels, multiples of 16, not {native}");
+        let (h, w) = native.split_once('x').ok_or_else(bad)?;
+        match (h.parse::<usize>(), w.parse::<usize>()) {
+            (Ok(h), Ok(w)) if h > 0 && w > 0 && h % 16 == 0 && w % 16 == 0 => Ok(Some((h / 16, w / 16, spectral))),
+            _ => Err(bad()),
+        }
+    }
 }
 
 #[derive(Deserialize, Serialize, Debug, Clone, Copy, PartialEq, Eq)]
@@ -745,13 +788,11 @@ impl Config {
             PromptSource::Script { file, chains } if file.as_os_str().is_empty() || chains.iter().any(|c| c.is_empty()) => return Err("invalid prompt script".into()),
             _ => {}
         }
+        if self.generate.sampling.schedule.timestep_shift.is_some_and(|v| !(v.is_finite() && v > 0.0 && v <= 20.0)) {
+            return Err("generate.sampling.schedule.timestep_shift must be in (0, 20] or null".into());
+        }
+        self.generate.sampling.noise.native_grid()?;
         if let Some(d) = &self.generate.descent {
-            if d.timestep_shift.is_some_and(|v| !(v.is_finite() && v > 0.0 && v <= 20.0)) {
-                return Err("generate.descent.timestep_shift must be in (0, 20] or null".into());
-            }
-            if !["fresh", "native_resized", "native_spectral"].contains(&d.noise.as_str()) {
-                return Err("generate.descent.noise must be fresh, native_resized or native_spectral".into());
-            }
             // the sizes are checked against the model at load (lambda_table), the numbers here
             crate::descent::check_scale(&d.attn_logit_scale)?;
         }

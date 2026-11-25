@@ -525,7 +525,9 @@ pub fn table_row(name: &str, run: &Value, descent: &Value) -> String {
         _ => vec![1.0],
     }};
     let lambda = mean(numbers(&g["descent"]["attn_logit_scale"]).into_iter()) * rope["attn_logit_scale"].as_f64().unwrap_or(1.0);
-    let shift = g["descent"]["timestep_shift"].as_f64().or(e["sampling"]["timestep_shift"].as_f64()).unwrap_or(f64::NAN);
+    // generate.sampling.schedule; the runs written before the shift moved there keep it in their descent
+    let shift = g["sampling"]["schedule"]["timestep_shift"].as_f64().or(g["descent"]["timestep_shift"].as_f64())
+        .or(e["sampling"]["timestep_shift"].as_f64()).unwrap_or(f64::NAN);
     let cell = |v: &Value, digits: usize| v.as_f64().map_or("-".to_string(), |x| format!("{x:.digits$}"));
     let (s, r) = (&descent["summary"], &descent["reference"]);
     [name.to_string(), e["video"]["size"].as_str().unwrap_or("-").to_string(), profile, format!("{lambda:.4}"), format!("{shift}"),
@@ -732,7 +734,7 @@ mod tests {
     fn a_run_is_one_row_of_the_table() {
         let run = json!({"config": [{"video": {"size": "640x1152"}, "rope": {"interpolate": true, "stretch": 0.5, "ntk_aware": false},
                                      "sampling": {"timestep_shift": 5.0}},
-                                    {"descent": {"attn_logit_scale": [0.9, 1.1], "timestep_shift": 4.0, "reference": "r"}}]});
+                                    {"sampling": {"noise": {"mode": "fresh"}, "schedule": {"timestep_shift": 4.0}}, "descent": {"attn_logit_scale": [0.9, 1.1], "reference": "r"}}]});
         let descent = json!({"summary": {"relative_entropy": -3.5, "spatial": 0.26, "temporal": 1.9},
                              "reference": {"relative_entropy_gap": 0.2, "relative_entropy_signed_gap": -0.1, "latent_cosine": 0.8,
                                            "latent_relative_l2": 0.6, "rms_log_ratio": 0.05, "spatial_ratio": 1.02,
@@ -745,6 +747,18 @@ mod tests {
         let bare = table_row("ref", &json!({"config": [{"video": {"size": "704x1280"}, "rope": {"interpolate": false},
                                      "sampling": {"timestep_shift": 5.0}}, {}]}), &json!({"summary": {}}));
         assert!(bare.starts_with("ref\t704x1280\tnative\t1.0000\t5\t"), "{bare}");
+    }
+
+    /// the shift of a row is generate.sampling.schedule's; the runs written before it moved keep their descent's
+    #[test]
+    fn the_row_reads_the_shift_from_the_schedule_and_from_older_runs() {
+        let descent = json!({"summary": {}});
+        let export = json!({"video": {"size": "640x1152"}, "rope": {"interpolate": false}, "sampling": {"timestep_shift": 5.0}});
+        let shift = |generate: Value| table_row("r", &json!({"config": [export.clone(), generate]}), &descent).split('\t').nth(4).unwrap().to_string();
+        assert_eq!(shift(json!({"sampling": {"noise": {"mode": "fresh"}, "schedule": {"timestep_shift": 3.63}}})), "3.63");
+        assert_eq!(shift(json!({"sampling": {"noise": {"mode": "fresh"}, "schedule": {"timestep_shift": null}}})), "5");
+        assert_eq!(shift(json!({"descent": {"attn_logit_scale": 1.0, "timestep_shift": 4.0, "reference": null}})), "4");
+        assert_eq!(shift(json!({})), "5");
     }
 
     /// the native size's noise resized: the same field at another size, every value still of unit variance

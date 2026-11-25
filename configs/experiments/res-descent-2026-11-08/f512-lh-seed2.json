@@ -68,6 +68,15 @@
    ]
   },
   "seed": 2,
+  "sampling": {
+    "noise": {
+      "mode": "native_resized",
+      "native": "704x1280"
+    },
+    "schedule": {
+      "timestep_shift": null
+    }
+  },
   "cache_write": "clean_pass",
   "offloading": {
    "enabled": true,
@@ -882,9 +891,7 @@
      1.2085
     ]
    ],
-   "timestep_shift": null,
-   "reference": "D:/Experiments/DIT/outputs/res-descent-2026-11-08/r704-native-seed2/2026-11-08_1356-29400",
-   "noise": "native_resized"
+   "reference": "D:/Experiments/DIT/outputs/res-descent-2026-11-08/r704-native-seed2/2026-11-08_1356-29400"
   }
  }
 ]

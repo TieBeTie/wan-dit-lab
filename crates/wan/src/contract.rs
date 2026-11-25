@@ -124,7 +124,7 @@ fn generate(g: &Value) -> Check {
     let map = object(g, "generate")?;
     let debug_on = !matches!(map.get("debug"), Some(Value::Bool(false)));
     let offline = map.get("mode").and_then(Value::as_str) == Some("offline");
-    let always = ["component", "packages_from", "mode", "debug", "prompts", "seed", "cache_write", "offloading"];
+    let always = ["component", "packages_from", "mode", "debug", "prompts", "seed", "cache_write", "sampling", "offloading"];
     // keys of two switches: the output is needed offline only, the drain while diagnostics are on
     for key in always {
         if !map.contains_key(key) { return Err(format!("generate.{key} is missing")); }
@@ -143,8 +143,17 @@ fn generate(g: &Value) -> Check {
     }
     if debug_on { flat(&g["drain"], "generate.drain", &["every"])?; }
     if offline { flat(&g["output"], "generate.output", &["directory", "codec", "crf", "pixel_format"])?; }
-    // the descent in resolution: optional, never inserted into old configs, complete when present
-    if let Some(d) = map.get("descent") { flat(d, "generate.descent", &["attn_logit_scale", "timestep_shift", "reference", "noise"])?; }
+    sampling(&g["sampling"])?;
+    // the search in resolution: optional, never inserted into old configs, complete when present; the noise and the
+    // schedule it once held moved to generate.sampling
+    if let Some(d) = map.get("descent") {
+        for (key, to) in [("noise", "generate.sampling.noise"), ("timestep_shift", "generate.sampling.schedule")] {
+            if object(d, "generate.descent")?.contains_key(key) {
+                return Err(format!("generate.descent.{key} moved to {to}: run wan migrate"));
+            }
+        }
+        flat(d, "generate.descent", &["attn_logit_scale", "reference"])?;
+    }
     if let Some(points) = map.get("rope_sweep") {
         for point in points.as_array().ok_or("generate.rope_sweep must be a list")? {
             let mix = point.get("ntk_pi_mix").is_some();
@@ -153,6 +162,19 @@ fn generate(g: &Value) -> Check {
     }
     prompts(&g["prompts"])?;
     offloading(&g["offloading"])
+}
+
+/// The noise and the schedule: a fresh noise has no other key, the two native ones name their native size.
+fn sampling(s: &Value) -> Check {
+    flat(s, "generate.sampling", &["noise", "schedule"])?;
+    let mode = object(&s["noise"], "generate.sampling.noise")?.get("mode").and_then(Value::as_str)
+        .ok_or("generate.sampling.noise.mode is missing or not a string")?;
+    if !["fresh", "native_resized", "native_spectral"].contains(&mode) {
+        return Err(format!("generate.sampling.noise.mode must be fresh, native_resized or native_spectral, not {mode}"));
+    }
+    keys(&s["noise"], "generate.sampling.noise", &["mode"], "generate.sampling.noise.mode native_resized or native_spectral",
+         mode != "fresh", &["native"])?;
+    flat(&s["schedule"], "generate.sampling.schedule", &["timestep_shift"])
 }
 
 fn prompts(p: &Value) -> Check {
@@ -259,6 +281,7 @@ mod tests {
             ("mvp1.json", "/1/mode", "generate.mode"),
             ("mvp1.json", "/1/debug", "generate.debug"),
             ("mvp1.json", "/1/seed", "generate.seed"),
+            ("mvp1.json", "/1/sampling", "generate.sampling"),
             ("mvp1.json", "/1/offloading/enabled", "generate.offloading.enabled"),
             ("mvp1.json", "/1/offloading/copy_spare", "generate.offloading.copy_spare"),
             ("mvp1.json", "/1/offloading/prefetch_fps_tolerance", "generate.offloading.prefetch_fps_tolerance"),
@@ -506,18 +529,17 @@ mod tests {
         assert!(crate::config::Config::parse(&config.to_string()).is_err());
     }
 
-    /// generate.descent (the knobs of the descent in resolution): optional, never inserted, all three keys when present
+    /// generate.descent (the knobs of the search in resolution): optional, never inserted, both keys when present;
+    /// the noise and the schedule are generate.sampling's now
     #[test]
-    fn the_descent_section_is_optional_and_complete() {
+    fn the_descent_section_keeps_only_the_search_keys() {
         let mut config = shipped("mvp1.json");
         assert!(crate::config::Config::parse(&config.to_string()).unwrap().value()[1].get("descent").is_none());
-        config[1]["descent"] = json!({"attn_logit_scale": [[1.0, 0.9], 0.8], "timestep_shift": 3.6, "reference": null,
-                                      "noise": "native_resized"});
+        config[1]["descent"] = json!({"attn_logit_scale": [[1.0, 0.9], 0.8], "reference": null});
         let parsed = crate::config::Config::parse(&config.to_string()).unwrap().value();
-        assert_eq!(parsed[1]["descent"]["timestep_shift"], json!(3.6));
         assert_eq!(parsed[1]["descent"]["attn_logit_scale"], json!([[1.0, 0.9], 0.8]));
         crate::config::Config::parse(&parsed.to_string()).unwrap();
-        for key in ["attn_logit_scale", "timestep_shift", "reference", "noise"] {
+        for key in ["attn_logit_scale", "reference"] {
             let mut missing = config.clone();
             missing[1]["descent"].as_object_mut().unwrap().remove(key);
             assert!(message(&missing).contains(&format!("generate.descent.{key}")), "{key}");
@@ -525,16 +547,89 @@ mod tests {
         config[1]["descent"]["extra"] = json!(1);
         assert!(message(&config).contains("generate.descent.extra"));
         config[1]["descent"].as_object_mut().unwrap().remove("extra");
-        let mut noise = config.clone();
-        noise[1]["descent"]["noise"] = json!("other");
-        assert!(crate::config::Config::parse(&noise.to_string()).is_err());
-        for valid in ["fresh", "native_resized", "native_spectral"] {
-            noise[1]["descent"]["noise"] = json!(valid);
-            crate::config::Config::parse(&noise.to_string()).unwrap();
+        // the two keys that moved are refused with the place they moved to
+        for (key, value, to) in [("noise", json!("fresh"), "generate.sampling.noise"), ("timestep_shift", json!(null), "generate.sampling.schedule")] {
+            let mut old = config.clone();
+            old[1]["descent"][key] = value;
+            let text = message(&old);
+            assert!(text.contains(&format!("generate.descent.{key}")) && text.contains(to), "{key}: {text}");
         }
-        for bad in [json!(0.0), json!(25.0)] {
-            config[1]["descent"]["timestep_shift"] = bad;
-            assert!(crate::config::Config::parse(&config.to_string()).is_err());
+    }
+
+    /// generate.sampling: how the descent starts and walks, named in every recipe: the noise and the schedule, each
+    /// with all its keys
+    #[test]
+    fn the_sampling_section_is_required_and_complete() {
+        let mut config = shipped("mvp1.json");
+        for (pointer, path) in [("/1/sampling", "generate.sampling"), ("/1/sampling/noise", "generate.sampling.noise"),
+                                ("/1/sampling/noise/mode", "generate.sampling.noise.mode"), ("/1/sampling/schedule", "generate.sampling.schedule"),
+                                ("/1/sampling/schedule/timestep_shift", "generate.sampling.schedule.timestep_shift")] {
+            let mut missing = config.clone();
+            remove(&mut missing, pointer);
+            assert!(message(&missing).contains(path), "{pointer}: {}", message(&missing));
+        }
+        config[1]["sampling"]["extra"] = json!(1);
+        assert!(message(&config).contains("generate.sampling.extra"));
+        config[1]["sampling"].as_object_mut().unwrap().remove("extra");
+        config[1]["sampling"]["schedule"]["extra"] = json!(1);
+        assert!(message(&config).contains("generate.sampling.schedule.extra"));
+    }
+
+    /// the noise modes: fresh needs no other key, the two native ones need the native size and no mode may carry
+    /// the key of another
+    #[test]
+    fn a_native_noise_names_its_native_size_and_a_fresh_one_has_none() {
+        let mut config = shipped("mvp1.json");
+        config[1]["sampling"]["noise"] = json!({"mode": "fresh"});
+        crate::config::Config::parse(&config.to_string()).unwrap();
+        config[1]["sampling"]["noise"] = json!({"mode": "fresh", "native": "704x1280"});
+        let text = message(&config);
+        assert!(text.contains("generate.sampling.noise.native") && text.contains("remove it"), "{text}");
+        for mode in ["native_resized", "native_spectral"] {
+            config[1]["sampling"]["noise"] = json!({"mode": mode});
+            let text = message(&config);
+            assert!(text.contains("generate.sampling.noise.native") && text.contains("missing"), "{mode}: {text}");
+            config[1]["sampling"]["noise"] = json!({"mode": mode, "native": "704x1280"});
+            let parsed = crate::config::Config::parse(&config.to_string()).unwrap().value();
+            assert_eq!(parsed[1]["sampling"]["noise"], json!({"mode": mode, "native": "704x1280"}));
+            crate::config::Config::parse(&parsed.to_string()).unwrap();
+            for bad in [json!("704"), json!("0x1280"), json!("700x1280"), json!(704), json!("704x1280x1")] {
+                config[1]["sampling"]["noise"] = json!({"mode": mode, "native": bad});
+                assert!(crate::config::Config::parse(&config.to_string()).is_err(), "{mode} {bad}");
+            }
+        }
+        config[1]["sampling"]["noise"] = json!({"mode": "other"});
+        assert!(crate::config::Config::parse(&config.to_string()).is_err());
+    }
+
+    /// the schedule's timestep shift: null keeps the packages' sampler, a number in (0, 20] recomputes it
+    #[test]
+    fn the_schedule_shift_is_null_or_a_number_in_range() {
+        let mut config = shipped("mvp1.json");
+        for good in [json!(null), json!(3.63), json!(20.0)] {
+            config[1]["sampling"]["schedule"]["timestep_shift"] = good.clone();
+            let parsed = crate::config::Config::parse(&config.to_string()).unwrap().value();
+            assert_eq!(parsed[1]["sampling"]["schedule"]["timestep_shift"], good);
+        }
+        for bad in [json!(0.0), json!(-1.0), json!(25.0), json!("3.6")] {
+            config[1]["sampling"]["schedule"]["timestep_shift"] = bad.clone();
+            assert!(crate::config::Config::parse(&config.to_string()).is_err(), "{bad}");
+        }
+    }
+
+    /// the parsed sampling is what the file says: the grid of the native latent (a sixteenth of the size) for the
+    /// native noises, none for the fresh one
+    #[test]
+    fn the_parsed_noise_gives_the_native_latent_grid() {
+        use crate::config::{Config, Noise};
+        let mut config = shipped("mvp1.json");
+        for (noise, want) in [(json!({"mode": "fresh"}), None),
+                              (json!({"mode": "native_resized", "native": "704x1280"}), Some((44, 80, false))),
+                              (json!({"mode": "native_spectral", "native": "704x1280"}), Some((44, 80, true)))] {
+            config[1]["sampling"]["noise"] = noise;
+            let parsed = Config::parse(&config.to_string()).unwrap();
+            let noise: &Noise = &parsed.generate.sampling.noise;
+            assert_eq!(noise.native_grid().unwrap(), want);
         }
     }
 

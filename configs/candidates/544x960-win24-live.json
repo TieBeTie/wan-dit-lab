@@ -69,6 +69,14 @@
       "initial": "A lone oak tree on a grassy hill sways in the wind"
     },
     "seed": 0,
+    "sampling": {
+      "noise": {
+        "mode": "fresh"
+      },
+      "schedule": {
+        "timestep_shift": null
+      }
+    },
     "cache_write": "clean_pass",
     "offloading": {
       "calibration": "if_needed",
