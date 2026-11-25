@@ -123,7 +123,7 @@ Inductor (bd79a2f); невыровненное чтение последней �
 ## Что сделано в Wan
 
 Конфиг состоит из компонентов export и generate. Рабочие конфиги:
-`configs/live.json`, `configs/offline.json`, размер 512x928, S2, два шага.
+`configs/mvp1.json`, `configs/offline.json`, размер 512x928, S2, два шага.
 Выбор ядер явный, совпадение с экспортированным пакетом проверяется.
 Диагностика: debug=false, true или fps; drain.every задаёт интервал или end,
 режима never нет. Изменение кода выполняется по TDD, без усложнения ради тестов.
@@ -482,4 +482,4 @@ CMA-ES не прошёл ни одной точки: драйвер лежал �
 
 Длинные промпты с событиями (2026-11-12, `configs/experiments/speed-2026-11-12/events/`, сетки `D:/Experiments/DIT/outputs/speed-2026-11-12/events/grids/`): следование событиям слабое на всех качествах, включая 704 (на втором шаге чашки 704 продолжает лить). Окно 24 падает на смене сцены (`cache.rs:135`, «the ring must hold more than the pinned chunk»): кольцо 8 кадров = один чанк, закреплённый чанк сцены занимает его целиком. Для Live со сменой сцен окно 24 без доработки не годится.
 
-**Зафиксировано 2026-11-12:** рабочая точка 544x960, окно 32, PI по отношению сеток, Sage 2 (раздельно с RoPE LongLive), Sage в cross-attention, W4A4, T5 BF16. `configs/live.json` и `configs/offline.json` переведены на неё (экспорт из `configs/candidates/544x960-win32-live.json`, генерация прежняя). Боевой fps около 13.4.
+**Зафиксировано 2026-11-12:** рабочая точка 544x960, окно 32, PI по отношению сеток, Sage 2 (раздельно с RoPE LongLive), Sage в cross-attention, W4A4, T5 BF16. `configs/mvp1.json` и `configs/offline.json` переведены на неё (экспорт из `configs/candidates/544x960-win32-live.json`, генерация прежняя). Боевой fps около 13.4.

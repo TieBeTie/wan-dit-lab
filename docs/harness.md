@@ -27,7 +27,7 @@ src/wan_dit_lab/
 
 ```powershell
 $env:PYTHONPATH = 'src'
-.\.venv\Scripts\python.exe -m wan_dit_lab.cli run --config configs/experiments/live.json
+.\.venv\Scripts\python.exe -m wan_dit_lab.cli run --config configs/experiments/mvp1.json
 .\.venv\Scripts\python.exe -m wan_dit_lab.cli run --config configs/experiments/cache_fp8_live.json
 ```
 

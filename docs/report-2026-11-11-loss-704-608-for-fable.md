@@ -458,7 +458,7 @@ K и V зависят от модуляции по t сильнее, чем от
 
 Сильного дрейфа (|ΔB| > 15) нет ни у одного кандидата. (б) лучше по L на 0.058 при той же скорости, но у него окно 24 (в ночной лестнице окно 24 давало дрейф в 3 случаях из 12, здесь на 3 сидах его нет). Опоздания копий весов 2–4 за прогон на fps не влияют (при всех весах в VRAM 0 опозданий и тот же fps). Слияние норм с квантованием W4A4 отложено: около 2% при новом ядре в чужом коде.
 
-Конфиги кандидатов: `configs/candidates/{512x928-win32,544x960-win24}-{live,experiment}.json` (live: atomic, интерактивные промпты, как `configs/live.json`, пакет `artifacts/live/<кандидат>-candidate-atomic`; experiment: ordered, offline, 12 чанков лисы и чашки).
+Конфиги кандидатов: `configs/candidates/{512x928-win32,544x960-win24}-{live,experiment}.json` (live: atomic, интерактивные промпты, как `configs/mvp1.json`, пакет `artifacts/live/<кандидат>-candidate-atomic`; experiment: ordered, offline, 12 чанков лисы и чашки).
 
 Сетки для глаз: `D:/Experiments/DIT/outputs/speed-2026-11-12/grids/final-12chunk-{teacup_pour,fox_runs}.mp4` (704 окно 32 / 608 окно 32 / (а) / (б), сид 0, 12 чанков), `final-3chunk-{astronaut_3_3_4_5,two_foxes_snowy_cabin}.mp4` (704 / 608 / (а) / (б), сид 0, 3 чанка).
 

@@ -65,21 +65,21 @@ Then assess separately:
 
 An arbitrary independent warp for each frame must not be fitted: this could hide exactly the deformations we want to detect. High similarity after one simple geometric transformation will support the zoom hypothesis, but it will not be a universal guarantee and not a standalone proof of quality.
 
-## Parameters of the Live2 config (NTK M=1,10)
+## Parameters of the MVP2 config (NTK M=1,10)
 
-File `configs/live2.json`: a copy of `configs/live.json` in which only the RoPE parameters are taken from `ntk-sweep-100-120-2026-11-04/m110.json`.
+File `configs/mvp2.json`: a copy of `configs/mvp1.json` in which only the RoPE parameters are taken from `ntk-sweep-100-120-2026-11-04/m110.json`.
 
-Comparison of Live 1 and Live 2: of all parameters only three differ, everything else (model, video size 512x928, steps, kernels, offloading) is the same.
+Comparison of MVP1 and MVP2: of all parameters only three differ, everything else (model, video size 512x928, steps, kernels, offloading) is the same.
 
-| Parameter | Live 1 (`live.json`) | Live 2 (`live2.json`) | What it changes |
+| Parameter | MVP1 (`mvp1.json`) | MVP2 (`mvp2.json`) | What it changes |
 |---|---|---|---|
 | `rope.stretch` | 1,0 | 0,2992905106483072 | the exponent t for the multiplier M = 1,10: the positions are stretched less |
 | `rope.ntk_aware` | false | true | NTK scaling of the RoPE frequencies is enabled |
-| `output` | `artifacts/live/512x928-sage-cross` | `artifacts/live/512x928-sage-cross-ntk110` | a separate package directory, so as not to overwrite Live 1 |
+| `output` | `artifacts/live/512x928-sage-cross` | `artifacts/live/512x928-sage-cross-ntk110` | a separate package directory, so as not to overwrite MVP1 |
 
 The exponent `stretch` is related to the multiplier by the formula t = ln(M_H) / ln(22/16) from the section above; the packages are copied from the Live directory, and if the hash does not match the export is rebuilt.
 
-### All parameters of `configs/live2.json`
+### All parameters of `configs/mvp2.json`
 
 The config consists of two components: `export` (package build) and `generate` (Live itself).
 
@@ -89,7 +89,7 @@ The config consists of two components: `export` (package build) and `generate` (
 |---|---|---|
 | `compiler` | `torch_aot_inductor` | the packages are compiled by AOTInductor, Python does not take part in the work |
 | `rebuild` | `if_missing_or_changed` | rebuild if the packages are missing or the config changed |
-| `output` | `artifacts/live/512x928-sage-cross-ntk110` | the package directory of Live2 |
+| `output` | `artifacts/live/512x928-sage-cross-ntk110` | the package directory of MVP2 |
 | `model.architecture` | `Wan2.2-TI2V-5B/config.json` | the Wan 2.2 architecture, 5 billion parameters |
 | `model.checkpoint` | `LongLive-2.0-5B-S2/model_te.pt` | the LongLive 2.0 weights |
 | `model.block_weights` | `longlive2_5b_s2_blocks_fused.w4a4` | the block weights, 4 bits for weights and activations |
@@ -133,4 +133,4 @@ The config consists of two components: `export` (package build) and `generate` (
 | `prefetch_fps_tolerance` | 0,5 | the acceptable speed loss on prefetch |
 | `ram_margin_fraction` | 0,0 | the share of RAM kept as a margin |
 
-The difference from m110: in m110 T5 was in bfloat16, attention without RoPE fusion, cross-attention `efficient` and an offline mode with a script; in Live2 all of this stayed as in Live, only `stretch` and `ntk_aware` are taken from m110.
+The difference from m110: in m110 T5 was in bfloat16, attention without RoPE fusion, cross-attention `efficient` and an offline mode with a script; in MVP2 all of this stayed as in Live, only `stretch` and `ntk_aware` are taken from m110.

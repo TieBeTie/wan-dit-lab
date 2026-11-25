@@ -1,15 +1,15 @@
 # Pipeline: export → generate
 
-Согласованный формат используется в `configs/live.json` и `configs/offline.json`.
+Согласованный формат используется в `configs/mvp1.json` и `configs/offline.json`.
 `configs/pipeline.proposed.json` сохраняет тот же пример Live, включая `debug` и `drain`.
 Корень JSON — массив из двух компонентов: `export`, затем `generate`.
 
 ```powershell
 .\build.ps1
-.\bin\wan.exe --config configs/live.json
+.\bin\wan.exe --config configs/mvp1.json
 .\bin\wan.exe --config configs/offline.json --chains fox_cabin
-.\bin\wan.exe --config configs/live.json --plan
-.\bin\wan.exe --config configs/live.json --export-only
+.\bin\wan.exe --config configs/mvp1.json --plan
+.\bin\wan.exe --config configs/mvp1.json --export-only
 ```
 
 `--plan` выводит эффективный конфиг после аргументов командной строки, не запуская экспорт или GPU.
@@ -21,7 +21,7 @@
 
 | Компонент | Вход | Результат |
 |---|---|---|
-| `export` | Архитектура и веса модели, видеоформат, sampling, context, RoPE, kernels | Проверенные `.pt2`, `.safetensors`, таблица RoPE и `live.json` в `output` |
+| `export` | Архитектура и веса модели, видеоформат, sampling, context, RoPE, kernels | Проверенные `.pt2`, `.safetensors`, таблица RoPE и `mvp1.json` в `output` |
 | `generate` | `packages_from: "export"`, источник промптов, seed, offloading и способ вывода | Кадры в Live-окно или MP4 через один `Generator` |
 
 ```mermaid
@@ -114,7 +114,7 @@ Triton KV-store также входит в пакеты, а Sage/W4A4 вызыв
 
 ## Диагностика: debug и drain
 
-В `configs/live.json`:
+В `configs/mvp1.json`:
 
 ```json
 "mode": "live",
