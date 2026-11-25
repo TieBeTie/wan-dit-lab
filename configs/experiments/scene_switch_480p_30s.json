@@ -1,6 +1,6 @@
 {
   "id": "Scene_switch_BF16_480p_30s",
-  "output": "outputs/experiments/2026-10-20/02_Смена_сцены_reanchor_480p_30сек",
+  "output": "D:/Experiments/DIT/outputs/experiments/2026-10-20/02_Смена_сцены_reanchor_480p_30сек",
   "question": "Does replacing the sink with frames of the new scene (reanchor) let the prompt change take effect without the drift seen with decay?",
   "hypotheses": [
     "notes/research/cards/H03. Recache без дообучения достаточно для перехода.md",

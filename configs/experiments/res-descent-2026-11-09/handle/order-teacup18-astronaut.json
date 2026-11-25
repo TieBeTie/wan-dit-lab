@@ -1,0 +1,29 @@
+{
+  "source": "Comparison 2026-11-09, order of the point-b2 run of 2026-11-03: 18 chunks of teacup draw the noise the original teacup chain drew, then the astronaut's first 3 chunks.",
+  "chunks": 3,
+  "chains": [
+    {
+      "id": "teacup_18",
+      "steps": [
+        {
+          "cut": "new",
+          "text": "A close-up shot of a ceramic teacup slowly pouring water into a glass mug. The water flows smoothly from the spout of the teacup into the mug, creating gentle ripples as it fills up. Both cups have detailed textures, with the teacup having a matte finish and the glass mug showcasing clear transparency. The background is a blurred kitchen countertop, adding context without distracting from the central action. The pouring motion is fluid and natural, emphasizing the interaction between the two cups.",
+          "chunks": 18
+        }
+      ]
+    },
+    {
+      "id": "astronaut_3_3_4_5",
+      "camera": "Medium close-up shot, static camera",
+      "steps": [
+        {
+          "cut": "new",
+          "card": "A single astronaut in a white spacesuit with a gold reflective visor floats inside a space station close to the camera and fills most of the frame. Behind the astronaut a large round window shows the blue Earth.",
+          "action": "The astronaut slowly turns in the air, the hoses of the suit drift.",
+          "light": "artificial lighting, soft light",
+          "chunks": 3
+        }
+      ]
+    }
+  ]
+}

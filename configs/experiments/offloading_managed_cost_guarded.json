@@ -25,7 +25,7 @@
   "execution": "Validated 480x832 BF16, torch.compile(default), 5-second video: 0/2366 readiness misses. Full 30-second comparison not rerun.",
   "resource_cost_model": {
     "profile": "guarded",
-    "calibration": "outputs/experiments/2026-10-19/22_Calibrated_prefetch_5s/calibration_uniform_live.json"
+    "calibration": "D:/Experiments/DIT/outputs/experiments/2026-10-19/22_Calibrated_prefetch_5s/calibration_uniform_live.json"
   },
   "packed_dit_weights": "artifacts/self_forcing_dit_blocks.bf16",
   "commit_in_attention": true

@@ -1,0 +1,23 @@
+{
+  "source": "Small fox before snowy cabin: fixed wide shot",
+  "chunks": 4,
+  "chains": [
+    {
+      "id": "small_fox_snowy_cabin",
+      "camera": "Wide shot, static camera",
+      "steps": [
+        {
+          "cut": "new",
+          "card": "A small wooden cabin with a snow-covered roof stands in a snowy clearing surrounded by evergreen trees. The entire cabin and the open snow in front of it are visible.",
+          "action": "Light snow falls gently. The clearing is empty.",
+          "light": "soft daylight",
+          "chunks": 4
+        },
+        {
+          "action": "A small red fox with four visible legs and a bushy white-tipped tail runs from left to right across the snow in front of the cabin. The cabin remains in the background.",
+          "chunks": 6
+        }
+      ]
+    }
+  ]
+}

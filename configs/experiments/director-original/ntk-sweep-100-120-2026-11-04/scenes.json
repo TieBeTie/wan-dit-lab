@@ -1,0 +1,74 @@
+{
+  "source": "NTK-only sweep; identical scene order at every multiplier; large foreground fox excluded",
+  "chunks": 4,
+  "chains": [
+    {
+      "id": "teacup_pour",
+      "steps": [
+        {
+          "cut": "new",
+          "text": "A close-up shot of a ceramic teacup slowly pouring water into a glass mug. The water flows smoothly from the spout of the teacup into the mug, creating gentle ripples as it fills up. Both cups have detailed textures, with the teacup having a matte finish and the glass mug showcasing clear transparency. The background is a blurred kitchen countertop, adding context without distracting from the central action. The pouring motion is fluid and natural, emphasizing the interaction between the two cups.",
+          "chunks": 4
+        },
+        {
+          "text": "A close-up shot of a ceramic teacup standing upright beside a glass mug containing water. The surface of the water is calm. Both cups have detailed textures, with the teacup having a matte finish and the glass mug showcasing clear transparency. The background is a blurred kitchen countertop, adding context without distracting from the two cups.",
+          "chunks": 5
+        },
+        {
+          "text": "A close-up shot of a ceramic teacup slowly pouring red wine into a glass mug. The red wine flows smoothly from the spout of the teacup into the mug, creating gentle ripples as it fills up. Both cups have detailed textures, with the teacup having a matte finish and the glass mug showcasing clear transparency. The background is a blurred kitchen countertop, adding context without distracting from the central action. The pouring motion is fluid and natural, emphasizing the interaction between the two cups.",
+          "chunks": 4
+        },
+        {
+          "text": "A close-up shot of a ceramic teacup standing upright beside a glass mug containing red wine. The surface of the red wine is calm. Both cups have detailed textures, with the teacup having a matte finish and the glass mug showcasing clear transparency. The background is a blurred kitchen countertop, adding context without distracting from the two cups.",
+          "chunks": 5
+        }
+      ]
+    },
+    {
+      "id": "astronaut_3_3_4_5",
+      "camera": "Medium close-up shot, static camera",
+      "steps": [
+        {
+          "cut": "new",
+          "card": "A single astronaut in a white spacesuit with a gold reflective visor floats inside a space station close to the camera and fills most of the frame. Behind the astronaut a large round window shows the blue Earth.",
+          "action": "The astronaut slowly turns in the air, the hoses of the suit drift.",
+          "light": "artificial lighting, soft light",
+          "chunks": 8
+        },
+        {
+          "action": "A red apple flies into the frame from the left, moving toward the astronaut.",
+          "chunks": 3
+        },
+        {
+          "action": "A red apple floats in front of the astronaut at arm's length, to the left of the visor.",
+          "chunks": 3
+        },
+        {
+          "action": "The astronaut reaches toward the red apple with a gloved hand and grasps it.",
+          "chunks": 4
+        },
+        {
+          "action": "The astronaut holds the red apple in a gloved hand.",
+          "chunks": 5
+        }
+      ]
+    },
+    {
+      "id": "small_fox_snowy_cabin",
+      "camera": "Wide shot, static camera",
+      "steps": [
+        {
+          "cut": "new",
+          "card": "A small wooden cabin with a snow-covered roof stands in a snowy clearing surrounded by evergreen trees. The entire cabin and the open snow in front of it are visible.",
+          "action": "Light snow falls gently. The clearing is empty.",
+          "light": "soft daylight",
+          "chunks": 4
+        },
+        {
+          "action": "A small red fox with four visible legs and a bushy white-tipped tail runs from left to right across the snow in front of the cabin. The cabin remains in the background.",
+          "chunks": 6
+        }
+      ]
+    }
+  ]
+}

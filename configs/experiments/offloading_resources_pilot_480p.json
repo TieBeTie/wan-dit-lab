@@ -1,6 +1,6 @@
 {
   "id": "offloading_resources_pilot_480p",
-  "output": "outputs/experiments/2026-10-19/13_Offloading_resources_pilot_480p",
+  "output": "D:/Experiments/DIT/outputs/experiments/2026-10-19/13_Offloading_resources_pilot_480p",
   "common": {
     "prompt": "New York City submerged like Atlantis. Fish, whales, sea turtles and sharks swim through the streets of New York.",
     "seed": 1704515217,

@@ -1,0 +1,19 @@
+{
+  "source": "Seeds 1 and 2, 2026-11-10: the astronaut's first step alone, 3 chunks (its 704 reference is run the same way).",
+  "chunks": 3,
+  "chains": [
+    {
+      "id": "astronaut_3_3_4_5",
+      "camera": "Medium close-up shot, static camera",
+      "steps": [
+        {
+          "cut": "new",
+          "card": "A single astronaut in a white spacesuit with a gold reflective visor floats inside a space station close to the camera and fills most of the frame. Behind the astronaut a large round window shows the blue Earth.",
+          "action": "The astronaut slowly turns in the air, the hoses of the suit drift.",
+          "light": "artificial lighting, soft light",
+          "chunks": 3
+        }
+      ]
+    }
+  ]
+}

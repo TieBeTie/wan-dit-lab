@@ -74,6 +74,6 @@
       }
     }
   ],
-  "output": "outputs/experiments/2026-10-20/17_LongLive2_калибровка_W4A4",
+  "output": "D:/Experiments/DIT/outputs/experiments/2026-10-20/17_LongLive2_калибровка_W4A4",
   "calibration_note": "480p calibration reused: the 704x1280 probes spill every resource to disk and the disk is short while model_te.pt downloads"
 }

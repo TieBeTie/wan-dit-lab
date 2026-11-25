@@ -11,7 +11,8 @@
       "text_encoder": {
         "checkpoint": "checkpoints/Wan2.1-T2V-1.3B/models_t5_umt5-xxl-enc-bf16.pth",
         "block_weights": "artifacts/t5_int8_fast.bin",
-        "tokenizer": "checkpoints/Wan2.1-T2V-1.3B/google/umt5-xxl"
+        "tokenizer": "checkpoints/Wan2.1-T2V-1.3B/google/umt5-xxl",
+        "precision": "int8"
       },
       "decoder": "reference/taehv/taew2_2.pth"
     },
@@ -36,10 +37,16 @@
     },
     "kernels": {
       "attention": "sage_sm89",
+      "fuse": {
+        "rope_into_sage": false,
+        "qkv": true,
+        "gelu_mlp": true
+      },
       "cross_attention": [
         "efficient"
       ],
       "linear": "nunchaku_w4a4",
+      "lora_sum": "atomic",
       "kv_cache": "fp8_e4m3fn",
       "kv_store": "triton",
       "rope": "longlive_triton",
@@ -60,6 +67,7 @@
       ]
     },
     "seed": 0,
+    "cache_write": "clean_pass",
     "offloading": {
       "enabled": true,
       "calibration": "if_needed",
@@ -70,13 +78,15 @@
       "copy_spare": 1.1,
       "t5": {
         "activations": "auto",
-        "resident": "auto"
+        "resident": "auto",
+        "prefetch_tolerance": 0.0
       },
       "vram_margin_fraction": 0.1875,
-      "ram_margin_fraction": 0.125
+      "ram_margin_fraction": 0.125,
+      "prefetch_fps_tolerance": 0.5
     },
     "output": {
-      "directory": "outputs/quality-search/point-b2t-w4a4-t5int8-704x1280",
+      "directory": "D:/Experiments/DIT/outputs/quality-search/point-b2t-w4a4-t5int8-704x1280",
       "codec": "libx264",
       "crf": 16,
       "pixel_format": "yuv420p"

@@ -1,0 +1,63 @@
+{
+  "base_config": "configs/experiments/rope-search-2026-11-11/cma-base-608.json",
+  "references": {
+    "0": "D:/Experiments/DIT/outputs/rope-search-2026-11-11/ref704-s0/2026-11-11_1131-18416",
+    "1": "D:/Experiments/DIT/outputs/rope-search-2026-11-11/ref704-s1/2026-11-11_1132-5912",
+    "2": "D:/Experiments/DIT/outputs/rope-search-2026-11-11/ref704-s2/2026-11-11_1133-22484"
+  },
+  "train_seeds": [
+    0,
+    1
+  ],
+  "held_out_seeds": [
+    2
+  ],
+  "train_chains": [
+    "teacup_pour",
+    "fox_runs"
+  ],
+  "held_out_chains": [
+    "astronaut_3_3_4_5",
+    "two_foxes_snowy_cabin"
+  ],
+  "space": [
+    {
+      "name": "height",
+      "low": 0.9,
+      "high": 1.4
+    },
+    {
+      "name": "width",
+      "low": 0.9,
+      "high": 1.4
+    },
+    {
+      "name": "ntk_pi_mix",
+      "low": 0.0,
+      "high": 1.0
+    }
+  ],
+  "x0": [
+    1.1,
+    1.1,
+    1.0
+  ],
+  "sigma0": 0.1,
+  "popsize": 8,
+  "max_points": 144,
+  "cma_seed": 1,
+  "baselines": [
+    {
+      "height": 1.1,
+      "width": 1.1,
+      "ntk_pi_mix": 1.0
+    },
+    {
+      "height": 1.2,
+      "width": 1.2,
+      "ntk_pi_mix": 0.0
+    }
+  ],
+  "work": "D:/Experiments/DIT/outputs/rope-search-2026-11-11/cma",
+  "eval_device": "cuda"
+}

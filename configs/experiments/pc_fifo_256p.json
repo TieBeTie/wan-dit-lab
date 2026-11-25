@@ -1,6 +1,6 @@
 {
   "id": "PC_FIFO_BF16_256p_16prompts",
-  "output": "outputs/experiments/2026-10-17/10_PC_FIFO_BF16_256p_16prompts",
+  "output": "D:/Experiments/DIT/outputs/experiments/2026-10-17/10_PC_FIFO_BF16_256p_16prompts",
   "selection_seed": 20261017,
   "prompt_source": "reference\\DeepForcing\\prompts\\MovieGenVideoBench.txt",
   "prompt_source_sha256": "005fac9ec760bf9c98b9442f1cce9f1b5d5c6911f1836107feecbb0c564b4bbd",

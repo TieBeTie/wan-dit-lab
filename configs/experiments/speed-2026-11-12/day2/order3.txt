@@ -1,0 +1,9 @@
+final-loss3-544x960-win24-s0
+final-loss3-544x960-win24-s1
+final-loss3-544x960-win24-s2
+final-drift12-544x960-win24-s0
+final-drift12-512x928-win32-s0
+final-drift12-544x960-win24-s1
+final-drift12-512x928-win32-s1
+final-drift12-544x960-win24-s2
+final-drift12-512x928-win32-s2

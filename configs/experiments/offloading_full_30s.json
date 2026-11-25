@@ -2,7 +2,7 @@
   "id": "offloading_full_pipeline_30s",
   "status": "redesign_required",
   "scope": "T5 -> causal DiT -> streaming TAEHV -> MP4; one ordered resource plan",
-  "output": "outputs/experiments/2026-10-18/12_Offloading_full_pipeline_30s",
+  "output": "D:/Experiments/DIT/outputs/experiments/2026-10-18/12_Offloading_full_pipeline_30s",
   "common": {
     "prompt": "New York City submerged like Atlantis. Fish, whales, sea turtles and sharks swim through the streets of New York.",
     "seed": 1704515217,

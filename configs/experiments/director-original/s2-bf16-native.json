@@ -37,10 +37,16 @@
     },
     "kernels": {
       "attention": "torch_sdpa",
+      "fuse": {
+        "rope_into_sage": false,
+        "qkv": false,
+        "gelu_mlp": false
+      },
       "cross_attention": [
         "math"
       ],
       "linear": "torch_bf16",
+      "lora_sum": "atomic",
       "kv_cache": "bfloat16",
       "kv_store": "torch",
       "rope": "longlive_triton",
@@ -61,6 +67,7 @@
       ]
     },
     "seed": 0,
+    "cache_write": "clean_pass",
     "offloading": {
       "enabled": true,
       "calibration": "if_needed",
@@ -72,14 +79,18 @@
       "vram_margin_gib": 1.5,
       "t5_activations_gib": 0.33,
       "t5": {
-        "resident_gib": 1.0
-      }
+        "resident_gib": 1.0,
+        "prefetch_tolerance": 0.0
+      },
+      "prefetch_fps_tolerance": 0.5,
+      "ram_margin_fraction": 0.0
     },
     "output": {
-      "directory": "outputs/s2-bf16-native",
+      "directory": "D:/Experiments/DIT/outputs/s2-bf16-native",
       "codec": "libx264",
       "crf": 16,
       "pixel_format": "yuv420p"
-    }
+    },
+    "debug": false
   }
 ]

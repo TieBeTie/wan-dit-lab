@@ -1,0 +1,108 @@
+[
+ {
+  "component": "export",
+  "compiler": "torch_aot_inductor",
+  "rebuild": "if_missing_or_changed",
+  "output": "artifacts/live/704x1280-res-descent-native",
+  "model": {
+   "architecture": "checkpoints/Wan2.2-TI2V-5B/config.json",
+   "checkpoint": "checkpoints/LongLive-2.0-5B-S2/model_te.pt",
+   "block_weights": "artifacts/longlive2_5b_s2_blocks_fused.w4a4",
+   "text_encoder": {
+    "precision": "bfloat16",
+    "checkpoint": "checkpoints/Wan2.1-T2V-1.3B/models_t5_umt5-xxl-enc-bf16.pth",
+    "block_weights": "artifacts/t5_bf16.bin",
+    "tokenizer": "checkpoints/Wan2.1-T2V-1.3B/google/umt5-xxl"
+   },
+   "decoder": "reference/taehv/taew2_2.pth"
+  },
+  "video": {
+   "size": "704x1280",
+   "fps": 24
+  },
+  "sampling": {
+   "algorithm": "unipc",
+   "steps": 2,
+   "timestep_shift": 5.0
+  },
+  "context": {
+   "chunk_frames": 8,
+   "window_frames": 32,
+   "sink_frames": 8
+  },
+  "rope": {
+   "interpolate": false,
+   "native_size": "704x1280",
+   "scene_offset_frames": 8
+  },
+  "kernels": {
+   "attention": "sage_sm89",
+   "fuse": {
+    "rope_into_sage": false,
+    "qkv": true,
+    "gelu_mlp": true
+   },
+   "cross_attention": [
+    "efficient"
+   ],
+   "linear": "nunchaku_w4a4",
+   "lora_sum": "atomic",
+   "kv_cache": "fp8_e4m3fn",
+   "kv_store": "triton",
+   "rope": "longlive_triton",
+   "rope_dtype": "float32"
+  }
+ },
+ {
+  "component": "generate",
+  "packages_from": "export",
+  "mode": "offline",
+  "prompts": {
+   "source": "script",
+   "file": "configs/experiments/res-descent-2026-11-08/576/ntk-sweep/scenes-3chunk.json",
+   "chains": [
+    "teacup_pour",
+    "fox_runs"
+   ]
+  },
+  "seed": 1,
+  "cache_write": "clean_pass",
+  "offloading": {
+   "enabled": true,
+   "calibration": "if_needed",
+   "resources": {
+    "block_weights": "auto",
+    "kv_cache": "auto"
+   },
+   "copy_spare": 1.1,
+   "t5": {
+    "activations": "auto",
+    "resident": "auto",
+    "prefetch_tolerance": 0.0
+   },
+   "vram_margin_fraction": 0.0,
+   "ram_margin_fraction": 0.0,
+   "prefetch_fps_tolerance": 0.5,
+   "policy": "greedy_vram"
+  },
+  "output": {
+   "directory": "D:/Experiments/DIT/outputs/res-descent-2026-11-09/ntk-curve/template",
+   "codec": "libx264",
+   "crf": 16,
+   "pixel_format": "yuv420p"
+  },
+  "debug": [
+   "fps",
+   "memory"
+  ],
+  "drain": {
+   "every": "end"
+  },
+  "descent": {
+   "attn_logit_scale": 1.0,
+   "timestep_shift": null,
+   "reference": null,
+   "noise": "native_spectral"
+  }
+ }
+]

@@ -1,0 +1,6 @@
+{
+  "comment": "16 quasi-random (Sobol, scrambled, seed 3) points over a wide box after the CMA search: are there minima far from M of the grid ratio (22/19, 40/35)?",
+  "count": 16,
+  "sobol_seed": 3,
+  "space": [{"name": "height", "low": 0.7, "high": 3.5}, {"name": "width", "low": 0.7, "high": 3.5}, {"name": "ntk_pi_mix", "low": 0.0, "high": 1.0}]
+}

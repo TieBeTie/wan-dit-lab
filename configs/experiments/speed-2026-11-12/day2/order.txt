@@ -1,0 +1,16 @@
+sagecross-loss3-512x928-s0
+sagecross-loss3-512x928-s1
+sagecross-loss3-512x928-s2
+sagecross-fps-fresh-512x928-win32
+sagecross-fps-fresh-512x928-win24
+loss3-544x960-s0
+loss3-544x960-s1
+loss3-544x960-s2
+drift12-544x960-win32-s0
+drift12-544x960-win32-s1
+drift12-544x960-win32-s2
+fps-fresh-544x960-win32
+drift12-544x960-win24-s0
+drift12-544x960-win24-s1
+drift12-544x960-win24-s2
+fps-fresh-544x960-win24

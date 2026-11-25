@@ -25,7 +25,7 @@
   "execution": "Same placements as the Self-Forcing guarded profile; LongLive runs use window 12, sink 3 (its training). Calibration taken from the Self-Forcing 5 s run: same block shapes.",
   "resource_cost_model": {
     "profile": "guarded",
-    "calibration": "outputs/experiments/2026-10-19/22_Calibrated_prefetch_5s/calibration_uniform_live.json"
+    "calibration": "D:/Experiments/DIT/outputs/experiments/2026-10-19/22_Calibrated_prefetch_5s/calibration_uniform_live.json"
   },
   "packed_dit_weights": "artifacts/longlive_dit_blocks.bf16",
   "commit_in_attention": true,

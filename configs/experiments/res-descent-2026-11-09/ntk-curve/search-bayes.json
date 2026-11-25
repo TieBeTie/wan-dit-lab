@@ -1,0 +1,43 @@
+{
+ "search": {
+  "template": "configs/experiments/res-descent-2026-11-09/ntk-curve/template.json",
+  "sizes": [
+   "640x1184",
+   "608x1120",
+   "576x1056"
+  ],
+  "range": [
+   0.95,
+   1.3
+  ],
+  "budget": 15,
+  "scenes": {
+   "fox_runs": 2.0,
+   "teacup_pour": 1.0
+  },
+  "reference": "D:/Experiments/DIT/outputs/res-descent-2026-11-08/ntk-curve/ref704-seed0/2026-11-08_1822-26208",
+  "configs": "configs/experiments/res-descent-2026-11-09/ntk-curve/points",
+  "output": "D:/Experiments/DIT/outputs/res-descent-2026-11-09/ntk-curve",
+  "packages": "artifacts/live",
+  "python": ".venv/Scripts/python.exe",
+  "evaluate_args": [
+   "--device",
+   "cuda",
+   "--every",
+   "2"
+  ],
+  "method": "bayes",
+  "bayes": {
+   "initial": 0.3,
+   "step": 0.005,
+   "length": [
+    0.5,
+    0.25
+   ],
+   "noise_sd": 0.02
+  },
+  "excluded": {
+   "672x1216": "KV 4.7 GB fits neither VRAM under the 1 GiB margin nor free RAM (5.7 of 15.7 GB), 2026-11-09"
+  }
+ }
+}

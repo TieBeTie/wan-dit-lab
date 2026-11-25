@@ -1,6 +1,6 @@
 {
   "base": "configs/base/live_512x928.json",
-  "report_dir": "C:/Users/ramaf/Documents/Experiments/DIT/outputs/experiments/2026-10-26/RoPE_Triton/20261026T125141885037Z",
+  "report_dir": "D:/Experiments/DIT/outputs/experiments/2026-10-26/RoPE_Triton/20261026T125141885037Z",
   "run": {
     "mode": "benchmark"
   },

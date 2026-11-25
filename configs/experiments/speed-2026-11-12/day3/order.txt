@@ -1,0 +1,10 @@
+loss3-544x992-sc-s0
+loss3-544x992-sc-s1
+loss3-544x992-sc-s2
+drift12-544x992-sc-s0
+drift12-544x960-sc-s0
+drift12-544x992-sc-s1
+drift12-544x960-sc-s1
+drift12-544x992-sc-s2
+drift12-544x960-sc-s2
+fps-live-544x992-win32

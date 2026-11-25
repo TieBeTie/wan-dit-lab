@@ -90,6 +90,6 @@
   "compare": {
     "name": "fp8pack_cudnn_vs_sage1"
   },
-  "output": "outputs/experiments/2026-10-20/15_LongLive2_FP8_пакет_704x1280",
+  "output": "D:/Experiments/DIT/outputs/experiments/2026-10-20/15_LongLive2_FP8_пакет_704x1280",
   "calibration_note": "480p calibration reused: the 704x1280 probes spill every resource to disk and the disk is short while model_te.pt downloads"
 }

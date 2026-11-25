@@ -4,7 +4,7 @@
   "common": {
     "latent_frames": 48
   },
-  "output": "outputs/experiments/2026-10-22/06_W4A4_кросс-внимание_BF16_512x928",
+  "output": "D:/Experiments/DIT/outputs/experiments/2026-10-22/06_W4A4_кросс-внимание_BF16_512x928",
   "execution": {
     "resource_budgets": {
       "ram_gib": 9.0,

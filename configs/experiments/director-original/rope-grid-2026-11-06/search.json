@@ -1,0 +1,23 @@
+{
+  "search": {
+    "note": "Grid over the NTK stretch (M = (704/512)^stretch; m0727 is stretch -1) and the attention logit scale, three prompts, against the 704x1280 W4A4 originals; then a finer grid around the best. Run: bin\\wan.exe search --config configs/experiments/director-original/rope-grid-2026-11-06/search.json",
+    "base": "configs/experiments/director-original/three-prompts-2026-11-06/m0727.json",
+    "configs": "configs/experiments/director-original/rope-grid-2026-11-06/points",
+    "output": "D:/Experiments/DIT/outputs/quality-search/rope-grid-2026-11-06",
+    "packages": "artifacts/live/512x928-s2-w4a4-rope-grid-2026-11-06",
+    "prompts": {
+      "source": "script",
+      "file": "C:/Inner Firmament/Growth Space/Projects/Software/ML/wan-dit-lab/configs/experiments/director-original/ntk-sweep-100-120-2026-11-04/scenes.json",
+      "chains": ["teacup_pour", "astronaut_3_3_4_5", "small_fox_snowy_cabin"]
+    },
+    "axes": [
+      {"path": "export.rope.stretch", "values": [-1.5, -1.25, -1.0, -0.75, -0.5, 0.0]},
+      {"path": "export.rope.attn_logit_scale", "values": [0.9, 0.95, 1.0, 1.05, 1.1]}
+    ],
+    "reference": "D:/Experiments/DIT/outputs/quality-search/three-prompts-2026-11-06/evaluation/reference",
+    "metric": "clip_reference",
+    "lower_is_better": false,
+    "refine": {"rounds": 1, "values_per_axis": 5},
+    "evaluate_args": ["--no-dino"]
+  }
+}

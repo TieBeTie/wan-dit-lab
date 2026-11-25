@@ -1,0 +1,29 @@
+{
+  "source": "KV window 32/24/16 on 608x1120 and 704x1280 2026-11-11: the scenes of scenes-3chunk.json (res-descent-2026-11-08), 6 chunks each, so the ring fills and evicts.",
+  "chunks": 6,
+  "chains": [
+    {
+      "id": "teacup_pour",
+      "steps": [
+        {
+          "cut": "new",
+          "text": "A close-up shot of a ceramic teacup slowly pouring water into a glass mug. The water flows smoothly from the spout of the teacup into the mug, creating gentle ripples as it fills up. Both cups have detailed textures, with the teacup having a matte finish and the glass mug showcasing clear transparency. The background is a blurred kitchen countertop, adding context without distracting from the central action. The pouring motion is fluid and natural, emphasizing the interaction between the two cups.",
+          "chunks": 6
+        }
+      ]
+    },
+    {
+      "id": "fox_runs",
+      "camera": "Wide shot, static camera",
+      "steps": [
+        {
+          "cut": "new",
+          "card": "A small wooden cabin with a snow-covered roof stands in a snowy clearing surrounded by evergreen trees. The entire cabin and the open snow in front of it are visible.",
+          "action": "A small red fox with four visible legs and a bushy white-tipped tail runs from left to right across the snow in front of the cabin. The cabin remains in the background.",
+          "light": "soft daylight",
+          "chunks": 6
+        }
+      ]
+    }
+  ]
+}

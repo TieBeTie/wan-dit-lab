@@ -6,12 +6,12 @@
     "local_attn_size": 32
   },
   "use_ema": false,
-  "output_folder": "C:\\Users\\ramaf\\Documents\\Experiments\\DIT\\outputs\\director-original\\original-offloaded",
+  "output_folder": "D:\\Experiments\\DIT\\outputs\\director-original\\original-offloaded",
   "num_samples": 1,
   "save_latents_only": false,
   "num_output_frames": 128,
   "data": {
-    "data_path": "C:\\Users\\ramaf\\Documents\\Experiments\\DIT\\outputs\\director-original\\official-prompts",
+    "data_path": "D:\\Experiments\\DIT\\outputs\\director-original\\official-prompts",
     "image_or_video_shape": [
       1,
       128,

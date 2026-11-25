@@ -82,6 +82,6 @@
   "compare": {
     "name": "steps4_vs_steps2"
   },
-  "output": "outputs/experiments/2026-10-20/12_LongLive2_шаги_704x1280",
+  "output": "D:/Experiments/DIT/outputs/experiments/2026-10-20/12_LongLive2_шаги_704x1280",
   "calibration_note": "480p calibration reused: the 704x1280 probes spill every resource to disk and the disk is short while model_te.pt downloads"
 }

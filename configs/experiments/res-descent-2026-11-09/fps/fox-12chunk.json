@@ -1,0 +1,19 @@
+{
+  "source": "FPS of the clean descent 2026-11-09: the running fox of small_fox_snowy_cabin, 6 chunks (window 32 latent frames full from chunk 5).",
+  "chunks": 6,
+  "chains": [
+    {
+      "id": "fox_runs",
+      "camera": "Wide shot, static camera",
+      "steps": [
+        {
+          "cut": "new",
+          "card": "A small wooden cabin with a snow-covered roof stands in a snowy clearing surrounded by evergreen trees. The entire cabin and the open snow in front of it are visible.",
+          "action": "A small red fox with four visible legs and a bushy white-tipped tail runs from left to right across the snow in front of the cabin. The cabin remains in the background.",
+          "light": "soft daylight",
+          "chunks": 6
+        }
+      ]
+    }
+  ]
+}

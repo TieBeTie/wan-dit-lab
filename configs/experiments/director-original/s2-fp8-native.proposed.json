@@ -37,10 +37,16 @@
     },
     "kernels": {
       "attention": "torch_sdpa",
+      "fuse": {
+        "rope_into_sage": false,
+        "qkv": false,
+        "gelu_mlp": false
+      },
       "cross_attention": [
         "math"
       ],
       "linear": "torch_fp8",
+      "lora_sum": "atomic",
       "kv_cache": "bfloat16",
       "kv_store": "torch",
       "rope": "longlive_triton",
@@ -61,6 +67,7 @@
       ]
     },
     "seed": 0,
+    "cache_write": "clean_pass",
     "offloading": {
       "enabled": true,
       "calibration": "if_needed",
@@ -71,12 +78,15 @@
       "copy_spare": 1.1,
       "t5": {
         "activations": "auto",
-        "resident": "auto"
+        "resident": "auto",
+        "prefetch_tolerance": 0.0
       },
-      "vram_margin_fraction": 0.1875
+      "vram_margin_fraction": 0.1875,
+      "prefetch_fps_tolerance": 0.5,
+      "ram_margin_fraction": 0.0
     },
     "output": {
-      "directory": "outputs/s2-fp8-native-original",
+      "directory": "D:/Experiments/DIT/outputs/s2-fp8-native-original",
       "codec": "libx264",
       "crf": 16,
       "pixel_format": "yuv420p"

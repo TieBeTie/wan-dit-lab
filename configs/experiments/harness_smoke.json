@@ -1,5 +1,5 @@
 {
-  "base": "configs/experiments/live.json",
+  "base": "configs/experiments/mvp1.json",
   "run": {"mode": "benchmark"},
   "harness": {
     "warmup_chunks": 6,

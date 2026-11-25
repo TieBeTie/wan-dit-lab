@@ -1,7 +1,7 @@
 {
   "seed": 20261026,
   "summary_case": "video_b1_bf16",
-  "output_dir": "C:/Users/ramaf/Documents/Experiments/DIT/outputs/experiments/2026-10-26/RoPE_Triton",
+  "output_dir": "D:/Experiments/DIT/outputs/experiments/2026-10-26/RoPE_Triton",
   "cases": [
     {
       "name": "small_b1",

@@ -1,0 +1,103 @@
+[
+  {
+    "compiler": "torch_aot_inductor",
+    "component": "export",
+    "context": {
+      "chunk_frames": 8,
+      "sink_frames": 8,
+      "window_frames": 32
+    },
+    "kernels": {
+      "attention": "sage_sm89",
+      "cross_attention": [
+        "efficient"
+      ],
+      "fuse": {
+        "gelu_mlp": true,
+        "qkv": true,
+        "rope_into_sage": false
+      },
+      "kv_cache": "fp8_e4m3fn",
+      "kv_store": "triton",
+      "linear": "nunchaku_w4a4",
+      "lora_sum": "atomic",
+      "rope": "longlive_triton",
+      "rope_dtype": "float32"
+    },
+    "model": {
+      "architecture": "checkpoints/Wan2.2-TI2V-5B/config.json",
+      "block_weights": "artifacts/longlive2_5b_s2_blocks_fused.w4a4",
+      "checkpoint": "checkpoints/LongLive-2.0-5B-S2/model_te.pt",
+      "decoder": "reference/taehv/taew2_2.pth",
+      "text_encoder": {
+        "block_weights": "artifacts/t5_bf16.bin",
+        "checkpoint": "checkpoints/Wan2.1-T2V-1.3B/models_t5_umt5-xxl-enc-bf16.pth",
+        "precision": "bfloat16",
+        "tokenizer": "checkpoints/Wan2.1-T2V-1.3B/google/umt5-xxl"
+      }
+    },
+    "output": "artifacts/live/512x928-s2-w4a4-rope-grid-2026-11-06-current",
+    "rebuild": "if_missing_or_changed",
+    "rope": {
+      "attn_logit_scale": 1.05,
+      "by_parts": null,
+      "interpolate": true,
+      "native_size": "704x1280",
+      "ntk_aware": true,
+      "scene_offset_frames": 8,
+      "stretch": -1.25
+    },
+    "sampling": {
+      "algorithm": "unipc",
+      "steps": 2,
+      "timestep_shift": 5.0
+    },
+    "video": {
+      "fps": 24,
+      "size": "512x928"
+    }
+  },
+  {
+    "component": "generate",
+    "debug": "fps",
+    "drain": {
+      "every": "end"
+    },
+    "mode": "offline",
+    "offloading": {
+      "calibration": "if_needed",
+      "copy_spare": 1.1,
+      "enabled": true,
+      "prefetch_fps_tolerance": 0.5,
+      "ram_margin_fraction": 0.125,
+      "resources": {
+        "block_weights": "disk",
+        "kv_cache": "vram"
+      },
+      "t5": {
+        "activations": "auto",
+        "prefetch_tolerance": 0.0,
+        "resident": "auto"
+      },
+      "vram_margin_fraction": 0.1875
+    },
+    "output": {
+      "codec": "libx264",
+      "crf": 16,
+      "directory": "D:/Experiments/DIT/outputs/quality-search/rope-grid-2026-11-06\\points\\r0-p09",
+      "pixel_format": "yuv420p"
+    },
+    "packages_from": "export",
+    "prompts": {
+      "chains": [
+        "teacup_pour",
+        "astronaut_3_3_4_5",
+        "small_fox_snowy_cabin"
+      ],
+      "file": "C:/Inner Firmament/Growth Space/Projects/Software/ML/wan-dit-lab/configs/experiments/director-original/ntk-sweep-100-120-2026-11-04/scenes.json",
+      "source": "script"
+    },
+    "seed": 0,
+    "cache_write": "clean_pass"
+  }
+]

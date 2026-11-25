@@ -822,7 +822,7 @@
       }
     }
   ],
-  "output": "outputs/experiments/2026-10-22/05_Ускорения_на_смене_промпта_512x928",
+  "output": "D:/Experiments/DIT/outputs/experiments/2026-10-22/05_Ускорения_на_смене_промпта_512x928",
   "execution": {
     "resource_budgets": {
       "ram_gib": 9.0,

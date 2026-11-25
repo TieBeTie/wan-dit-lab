@@ -1,0 +1,84 @@
+{
+  "seed": 0,
+  "size": "512x928",
+  "scenes": [
+    "teacup_pour"
+  ],
+  "note": "One scene (teacup) per variant, by Karina's request: a theoretical check needs one video. Main group first, then below1. Reused videos are not regenerated.",
+  "exe": "wan-ntk-sweep.exe (copy of target/release/wan.exe built after the attn_logit_scale and timestep_shift contract change)",
+  "reused": {
+    "reference_704x1280": "D:\\Experiments\\DIT\\outputs\\quality-search\\point-b2-w4a4-sage-704x1280\\2026-11-03_1821-20736\\teacup_pour.mp4",
+    "ntk110_plain": "D:\\Experiments\\DIT\\outputs\\quality-search\\ntk-sweep-100-120-2026-11-04\\m110\\2026-11-04_0656-17188/teacup_pour.mp4"
+  },
+  "runs": [
+    {
+      "group": "main",
+      "tag": "l093-s500",
+      "config": "configs/experiments/director-original/ntk110-lambda-shift-2026-11-06/l093-s500.json",
+      "M_H": 1.1,
+      "stretch": 0.2992905106483072,
+      "attn_logit_scale": 0.93,
+      "timestep_shift": 5.0
+    },
+    {
+      "group": "main",
+      "tag": "l100-s363",
+      "config": "configs/experiments/director-original/ntk110-lambda-shift-2026-11-06/l100-s363.json",
+      "M_H": 1.1,
+      "stretch": 0.2992905106483072,
+      "attn_logit_scale": 1.0,
+      "timestep_shift": 3.63
+    },
+    {
+      "group": "main",
+      "tag": "l093-s363",
+      "config": "configs/experiments/director-original/ntk110-lambda-shift-2026-11-06/l093-s363.json",
+      "M_H": 1.1,
+      "stretch": 0.2992905106483072,
+      "attn_logit_scale": 0.93,
+      "timestep_shift": 3.63
+    },
+    {
+      "group": "below1",
+      "tag": "m0909",
+      "config": "configs/experiments/director-original/ntk110-lambda-shift-2026-11-06/m0909.json",
+      "M_H": 0.9090909090909091,
+      "stretch": -0.2992905106483071,
+      "attn_logit_scale": 1.0,
+      "timestep_shift": 5.0
+    },
+    {
+      "group": "below1",
+      "tag": "m0950",
+      "config": "configs/experiments/director-original/ntk110-lambda-shift-2026-11-06/m0950.json",
+      "M_H": 0.95,
+      "stretch": -0.16106984900879753,
+      "attn_logit_scale": 1.0,
+      "timestep_shift": 5.0
+    },
+    {
+      "group": "below1",
+      "tag": "m0727",
+      "config": "configs/experiments/director-original/ntk110-lambda-shift-2026-11-06/m0727.json",
+      "M_H": 0.7272727272727273,
+      "stretch": -1.0,
+      "attn_logit_scale": 1.0,
+      "timestep_shift": 5.0
+    },
+    {
+      "group": "frequency_aware",
+      "tag": "fa110",
+      "config": "configs/experiments/director-original/ntk110-lambda-shift-2026-11-06/fa110.json",
+      "M_H": 1.1,
+      "stretch": 0.2992905106483072,
+      "attn_logit_scale": 1.0,
+      "timestep_shift": 5.0,
+      "profile": "frequency_aware (Lumina-Next anchor), one teacup video, added by Karina's permission"
+    }
+  ],
+  "queued_after": [
+    "configs/experiments/director-original/ntk-sweep-110-115-2026-11-06/m111.json",
+    "m1125.json",
+    "m114.json (three scenes, seed 0)"
+  ]
+}

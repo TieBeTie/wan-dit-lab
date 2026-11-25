@@ -91,6 +91,6 @@
   "compare": {
     "name": "fp8_tensor_vs_row"
   },
-  "output": "outputs/experiments/2026-10-20/13_LongLive2_FP8_704x1280",
+  "output": "D:/Experiments/DIT/outputs/experiments/2026-10-20/13_LongLive2_FP8_704x1280",
   "calibration_note": "480p calibration reused: the 704x1280 probes spill every resource to disk and the disk is short while model_te.pt downloads"
 }

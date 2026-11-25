@@ -25,7 +25,7 @@
       "prefetch": true
     }
   },
-  "output": "outputs/experiments/2026-10-22/07_Отбор_смен_промпта_512x928",
+  "output": "D:/Experiments/DIT/outputs/experiments/2026-10-22/07_Отбор_смен_промпта_512x928",
   "runs": [
     {
       "id": "hacker_swap",

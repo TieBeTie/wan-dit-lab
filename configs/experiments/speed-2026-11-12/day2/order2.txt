@@ -1,0 +1,6 @@
+resident-vram-512x928-win32
+copyspare15-512x928-win32
+sagecross-fps-544x960-win32
+sagecross-atomic-margin0-fps-544x960-win32
+sagecross-fps-544x960-win24
+sagecross-atomic-margin0-fps-544x960-win24
