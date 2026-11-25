@@ -6,7 +6,7 @@
 
 $$
 s_i=\frac{\max(\max_j|x_{ij}|,10^{-12})}{448},
-\qquad C_{a+i,j}\leftarrow\operatorname{FP8}_{E4M3FN}(x_{ij}/s_i).
+\qquad C_{a+i,j}\leftarrow\mathrm{FP8}_{E4M3FN}(x_{ij}/s_i).
 $$
 
 Шкалы FP32. K/V могут иметь разные типы FP16, BF16, FP32 и разные strides.
