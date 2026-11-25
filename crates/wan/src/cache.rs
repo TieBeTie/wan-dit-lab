@@ -139,6 +139,29 @@ impl Ring {
         }
     }
 
+    /// The static frame mask of block-sparse attention for the next chunk: for each block of `block` tokens of the
+    /// buffer [0, max_tokens + n), 1 if the chunk's attention may run it. The chunk itself is always allowed; the
+    /// sink, and a pinned chunk (the sink of its shot), only with `sink`; the other frames of the ring if they are
+    /// among the `recent_frames` before the chunk. A block across frames is allowed if any of its tokens is.
+    pub fn allowed_key_blocks(&self, sink: bool, recent_frames: usize, block: usize) -> Vec<i32> {
+        let at = self.saved;
+        let token = |t: usize| {
+            if (at..at + self.n).contains(&t) {
+                true
+            } else if t < self.sink.min(at) {
+                sink
+            } else if t < at {
+                let slot = t - self.sink;
+                if self.pinned[slot] { sink } else { self.frame_of[slot] + recent_frames >= self.frames }
+            } else {
+                false
+            }
+        };
+        (0..self.max_tokens + self.n).step_by(block)
+            .map(|start| (start..(start + block).min(self.max_tokens + self.n)).any(token) as i32)
+            .collect()
+    }
+
     /// Empties the caches: a new video.
     pub fn reset(&mut self) {
         let fresh = Ring::new(self.max_tokens, self.sink, self.chunk, self.per_frame);
@@ -181,6 +204,29 @@ impl Buffers {
         ]
     }
 
+    /// The rows of `tokens` (FP8 keys, their scales, FP8 values, their scales), copied to the host after the work
+    /// queued on `stream` (debug kv_write, kvwrite.rs).
+    pub fn read_tokens(&self, tokens: &[usize], stream: &Stream) -> Result<(Vec<u8>, Vec<f32>, Vec<u8>, Vec<f32>)> {
+        let [_, _, h, d] = self.shape;
+        let (h, d) = (h as usize, d as usize);
+        if self.format != Format::Fp8 {
+            return Err("debug kv_write reads FP8 caches only".into());
+        }
+        let value = self.format.token_bytes(h, d)[0];
+        let scale = h * 4;
+        let (mut k, mut v) = (vec![0u8; tokens.len() * value], vec![0u8; tokens.len() * value]);
+        let (mut ks, mut vs) = (vec![0u8; tokens.len() * scale], vec![0u8; tokens.len() * scale]);
+        for (i, &t) in tokens.iter().enumerate() {
+            stream.copy_to_host(&mut k[i * value..(i + 1) * value], self.k.at(t * value))?;
+            stream.copy_to_host(&mut v[i * value..(i + 1) * value], self.v.at(t * value))?;
+            stream.copy_to_host(&mut ks[i * scale..(i + 1) * scale], self.ks.at(t * scale))?;
+            stream.copy_to_host(&mut vs[i * scale..(i + 1) * scale], self.vs.at(t * scale))?;
+        }
+        stream.synchronize()?;
+        let floats = |b: Vec<u8>| b.chunks_exact(4).map(|c| f32::from_le_bytes(c.try_into().unwrap())).collect::<Vec<f32>>();
+        Ok((k, floats(ks), v, floats(vs)))
+    }
+
     /// Applies the copies of a commit on `stream`, after attention there has read the tokens.
     pub fn copy(&self, copies: &[Copy], stream: &Stream) -> Result<()> {
         let [_, _, h, d] = self.shape;
@@ -196,7 +242,7 @@ impl Buffers {
 }
 
 /// The KV caches of the blocks kept in pinned RAM, with two sets of GPU buffers as slots (the KV cache offloaded,
-/// configs/live.json). Before a block, the part of its cache attention reads ([0, at)) is copied to a slot; after the
+/// configs/mvp1.json). Before a block, the part of its cache attention reads ([0, at)) is copied to a slot; after the
 /// pass that writes the clean chunk, the commit's copies are done in the slot and only the tokens they wrote go back to
 /// RAM (the other passes' writes of the chunk are overwritten by the next pass anyway). Copies to the GPU and back run
 /// on streams of their own, a block ahead of compute.
@@ -565,6 +611,58 @@ mod tests {
             }
         }
         assert!(commits.next().is_none());
+    }
+
+    /// 2 tokens a frame, chunks of 2 frames, a window of 8: the sink is frames 0 and 1, the ring 4 frames.
+    fn small() -> Ring { Ring::new(6 * 2, 2 * 2, 2, 2) }
+
+    #[test]
+    fn the_chunk_always_attends_to_itself() {
+        let ring = small();
+        assert_eq!(ring.allowed_key_blocks(true, 4, 2), [1, 1, 0, 0, 0, 0, 0, 0]);
+        assert_eq!(ring.allowed_key_blocks(false, 0, 2), [1, 1, 0, 0, 0, 0, 0, 0]);
+    }
+
+    #[test]
+    fn the_sink_is_allowed_by_its_switch() {
+        let mut ring = small();
+        ring.commit();
+        assert_eq!(ring.allowed_key_blocks(true, 0, 2), [1, 1, 1, 1, 0, 0, 0, 0]);
+        assert_eq!(ring.allowed_key_blocks(false, 4, 2), [0, 0, 1, 1, 0, 0, 0, 0]);
+    }
+
+    #[test]
+    fn only_the_recent_frames_of_the_ring_are_allowed_wherever_the_ring_put_them() {
+        let mut ring = small();
+        for _ in 0..3 {
+            ring.commit();
+        } // the ring holds frames 2, 3 then 4, 5; the chunk, frames 6 and 7, goes to the last 4 tokens
+        assert_eq!(ring.allowed_key_blocks(true, 2, 2), [1, 1, 0, 0, 1, 1, 1, 1]);
+        assert_eq!(ring.allowed_key_blocks(true, 4, 2), [1, 1, 1, 1, 1, 1, 1, 1]);
+        assert_eq!(ring.allowed_key_blocks(true, 0, 2), [1, 1, 0, 0, 0, 0, 1, 1]);
+        ring.commit(); // frames 6, 7 over the oldest, 2 and 3: now first in the ring
+        assert_eq!(ring.allowed_key_blocks(true, 2, 2), [1, 1, 1, 1, 0, 0, 1, 1]);
+    }
+
+    #[test]
+    fn a_pinned_chunk_is_a_sink() {
+        let mut ring = small();
+        ring.commit();
+        ring.commit();
+        ring.pin_last(); // frames 2, 3, the first chunk of a shot
+        ring.commit();
+        ring.commit(); // frames 6, 7 over 4, 5: the pinned are not evicted
+        assert_eq!(ring.allowed_key_blocks(true, 0, 2), [1, 1, 1, 1, 0, 0, 1, 1]);
+        assert_eq!(ring.allowed_key_blocks(false, 0, 2), [0, 0, 0, 0, 0, 0, 1, 1]);
+    }
+
+    #[test]
+    fn a_block_across_frames_is_allowed_if_any_of_its_tokens_is() {
+        let mut ring = small();
+        for _ in 0..3 {
+            ring.commit();
+        }
+        assert_eq!(ring.allowed_key_blocks(false, 2, 3), [0, 0, 1, 1, 1, 1]);
     }
 
     #[test]

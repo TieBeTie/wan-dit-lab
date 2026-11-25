@@ -1,7 +1,7 @@
 //! The blocks' weights, one row of bytes per block (the W4A4 pack, block_w4a4_v2): some rows on the GPU for good,
-//! the others in pinned RAM and copied ahead of use into two GPU slots, as StreamedRows (offloading/offload.py)
-//! does. The rows are used in a fixed cycle (block 0 to 29 in every pass), so a slot freed by block j is refilled
-//! with the streamed row two places on in that cycle, the next pass's first rows included.
+//! the others in pinned RAM or staged from disk into independently sized RAM/VRAM windows.
+//! Rows follow a cyclic order. Calibration chooses window depths; a freed device slot is refilled one
+//! window ahead in that order, including the next pass's first rows.
 
 use std::fs::File;
 use std::path::Path;
@@ -9,11 +9,11 @@ use std::path::Path;
 use crate::disk::{open_unbuffered, read_row, span, SECTOR};
 use crate::gpu::{DeviceBuffer, Event, PinnedBuffer, Result, Stream};
 
-/// Where the streamed rows come from: pinned RAM (one buffer per row), or the pack file on the disk, read into two
+/// Where the streamed rows come from: pinned RAM (one buffer per row), or the pack file on the disk, read into
 /// pinned staging buffers.
 enum Source {
     Pinned(Vec<PinnedBuffer>),
-    Disk { file: File, staging: [PinnedBuffer; 2] },
+    Disk { file: File, staging: Vec<PinnedBuffer>, owners: Vec<Option<usize>> },
 }
 
 enum Place {
@@ -28,16 +28,20 @@ pub struct Rows {
     pack: std::path::PathBuf,
     /// block of each streamed row, in the order of use
     streamed: Vec<usize>,
-    /// two GPU slots for the streamed rows; none while parked
+    /// GPU slots for the streamed rows; none while parked
     slots: Vec<DeviceBuffer>,
-    copied: [Event; 2],
-    freed: [Event; 2],
+    copied: Vec<Event>,
+    freed: Vec<Event>,
     copy: Stream,
+    staging_count: usize,
+    device_count: usize,
     pub row_bytes: usize,
     /// the streamed row each slot holds, or is being filled with
-    holds: [usize; 2],
+    holds: Vec<usize>,
+    profile_cpu: std::cell::Cell<bool>,
+    cpu_stats: std::cell::RefCell<ProducerStats>,
     /// debug-tools: timed events around every wait of the compute stream for a row's copy
-    #[cfg(feature = "debug-tools")]
+    #[cfg(feature = "fps")]
     waits: std::cell::RefCell<Vec<(Event, Event)>>,
 }
 
@@ -51,12 +55,23 @@ impl Rows {
     /// `disk`; the rest on the GPU.
     pub fn load(pack: &Path, blocks: usize, row_bytes: usize, streamed: &[usize], disk: bool, stream: &Stream)
         -> std::io::Result<Rows> {
+        Self::load_with_staging(pack, blocks, row_bytes, streamed, disk, stream, 2)
+    }
+
+    fn load_with_staging(pack: &Path, blocks: usize, row_bytes: usize, streamed: &[usize], disk: bool, stream: &Stream, staging_count: usize)
+        -> std::io::Result<Rows> {
+        Self::load_with_slots(pack, blocks, row_bytes, streamed, disk, stream, staging_count, 2)
+    }
+
+    pub fn load_with_slots(pack: &Path, blocks: usize, row_bytes: usize, streamed: &[usize], disk: bool, stream: &Stream, staging_count: usize, device_count: usize)
+        -> std::io::Result<Rows> {
+        assert!(staging_count > 0 && device_count > 0);
         let io = |e: cudarc::driver::DriverError| std::io::Error::other(e.to_string());
         assert_eq!(std::fs::metadata(pack)?.len() as usize, blocks * row_bytes, "the pack has another size than its manifest says");
         // From the disk, the rows kept on the GPU go through the staging buffers too: a mapping of the pack would put
         // its pages into this process's working set (8.6 GiB for T5) and count them against the RAM reserve.
         let mut disk_source = if disk {
-            let staging = [PinnedBuffer::new(span(row_bytes)).map_err(io)?, PinnedBuffer::new(span(row_bytes)).map_err(io)?];
+            let staging = (0..staging_count).map(|_| PinnedBuffer::new(span(row_bytes)).map_err(io)).collect::<std::io::Result<Vec<_>>>()?;
             Some((open_unbuffered(pack)?, staging))
         } else {
             None
@@ -89,9 +104,9 @@ impl Rows {
         }
         drop(map);
         let copy = Stream::new().map_err(io)?;
-        let slots = vec![DeviceBuffer::new(row_bytes).map_err(io)?, DeviceBuffer::new(row_bytes).map_err(io)?];
+        let slots = (0..device_count).map(|_| DeviceBuffer::new(row_bytes).map_err(io)).collect::<std::io::Result<Vec<_>>>()?;
         let source = match disk_source {
-            Some((file, staging)) => Source::Disk { file, staging },
+            Some((file, staging)) => Source::Disk { file, staging, owners: vec![None; staging_count] },
             None => Source::Pinned(host),
         };
         let mut rows = Rows {
@@ -100,16 +115,20 @@ impl Rows {
             pack: pack.to_path_buf(),
             streamed: streamed.to_vec(),
             slots,
-            copied: [Event::new().map_err(io)?, Event::new().map_err(io)?],
-            freed: [Event::new().map_err(io)?, Event::new().map_err(io)?],
+            copied: (0..device_count).map(|_| Event::new().map_err(io)).collect::<std::io::Result<Vec<_>>>()?,
+            freed: (0..device_count).map(|_| Event::new().map_err(io)).collect::<std::io::Result<Vec<_>>>()?,
             copy,
+            staging_count,
+            device_count,
             row_bytes,
-            holds: [usize::MAX; 2],
-            #[cfg(feature = "debug-tools")]
+            holds: vec![usize::MAX; device_count],
+            profile_cpu: std::cell::Cell::new(false),
+            cpu_stats: Default::default(),
+            #[cfg(feature = "fps")]
             waits: Default::default(),
         };
-        for j in 0..rows.streamed.len().min(2) {
-            rows.fill(j % 2, j).map_err(io)?;
+        for j in 0..rows.streamed.len().min(rows.device_count) {
+            rows.fill(j, j).map_err(io)?;
         }
         Ok(rows)
     }
@@ -119,12 +138,22 @@ impl Rows {
         self.copy.wait(&self.freed[slot])?;
         match &mut self.source {
             Source::Pinned(host) => self.copy.copy_to_device(self.slots[slot].ptr, host[j].as_slice())?,
-            Source::Disk { file, staging } => {
+            Source::Disk { file, staging, owners } => {
                 // the staging buffer's last row is on the GPU, then this row is read into it
-                self.copied[slot].synchronize()?;
-                let at = read_row(file, self.streamed[j], self.row_bytes, staging[slot].as_mut_slice())
+                let stage = j % staging.len();
+                let began = self.profile_cpu.get().then(std::time::Instant::now);
+                if let Some(owner) = owners[stage] { self.copied[owner].synchronize()?; }
+                let read_began = self.profile_cpu.get().then(std::time::Instant::now);
+                let at = read_row(file, self.streamed[j], self.row_bytes, staging[stage].as_mut_slice())
                     .map_err(|_| cudarc::driver::DriverError(cudarc::driver::sys::cudaError_enum::CUDA_ERROR_FILE_NOT_FOUND))?;
-                self.copy.copy_to_device(self.slots[slot].ptr, &staging[slot].as_slice()[at..at + self.row_bytes])?;
+                if let (Some(began), Some(read_began)) = (began, read_began) {
+                    let mut stats = self.cpu_stats.borrow_mut();
+                    stats.refills += 1;
+                    stats.staging_wait_ms += (read_began - began).as_secs_f64() * 1000.0;
+                    stats.disk_read_ms += read_began.elapsed().as_secs_f64() * 1000.0;
+                }
+                self.copy.copy_to_device(self.slots[slot].ptr, &staging[stage].as_slice()[at..at + self.row_bytes])?;
+                owners[stage] = Some(slot);
             }
         }
         self.copied[slot].record(&self.copy)?;
@@ -132,7 +161,7 @@ impl Rows {
         Ok(())
     }
 
-    /// The slot that holds streamed row j. Not j % 2: with an odd number of streamed rows the cycle wraps onto the
+    /// The slot that holds streamed row j. Not j % depth: with an unaligned number of rows the cycle wraps onto the
     /// other parity (row k - 1 frees the slot that row 1 of the next pass is copied into).
     fn slot_of(&self, j: usize) -> usize {
         self.holds.iter().position(|&h| h == j).expect("rows taken out of their cycle")
@@ -140,17 +169,18 @@ impl Rows {
 
     /// The row of `block` as a uint8 tensor for work on `compute`, which waits for its copy if it is streamed.
     pub fn row<const TIMED: bool>(&self, block: usize, compute: &Stream) -> Result<aoti::Tensor> {
+        if TIMED { self.profile_cpu.set(true); }
         let shape = [self.row_bytes as i64];
         match &self.places[block] {
             Place::Device(buffer) => Ok(buffer.tensor(0, aoti::DType::U8, &shape)),
             Place::Streamed(j) => {
                 let slot = self.slot_of(*j);
-                #[cfg(feature = "debug-tools")]
+                #[cfg(feature = "fps")]
                 let span = if TIMED { Some((Event::timed()?, Event::timed()?)) } else { None };
-                #[cfg(feature = "debug-tools")]
+                #[cfg(feature = "fps")]
                 if let Some((start, _)) = &span { start.record(compute)?; }
                 compute.wait(&self.copied[slot])?;
-                #[cfg(feature = "debug-tools")]
+                #[cfg(feature = "fps")]
                 if let Some((start, end)) = span {
                     end.record(compute)?;
                     self.waits.borrow_mut().push((start, end));
@@ -160,12 +190,12 @@ impl Rows {
         }
     }
 
-    /// `block`'s work is queued on `compute`: its slot gets the streamed row two on in the cycle.
+    /// `block`'s work is queued on `compute`: refill its slot one window ahead in the cycle.
     pub fn release(&mut self, block: usize, compute: &Stream) -> Result<()> {
         if let Place::Streamed(j) = self.places[block] {
             let slot = self.slot_of(j);
             self.freed[slot].record(compute)?;
-            self.fill(slot, (j + 2) % self.streamed.len())?;
+            self.fill(slot, (j + self.device_count.min(self.streamed.len())) % self.streamed.len())?;
         }
         Ok(())
     }
@@ -175,7 +205,7 @@ impl Rows {
     pub fn keep_on_device(&mut self, streamed: &[usize], compute: &Stream) -> Result<()> {
         compute.synchronize()?;
         self.copy.synchronize()?;
-        if let Source::Disk { file, staging } = &mut self.source {
+        if let Source::Disk { file, staging, .. } = &mut self.source {
             // through the staging buffer, as Rows::load: a mapping would count the pack's pages against the reserve
             let missing = |_| cudarc::driver::DriverError(cudarc::driver::sys::cudaError_enum::CUDA_ERROR_FILE_NOT_FOUND);
             let mut kept = Vec::new();
@@ -193,8 +223,8 @@ impl Rows {
                 }
             }
             self.streamed = kept;
-            self.holds = [usize::MAX; 2];
-            for j in 0..self.streamed.len().min(2) { self.fill(j % 2, j)?; }
+            self.holds.fill(usize::MAX);
+            for j in 0..self.streamed.len().min(self.device_count) { self.fill(j, j)?; }
             return Ok(());
         }
         let Source::Pinned(pinned) = std::mem::replace(&mut self.source, Source::Pinned(Vec::new())) else {
@@ -218,15 +248,18 @@ impl Rows {
         }
         self.source = Source::Pinned(kept);
         self.streamed = (0..self.places.len()).filter(|b| matches!(self.places[*b], Place::Streamed(_))).collect();
-        self.holds = [usize::MAX; 2];
-        for j in 0..self.streamed.len().min(2) {
-            self.fill(j % 2, j)?;
+        self.holds.fill(usize::MAX);
+        for j in 0..self.streamed.len().min(self.device_count) {
+            self.fill(j, j)?;
         }
         Ok(())
     }
 
     /// Milliseconds of one row's copy from pinned RAM to the GPU, alone on the copy stream (the median of three).
     pub fn time_copy(&self) -> Result<f32> {
+        // every row resident on the GPU (block_weights vram): no row is ever copied, nothing to time
+        let empty = match &self.source { Source::Pinned(host) => host.is_empty(), Source::Disk { staging, .. } => staging.is_empty() };
+        if empty { return Ok(0.0); }
         self.copy.synchronize()?;
         let target = DeviceBuffer::new(self.row_bytes)?;
         let (start, end) = (Event::timed()?, Event::timed()?);
@@ -247,9 +280,9 @@ impl Rows {
         Ok(times[1])
     }
 
-    /// debug-tools: of the waits for copies since the last call, how many were late (the compute stream stood more
+    /// Of the waits for copies since the last call, how many were late (the compute stream stood more
     /// than 0.05 ms), how many there were, and the milliseconds it stood in all. Waits for the GPU.
-    #[cfg(feature = "debug-tools")]
+    #[cfg(feature = "fps")]
     pub fn copy_waits(&self, compute: &Stream) -> Result<(usize, usize, f32)> {
         compute.synchronize()?;
         let waits = std::mem::take(&mut *self.waits.borrow_mut());
@@ -263,16 +296,16 @@ impl Rows {
         compute.synchronize()?;
         self.copy.synchronize()?;
         self.slots.clear();
-        self.holds = [usize::MAX; 2];
+        self.holds.fill(usize::MAX);
         Ok(())
     }
 
     /// Slots again, the first streamed rows copied into them.
     pub fn unpark(&mut self) -> Result<()> {
         if self.slots.is_empty() && !self.streamed.is_empty() {
-            self.slots = vec![DeviceBuffer::new(self.row_bytes)?, DeviceBuffer::new(self.row_bytes)?];
-            for j in 0..self.streamed.len().min(2) {
-                self.fill(j % 2, j)?;
+            self.slots = (0..self.device_count).map(|_| DeviceBuffer::new(self.row_bytes)).collect::<Result<Vec<_>>>()?;
+            for j in 0..self.streamed.len().min(self.device_count) {
+                self.fill(j, j)?;
             }
         }
         Ok(())
@@ -284,6 +317,61 @@ impl Rows {
 
     pub fn streamed(&self) -> usize {
         self.streamed.len()
+    }
+
+    pub fn slot_counts(&self) -> (usize, usize) { (self.staging_count, self.device_count) }
+
+    pub fn profile_cpu(&self, enabled: bool) { self.profile_cpu.set(enabled); }
+    pub fn producer_stats(&self) -> ProducerStats { *self.cpu_stats.borrow() }
+
+    /// Rebuild only transient windows. Immutable resident rows and KV placement are unchanged.
+    pub fn reconfigure(&mut self, host: usize, device: usize, compute: &Stream) -> Result<()> {
+        assert!(host > 0 && device > 0);
+        compute.synchronize()?; self.copy.synchronize()?;
+        self.slots.clear();
+        if let Source::Disk { staging, owners, .. } = &mut self.source {
+            staging.clear(); owners.clear();
+            for _ in 0..host { staging.push(PinnedBuffer::new(span(self.row_bytes))?); owners.push(None); }
+        }
+        self.staging_count = host; self.device_count = device;
+        self.copied = (0..device).map(|_| Event::new()).collect::<Result<Vec<_>>>()?;
+        self.freed = (0..device).map(|_| Event::new()).collect::<Result<Vec<_>>>()?;
+        self.holds = vec![usize::MAX; device];
+        self.unpark()
+    }
+
+    /// Enumerate all feasible depths; no fixed upper bound such as two or five slots.
+    pub fn calibrate_schedule(&mut self, read_ms: f64, copy_ms: f64, compute_ms: f64,
+        spare: f64, frames_per_pass: f64, fps_tolerance: f64, fixed_seconds_per_pass: f64, gpu_reserve: usize, compute: &Stream) -> crate::video::Result<serde_json::Value> {
+        compute.synchronize()?; self.copy.synchronize()?;
+        let n = self.streamed.len();
+        if n == 0 { return Ok(serde_json::json!({"reason":"all weight blocks resident"})); }
+        let host_budget = crate::budget::available()?.saturating_add(if self.on_disk() { self.pinned_bytes() } else { 0 });
+        let (free, _) = cudarc::driver::result::mem_get_info()?;
+        let device_budget = (free as usize).saturating_sub(gpu_reserve).saturating_add(self.slots.iter().map(|b| b.bytes).sum::<usize>());
+        let host_size = if self.on_disk() { span(self.row_bytes) } else { 0 };
+        let mut candidates = Vec::new();
+        for device in 1..=n.min(device_budget / self.row_bytes) {
+            // More host slots than outstanding device transfers cannot help this producer.
+            let max_host = if host_size == 0 { 1 } else { device.min(host_budget / host_size) };
+            for host in 1..=max_host {
+                if let Some(seconds) = crate::prefetch::simulate(n, host, device, read_ms * spare, copy_ms * spare, compute_ms, self.on_disk()) {
+                    candidates.push(crate::prefetch::Candidate { host, device, host_bytes: host * host_size,
+                        device_bytes: device * self.row_bytes, seconds: seconds + fixed_seconds_per_pass });
+                }
+            }
+        }
+        let chosen = crate::prefetch::choose(&candidates, host_budget, device_budget, frames_per_pass, fps_tolerance)
+            .ok_or("no prefetch schedule fits remaining RAM/VRAM budgets")?;
+        let old = self.slot_counts();
+        if old != (chosen.host, chosen.device) { self.reconfigure(chosen.host, chosen.device, compute)?; }
+        Ok(serde_json::json!({"source":"native producer/copy/compute cost model; FlexGen-inspired adaptation",
+            "costs_ms":{"read":read_ms,"copy":copy_ms,"compute":compute_ms},"copy_spare":spare,
+            "host_budget":host_budget,"device_budget":device_budget,"frames_per_pass":frames_per_pass,
+            "fps_tolerance":fps_tolerance,"fixed_seconds_per_pass":fixed_seconds_per_pass,
+            "fps_scope":"predicted steady throughput; observed fixed pipeline cost plus simulated block chain",
+            "observed_producer":self.producer_stats(),
+            "previous":{"host":old.0,"device":old.1},"chosen":chosen,"candidates":candidates}))
     }
 
     pub fn pinned_bytes(&self) -> usize {
@@ -326,9 +414,9 @@ impl Rows {
             host.push(pinned);
         }
         self.source = Source::Pinned(host);
-        self.holds = [usize::MAX; 2];
-        for j in 0..self.streamed.len().min(2) {
-            self.fill(j % 2, j).map_err(io)?;
+        self.holds.fill(usize::MAX);
+        for j in 0..self.streamed.len().min(self.device_count) {
+            self.fill(j, j).map_err(io)?;
         }
         Ok(())
     }
@@ -341,19 +429,26 @@ impl Rows {
         self.copy.synchronize().map_err(io)?;
         // Immutable rows can be discarded before allocating staging: no transition RAM peak.
         self.source = Source::Pinned(Vec::new());
-        let staging = [PinnedBuffer::new(span(self.row_bytes)).map_err(io)?, PinnedBuffer::new(span(self.row_bytes)).map_err(io)?];
-        self.source = Source::Disk { file: open_unbuffered(&self.pack)?, staging };
-        self.holds = [usize::MAX; 2];
-        for j in 0..self.streamed.len().min(2) {
-            self.fill(j % 2, j).map_err(io)?;
+        let staging = (0..self.staging_count).map(|_| PinnedBuffer::new(span(self.row_bytes)).map_err(io)).collect::<std::io::Result<Vec<_>>>()?;
+        self.source = Source::Disk { file: open_unbuffered(&self.pack)?, staging, owners: vec![None; self.staging_count] };
+        self.holds.fill(usize::MAX);
+        for j in 0..self.streamed.len().min(self.device_count) {
+            self.fill(j, j).map_err(io)?;
         }
         Ok(())
     }
 }
 
+#[derive(Clone, Copy, Debug, Default, serde::Serialize)]
+pub struct ProducerStats {
+    pub refills: usize,
+    pub staging_wait_ms: f64,
+    pub disk_read_ms: f64,
+}
+
 /// debug-tools: waits of the compute stream for rows' copies: how many stood more than 0.05 ms, how many there were,
 /// and the milliseconds it stood in all.
-#[cfg(feature = "debug-tools")]
+#[cfg(feature = "fps")]
 #[derive(Debug, Default, Clone, Copy, PartialEq)]
 pub struct CopyWaits {
     pub late: usize,
@@ -361,14 +456,14 @@ pub struct CopyWaits {
     pub ms: f32,
 }
 
-#[cfg(feature = "debug-tools")]
+#[cfg(feature = "fps")]
 impl CopyWaits {
     pub fn of(times: &[f32]) -> CopyWaits {
         CopyWaits { late: times.iter().filter(|&&ms| ms > 0.05).count(), waits: times.len(), ms: times.iter().sum() }
     }
 }
 
-#[cfg(feature = "debug-tools")]
+#[cfg(feature = "fps")]
 impl std::fmt::Display for CopyWaits {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         write!(f, "late copies {} of {}, the GPU stood {:.1} ms for them", self.late, self.waits, self.ms)
@@ -386,7 +481,7 @@ mod tests {
         assert_eq!(spread(30, 24), want);
     }
 
-    #[cfg(feature = "debug-tools")]
+    #[cfg(feature = "fps")]
     #[test]
     fn a_wait_over_a_twentieth_of_a_millisecond_is_late() {
         let w = super::CopyWaits::of(&[0.0, 0.05, 0.06, 0.2]);
@@ -394,7 +489,7 @@ mod tests {
         assert!((w.ms - 0.31).abs() < 1e-6);
     }
 
-    #[cfg(feature = "debug-tools")]
+    #[cfg(feature = "fps")]
     #[test]
     fn copy_waits_read_as_a_log_line() {
         let w = super::CopyWaits { late: 3, waits: 60, ms: 4.25 };
@@ -405,6 +500,79 @@ mod tests {
 #[cfg(test)]
 mod placement_gpu_tests {
     use super::*;
+    #[test]
+    #[ignore = "requires CUDA; variable prefetch depths preserve cyclic weight ordering"]
+    fn variable_device_depth_preserves_order() {
+        let gpu = crate::gpu::Gpu::new().unwrap(); gpu.bind().unwrap();
+        let compute = Stream::new().unwrap();
+        let path = std::env::temp_dir().join(format!("wan-depth-{}.bin", std::process::id()));
+        std::fs::write(&path, (0..5).flat_map(|b| vec![b as u8 + 1; 4096]).collect::<Vec<_>>()).unwrap();
+        let mut rows = Rows::load_with_slots(&path, 5, 4096, &[0, 1, 2, 3, 4], true, &compute, 2, 2).unwrap();
+        for depth in 1..=5 {
+            rows.reconfigure(1, depth, &compute).unwrap();
+            assert_eq!(rows.slot_counts(), (1, depth));
+            rows.park(&compute).unwrap(); rows.unpark().unwrap();
+            let snapshots = DeviceBuffer::new(15 * 4096).unwrap();
+            for i in 0..15 {
+                let b = i % 5;
+                rows.row::<false>(b, &compute).unwrap();
+                let Place::Streamed(j) = rows.places[b] else { panic!("expected streamed row") };
+                compute.copy_on_device(snapshots.at(i * 4096), rows.slots[rows.slot_of(j)].ptr, 4096).unwrap();
+                rows.release(b, &compute).unwrap();
+            }
+            compute.synchronize().unwrap(); rows.copy.synchronize().unwrap();
+            let mut bytes = vec![0; 15 * 4096];
+            compute.copy_to_host(&mut bytes, snapshots.ptr).unwrap(); compute.synchronize().unwrap();
+            for i in 0..15 { assert!(bytes[i*4096..(i+1)*4096].iter().all(|&v| v == (i%5) as u8 + 1)); }
+        }
+        drop(rows); std::fs::remove_file(path).unwrap();
+    }
+    #[test]
+    #[ignore = "requires CUDA; checks one shared disk staging buffer across repeated transfers"]
+    fn one_staging_buffer_preserves_rows_across_wraparound() {
+        let gpu = crate::gpu::Gpu::new().unwrap(); gpu.bind().unwrap();
+        let compute = Stream::new().unwrap();
+        let path = std::env::temp_dir().join(format!("wan-one-staging-{}.bin", std::process::id()));
+        let data: Vec<u8> = (0..5).flat_map(|b| vec![b as u8 + 1; 4096]).collect();
+        std::fs::write(&path, &data).unwrap();
+        let mut rows = Rows::load_with_staging(&path, 5, 4096, &[0, 1, 2, 3, 4], true, &compute, 1).unwrap();
+        assert_eq!(rows.pinned_bytes(), crate::disk::span(4096));
+        let snapshots = DeviceBuffer::new(20 * 4096).unwrap();
+        for pass in 0..4 {
+            for b in 0..5 {
+                rows.row::<false>(b, &compute).unwrap();
+                let Place::Streamed(j) = rows.places[b] else { panic!("expected streamed row") };
+                compute.copy_on_device(snapshots.at((pass * 5 + b) * 4096), rows.slots[rows.slot_of(j)].ptr, 4096).unwrap();
+                rows.release(b, &compute).unwrap();
+            }
+        }
+        compute.synchronize().unwrap(); rows.copy.synchronize().unwrap();
+        let mut bytes = vec![0; 20 * 4096];
+        compute.copy_to_host(&mut bytes, snapshots.ptr).unwrap(); compute.synchronize().unwrap();
+        for i in 0..20 { assert!(bytes[i * 4096..(i + 1) * 4096].iter().all(|&v| v == (i % 5) as u8 + 1)); }
+        drop(rows); std::fs::remove_file(path).unwrap();
+    }
+    #[cfg(feature = "fps")]
+    #[test]
+    #[ignore = "requires CUDA; tiny transfer telemetry integration"]
+    fn transfer_metrics_are_opt_in_and_drained_once() {
+        let gpu = crate::gpu::Gpu::new().unwrap(); gpu.bind().unwrap();
+        let compute = Stream::new().unwrap();
+        let path = std::env::temp_dir().join(format!("wan-metrics-test-{}.bin", std::process::id()));
+        std::fs::write(&path, vec![1u8; 3 * 4096]).unwrap();
+        let mut rows = Rows::load(&path, 3, 4096, &[0, 1, 2], true, &compute).unwrap();
+        for b in 0..3 { rows.row::<false>(b, &compute).unwrap(); rows.release(b, &compute).unwrap(); }
+        assert_eq!(rows.copy_waits(&compute).unwrap(), (0, 0, 0.0));
+        for b in 0..3 { rows.row::<true>(b, &compute).unwrap(); rows.release(b, &compute).unwrap(); }
+        let (late, waits, ms) = rows.copy_waits(&compute).unwrap();
+        assert_eq!(waits, 3);
+        assert!(late <= waits && ms.is_finite() && ms >= 0.0);
+        assert_eq!(rows.copy_waits(&compute).unwrap(), (0, 0, 0.0));
+        compute.synchronize().unwrap(); rows.copy.synchronize().unwrap();
+        drop(rows);
+        std::fs::remove_file(path).unwrap();
+    }
+
     #[test]
     #[ignore = "requires CUDA; small weight placement integration"]
     fn disk_promotion_does_not_materialize_ram_weights() {
@@ -458,3 +626,4 @@ mod placement_gpu_tests {
         std::fs::remove_file(path).unwrap();
     }
 }
+

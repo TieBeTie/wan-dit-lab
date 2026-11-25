@@ -16,7 +16,7 @@ use tokenizers::Tokenizer;
 
 use crate::config::T5Weights;
 use crate::rows::Rows;
-use crate::gpu::{DeviceBuffer, Stream};
+use crate::gpu::{DeviceBuffer, Stream, Event};
 use crate::manifest::T5 as Spec;
 use crate::packages::{self, Loaded};
 use crate::video::Result;
@@ -34,6 +34,8 @@ pub struct T5 {
     kept: VecDeque<(String, Vec<f32>)>,
     /// its blocks' rows: the first on the GPU, the others streamed from the disk, parked between prompts
     rows: Rows,
+    prefetch: Option<(f64, f64, usize, std::path::PathBuf, String)>,
+    slot_depth: std::sync::Arc<std::sync::atomic::AtomicUsize>,
 }
 
 /// The prompt as HuggingfaceTokenizer(clean="whitespace") cleans it: whitespace collapsed, ends stripped.
@@ -62,7 +64,40 @@ impl T5 {
             last: packages::load(runtime, directory, "t5_final", stream)?,
             kept: VecDeque::new(),
             rows,
+            prefetch: None,
+            slot_depth: std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(2)),
         })
+    }
+
+    pub fn configure_prefetch(&mut self, off: &crate::config::Offloading, reserve: usize, directory: &Path,
+        key: String, slot_depth: std::sync::Arc<std::sync::atomic::AtomicUsize>, stream: &Stream) -> Result<()> {
+        self.slot_depth = slot_depth;
+        self.slot_depth.store(self.rows.slot_counts().1, std::sync::atomic::Ordering::Relaxed);
+        if !off.enabled || off.calibration == crate::config::CalibrationPolicy::Disabled { return Ok(()); }
+        let path = directory.join("t5-prefetch-calibration.json");
+        if off.calibration == crate::config::CalibrationPolicy::IfNeeded {
+            if let Ok(text) = std::fs::read_to_string(&path) {
+                if let Ok(report) = serde_json::from_str::<serde_json::Value>(&text) {
+                    if report["placement_key"].as_str() == Some(key.as_str()) {
+                        if let Ok(p) = serde_json::from_value::<crate::prefetch::Candidate>(report["weights"]["chosen"].clone()) {
+                            // Admission remains checked by the native allocator; cached timings are not a capacity guarantee.
+                            let host_need = p.host.saturating_mul(crate::disk::span(self.spec.row_bytes));
+                            let (free, _) = cudarc::driver::result::mem_get_info()?;
+                            if p.host > 0 && p.device > 0 && p.device <= self.rows.streamed()
+                                && host_need <= crate::budget::available()?.saturating_add(self.rows.pinned_bytes())
+                                && p.device.saturating_mul(self.spec.row_bytes).saturating_add(reserve) <= free as usize {
+                                self.rows.reconfigure(p.host, p.device, stream)?; self.rows.park(stream)?;
+                                self.slot_depth.store(p.device, std::sync::atomic::Ordering::Relaxed);
+                                println!("T5 prefetch reused: RAM {} / VRAM {} slots", p.host, p.device);
+                                return Ok(());
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        self.prefetch = Some((off.copy_spare as f64, off.t5.prefetch_tolerance, reserve, path, key));
+        Ok(())
     }
 
     /// The ids of the prompt's tokens (with the end token), at most text_len - 1 (the packages take no more).
@@ -103,10 +138,14 @@ impl T5 {
 
         // the blocks through the rows, as the DiT's: each streamed one copied while the block before it computes
         self.rows.unpark()?;
+        self.rows.profile_cpu(self.prefetch.is_some());
+        let mut block_times = Vec::new();
         let mut kept_output: Option<Output> = None;
         for b in 0..self.spec.blocks {
             let row = self.rows.row::<false>(b, stream)?;
+            let span = if self.prefetch.is_some() { let a = Event::timed()?; let z = Event::timed()?; a.record(stream)?; Some((a,z)) } else { None };
             let next = self.block.run(&[row, hidden, mask_tensor], stream.raw())?.remove(0);
+            if let Some((a,z)) = span { z.record(stream)?; block_times.push((a,z)); }
             self.rows.release(b, stream)?;
             hidden = *next;
             kept_output = Some(next);
@@ -118,6 +157,21 @@ impl T5 {
         stream.copy_to_host(bytes_mut(&mut values), out.ptr)?;
         stream.synchronize()?;
         drop(kept_output);
+        if let Some((spare, tolerance, reserve, path, key)) = self.prefetch.take() {
+            let mut costs = block_times.iter().map(|(a,z)| a.elapsed_ms(z)).collect::<std::result::Result<Vec<_>, _>>()?;
+            costs.sort_by(f32::total_cmp);
+            if !costs.is_empty() && self.rows.streamed() > 0 {
+                let read = self.rows.time_read()?;
+                let copy = self.rows.time_copy()?;
+                let compute = costs[costs.len()/2] as f64 * self.spec.blocks as f64 / self.rows.streamed() as f64;
+                let mut report = self.rows.calibrate_schedule(read as f64, copy as f64, compute, spare, 1.0, tolerance, 0.0, reserve, stream)?;
+                self.slot_depth.store(self.rows.slot_counts().1, std::sync::atomic::Ordering::Relaxed);
+                report["fps_scope"] = serde_json::json!("prompt block-chain throughput; no video FPS interpretation");
+                let report = serde_json::json!({"placement_key":key,"weights":report,"objective":"minimum predicted prompt block-chain latency"});
+                std::fs::write(path, serde_json::to_vec_pretty(&report)?)?;
+                println!("T5 prefetch calibrated: {}", report);
+            }
+        }
         self.rows.park(stream)?;
         if self.kept.len() >= KEEP {
             self.kept.pop_front();

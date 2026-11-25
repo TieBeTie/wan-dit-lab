@@ -1,6 +1,6 @@
 # Builds the one entry point of wan-dit-lab, wan.exe (crates/wan), and puts it into bin\: bin\wan.exe (release) and
 # bin\wan-debug.exe (with live check and live render, --features wan/debug-tools). Nothing else runs a video:
-#   bin\wan.exe                                    the window (configs\live.json, "mode": "live")
+#   bin\wan.exe                                    the window (configs\mvp1.json, "mode": "live")
 #   bin\wan.exe --config configs\offline.json      chains of prompts into mp4 files ("mode": "offline")
 #   powershell -NoProfile -ExecutionPolicy Bypass -File build.ps1 [-DebugTools] [-Print]
 # -DebugTools builds only wan-debug.exe; -Print prints what it would build and builds nothing.

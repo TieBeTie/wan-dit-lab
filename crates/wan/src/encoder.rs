@@ -16,10 +16,11 @@ type Request = (Prompt, String, Event);
 pub struct Encoder {
     requests: Option<Sender<Request>>,
     worker: Option<std::thread::JoinHandle<()>>,
-    done: Receiver<std::result::Result<Prompt, String>>,
+    done: Receiver<std::result::Result<(Prompt, f64), String>>,
     embeddings: Arc<DeviceBuffer>,
     shape: [i64; 3],
     busy: bool,
+    encoding_seconds: f64,
     /// the newest prompt that came while another was encoded
     waiting: Option<(Prompt, String)>,
 }
@@ -42,8 +43,12 @@ impl Encoder {
             };
             for (prompt, text, read) in inbox {
                 let r = read.synchronize().map_err(|e| e.to_string())
-                    .and_then(|_| t5.encode(&text, &out, &stream).map_err(|e| e.to_string()));
-                if finished.send(r.map(|_| prompt)).is_err() {
+                    .and_then(|_| {
+                        let start = std::time::Instant::now();
+                        t5.encode(&text, &out, &stream).map_err(|e| e.to_string())?;
+                        Ok(start.elapsed().as_secs_f64())
+                    });
+                if finished.send(r.map(|seconds| (prompt, seconds))).is_err() {
                     break;
                 }
             }
@@ -52,7 +57,7 @@ impl Encoder {
             drop(stream);
             drop(gpu);
         })?;
-        Ok(Encoder { requests: Some(requests), worker: Some(worker), done, embeddings, shape, busy: false, waiting: None })
+        Ok(Encoder { requests: Some(requests), worker: Some(worker), done, embeddings, shape, busy: false, encoding_seconds: 0.0, waiting: None })
     }
 
     /// Encodes `prompt` (as the model takes it, `text`) after the one being encoded; a newer one replaces it while it
@@ -82,13 +87,17 @@ impl Encoder {
             }
         };
         self.busy = false;
-        Ok(Some(r?))
+        let (prompt, seconds) = r?;
+        self.encoding_seconds = seconds;
+        Ok(Some(prompt))
     }
 
     /// The prompt that came while another was encoded, to be sent once the video has read that one's embeddings.
     pub fn take_waiting(&mut self) -> Option<(Prompt, String)> {
         self.waiting.take()
     }
+
+    pub fn encoding_seconds(&self) -> f64 { self.encoding_seconds }
 
     pub fn tensor(&self) -> aoti::Tensor {
         self.embeddings.tensor(0, aoti::DType::F32, &self.shape)

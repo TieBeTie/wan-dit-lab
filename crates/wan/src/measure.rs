@@ -64,6 +64,39 @@ pub fn physical_ram() -> Result<(usize, usize)> {
     #[cfg(not(windows))] { Err("physical RAM probe is not implemented on this platform".into()) }
 }
 
+/// Samples at chunk boundaries; GPU usage is device-wide, process fields belong to this executable.
+#[cfg(feature = "fps")]
+#[derive(Clone, Copy, Default, serde::Serialize)]
+pub struct MemorySample {
+    pub process_private_bytes: usize,
+    pub process_working_bytes: usize,
+    pub process_peak_working_bytes: usize,
+    pub system_available_bytes: usize,
+    pub native_pinned_bytes: usize,
+    pub gpu_used_bytes: usize,
+    pub torch_allocated_bytes: usize,
+    pub torch_reserved_bytes: usize,
+    pub torch_peak_allocated_bytes: usize,
+    pub kv_gpu_bytes: usize,
+    pub kv_disk_read_bytes: u64,
+    pub kv_disk_written_bytes: u64,
+}
+#[cfg(feature = "fps")]
+pub fn memory_sample(video: &Video) -> Result<MemorySample> {
+    let (private, working, peak_working) = process_memory();
+    let (free, total) = crate::gpu::Gpu::new()?.memory()?;
+    let (allocated, reserved, peak) = video.runtime().memory_peak(crate::gpu::DEVICE);
+    let (_, available) = physical_ram()?;
+    let (read, written) = video.disk_bytes();
+    Ok(MemorySample {
+        process_private_bytes: private, process_working_bytes: working, process_peak_working_bytes: peak_working,
+        system_available_bytes: available, native_pinned_bytes: crate::budget::PINNED.load(std::sync::atomic::Ordering::Relaxed),
+        gpu_used_bytes: total.saturating_sub(free), torch_allocated_bytes: allocated as usize,
+        torch_reserved_bytes: reserved as usize, torch_peak_allocated_bytes: peak as usize,
+        kv_gpu_bytes: video.kv_device_bytes(), kv_disk_read_bytes: read, kv_disk_written_bytes: written,
+    })
+}
+
 pub fn memory_line(video: &Video) -> String {
     let (private, working, peak_working) = process_memory();
     let (free, total) = crate::gpu::Gpu::new().and_then(|g| g.memory()).unwrap_or((0, 0));
@@ -191,19 +224,12 @@ pub fn bench<M: crate::telemetry::Probe>(loaded: (Video, T5, DeviceBuffer), prom
     let mut start = Instant::now();
     if !serial { generator.advance()?; }
     for i in 0..chunks {
-        #[cfg(feature = "debug-tools")]
-        if i == 4 { generator.video.copy_waits()?; }
-        let mut frames = generator.advance_timed::<{ cfg!(feature = "debug-tools") }>()?;
+        let mut frames = generator.advance()?;
         if serial { frames.extend(generator.flush()?); }
         let seconds = start.elapsed().as_secs_f64();
         start = Instant::now();
         println!("chunk {i}: {seconds:.3} s, {} frames, {:.1} fps", frames.len(), frames.len() as f64 / seconds);
         times.push((seconds, frames.len()));
-    }
-    #[cfg(feature = "debug-tools")]
-    {
-        let (late, waits, ms) = generator.video.copy_waits()?;
-        println!("copies of streamed rows from chunk 4 on: {late} late of {waits}, the GPU stood {ms:.1} ms for them");
     }
     let steady: Vec<_> = times.iter().skip(4).collect();
     if !steady.is_empty() {

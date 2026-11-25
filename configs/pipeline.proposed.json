@@ -11,7 +11,8 @@
       "text_encoder": {
         "checkpoint": "checkpoints/Wan2.1-T2V-1.3B/models_t5_umt5-xxl-enc-bf16.pth",
         "block_weights": "artifacts/t5_int8_fast.bin",
-        "tokenizer": "checkpoints/Wan2.1-T2V-1.3B/google/umt5-xxl"
+        "tokenizer": "checkpoints/Wan2.1-T2V-1.3B/google/umt5-xxl",
+        "precision": "int8"
       },
       "decoder": "reference/taehv/taew2_2.pth"
     },
@@ -32,14 +33,24 @@
     "rope": {
       "interpolate": true,
       "native_size": "704x1280",
-      "scene_offset_frames": 8
+      "scene_offset_frames": 8,
+      "stretch": 1.0,
+      "by_parts": null,
+      "ntk_aware": false
     },
     "kernels": {
-      "attention": "sage_rope_sm89",
+      "attention": "sage_sm89",
+      "rope": "fused_float32",
+      "fuse": {
+        "rope_into_sage": true,
+        "qkv": true,
+        "gelu_mlp": true
+      },
       "cross_attention": [
         "sage_sm89"
       ],
       "linear": "nunchaku_w4a4",
+      "lora_sum": "atomic",
       "kv_cache": "fp8_e4m3fn",
       "kv_store": "triton",
       "rope_dtype": "float32"
@@ -58,6 +69,7 @@
       "initial": "A lone oak tree on a grassy hill sways in the wind"
     },
     "seed": 0,
+    "cache_write": "clean_pass",
     "offloading": {
       "enabled": true,
       "calibration": "if_needed",
@@ -69,8 +81,11 @@
       "vram_margin_gib": 1.5,
       "t5_activations_gib": 0.33,
       "t5": {
-        "resident_gib": 1.0
-      }
+        "resident_gib": 1.0,
+        "prefetch_tolerance": 0.0
+      },
+      "prefetch_fps_tolerance": 0.5,
+      "ram_margin_fraction": 0.0
     }
   }
 ]

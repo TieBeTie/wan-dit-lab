@@ -63,6 +63,7 @@ impl<M: crate::telemetry::Probe> Generator<M> {
     /// Accept an encoded prompt at a chunk boundary; a new video drains the previous decode first.
     pub fn poll(&mut self, wait: bool) -> Result<Vec<Vec<u8>>> {
         let Some(p) = self.encoder.ready(wait)? else { return Ok(Vec::new()) };
+        self.metrics.prompt(self.encoder.encoding_seconds());
         let drained = if p.cut == Cut::New { self.flush()? } else { Vec::new() };
         if p.cut == Cut::New { self.video.reset_decoder(); self.metrics.reset(); }
         self.video.set_prompt(&self.encoder.tensor(), p.cut)?;
@@ -79,10 +80,13 @@ impl<M: crate::telemetry::Probe> Generator<M> {
     }
     pub fn advance_timed<const TIMED: bool>(&mut self) -> Result<Vec<Vec<u8>>> {
         if self.active.is_none() { return Err("generation needs a first prompt".into()); }
-        let x0 = self.video.next_chunk_timed::<TIMED>(None)?;
+        let x0 = if self.metrics.transfers() { self.video.next_chunk_timed::<true>(None)? }
+                 else { self.video.next_chunk_timed::<TIMED>(None)? };
         let frames = if self.pending { self.video.finish_decode()? } else { Vec::new() };
         self.video.start_decode(&x0)?;
         self.pending = true;
+        self.metrics.chunk(&self.video)?;
+        self.metrics.window(self.video.window_full());
         self.metrics.ready(frames.len());
         Ok(frames)
     }
@@ -90,7 +94,7 @@ impl<M: crate::telemetry::Probe> Generator<M> {
         if !self.pending { return Ok(Vec::new()); }
         let frames = self.video.finish_decode()?;
         self.pending = false;
-        self.metrics.ready(frames.len());
+        self.metrics.drained(frames.len());
         Ok(frames)
     }
     /// Exactly the scripted number of chunks. The final queued decode is emitted once.
@@ -139,7 +143,7 @@ mod tests {
         impl crate::telemetry::Probe for Count {
             fn ready(&mut self, frames: usize) { self.0.fetch_add(frames, Ordering::Relaxed); }
         }
-        let args = crate::defaults(&crate::root().join("configs/live.json"));
+        let args = crate::defaults(&crate::root().join("configs/mvp1.json"));
         let observed = Arc::new(AtomicUsize::new(0));
         let mut generator = Generator::new(crate::runtime::load(&args).unwrap()).unwrap().observe(Count(observed.clone()));
         assert!(generator.advance().is_err(), "a hidden initial prompt was used");

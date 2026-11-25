@@ -64,6 +64,8 @@ TensorDesc describe(const at::Tensor& t) {
 
 EXPORT void* aoti_load(const char* path, int32_t device, char* error, size_t length) {
     try {
+        // run_single_threaded (no wait for the previous run of the same package) was tried 2026-11-12: bit for bit
+        // the same video, no fps gained at 544x960 (13.39 against 13.44), so the pool stays.
         return new torch::inductor::AOTIModelPackageLoader(path, "model", false, 1, device);
     } catch (const std::exception& e) {
         fail(e, error, length);

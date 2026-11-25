@@ -1,9 +1,21 @@
-//! live.json, written by scripts/conversion/export_live.py beside the packages it exports.
+//! mvp1.json, written by scripts/conversion/export_live.py beside the packages it exports.
 
 use std::path::{Path, PathBuf};
 
 use serde::Deserialize;
 use crate::config::Kernels;
+
+/// The description of the packages, beside them in the package directory.
+pub const MANIFEST: &str = "mvp1.json";
+/// Its name before the rename of 2026-11: packages exported then are read as they are.
+pub const LEGACY_MANIFEST: &str = "live.json";
+
+/// The description to read: the current name, else the legacy one, else the current name (for the error).
+pub fn manifest_path(directory: &Path) -> PathBuf {
+    let current = directory.join(MANIFEST);
+    let legacy = directory.join(LEGACY_MANIFEST);
+    if !current.exists() && legacy.exists() { legacy } else { current }
+}
 
 #[derive(Deserialize, Debug, Clone)]
 pub struct Manifest {
@@ -26,6 +38,12 @@ pub struct Manifest {
     pub block_steps: usize,
     pub positions: usize,
     pub time_pairs: usize,
+    /// rows and pairs of the height and width RoPE table that the block packages take as an input (rope.rs); 0 in
+    /// packages of before, which hold it as a constant
+    #[serde(default)]
+    pub hw_rows: usize,
+    #[serde(default)]
+    pub hw_pairs: usize,
     pub shot_rope_offset: usize,
     pub scene_prefix: String,
     pub pack: PathBuf,
@@ -60,7 +78,7 @@ impl Manifest {
         if directory.join(".exporting").try_exists()? {
             return Err(std::io::Error::other("unfinished package export: complete a full export before starting"));
         }
-        let text = std::fs::read_to_string(directory.join("live.json"))?;
+        let text = std::fs::read_to_string(manifest_path(directory))?;
         let m: Manifest = serde_json::from_str(&text).map_err(std::io::Error::other)?;
         m.kernels.validate().map_err(std::io::Error::other)?;
         // sizes that follow from one another: a manifest written wrong fails here, not as a CUDA error later
@@ -74,7 +92,7 @@ impl Manifest {
             && (m.max_tokens / m.chunk_tokens).checked_add(1) == Some(m.block_steps)
             && !m.timesteps.is_empty() && m.timesteps.len() == m.sampler.len();
         if !consistent {
-            return Err(std::io::Error::other(format!("{}: sizes that do not agree", directory.join("live.json").display())));
+            return Err(std::io::Error::other(format!("{}: sizes that do not agree", manifest_path(directory).display())));
         }
         Ok(m)
     }
@@ -82,11 +100,11 @@ impl Manifest {
     /// Check the package contract before LibTorch, operator DLLs or the GPU are touched.
     pub fn read_for(directory: &Path, requested: &Kernels) -> std::io::Result<Manifest> {
         let m = Self::read(directory).map_err(|e| std::io::Error::other(format!(
-            "{}: {e}; export packages with export_live.py --config <run config>", directory.join("live.json").display())))?;
+            "{}: {e}; export packages with export_live.py --config <run config>", manifest_path(directory).display())))?;
         if &m.kernels != requested {
             return Err(std::io::Error::other(format!(
                 "{}: kernels do not match the run config: requested {}, packages {}; export packages with the same --config",
-                directory.join("live.json").display(), serde_json::to_string(requested)?, serde_json::to_string(&m.kernels)?)));
+                manifest_path(directory).display(), serde_json::to_string(requested)?, serde_json::to_string(&m.kernels)?)));
         }
         Ok(m)
     }
@@ -98,7 +116,7 @@ pub mod tests {
     use crate::config::Config;
 
     pub fn fixture() -> serde_json::Value {
-        let kernels = serde_json::from_str::<serde_json::Value>(include_str!("../../../configs/live.json")).unwrap()[0]["kernels"].clone();
+        let kernels = serde_json::from_str::<serde_json::Value>(include_str!("../../../configs/mvp1.json")).unwrap()[0]["kernels"].clone();
         serde_json::json!({
             "kernels": kernels, "height": 32, "width": 32, "fps": 24.0, "chunk": 8,
             "latent": [48, 8, 2, 2], "tokens_per_frame": 1, "chunk_tokens": 8,
@@ -109,6 +127,27 @@ pub mod tests {
             "row_bytes": 128, "stream_blocks": 24, "timesteps": [999.0, 833.0],
             "sampler": [0.1, 0.9], "decoder_memory": [], "decoder_trim": 3
         })
+    }
+
+    #[test]
+    fn a_package_exported_before_the_rename_is_still_read() {
+        let dir = std::env::temp_dir().join(format!("wan-manifest-legacy-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join(LEGACY_MANIFEST), fixture().to_string()).unwrap();
+        let read = Manifest::read(&dir);
+        std::fs::remove_dir_all(&dir).unwrap();
+        assert_eq!(read.unwrap().height, 32);
+    }
+
+    #[test]
+    fn the_current_manifest_wins_over_the_legacy_one() {
+        let dir = std::env::temp_dir().join(format!("wan-manifest-both-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join(LEGACY_MANIFEST), "not json").unwrap();
+        std::fs::write(dir.join(MANIFEST), fixture().to_string()).unwrap();
+        let path = manifest_path(&dir);
+        std::fs::remove_dir_all(&dir).unwrap();
+        assert!(path.ends_with(MANIFEST));
     }
 
     #[test]
@@ -126,7 +165,7 @@ pub mod tests {
         value["chunk_tokens"] = serde_json::json!(0);
         value["chunk"] = serde_json::json!(0);
         value["latent"][1] = serde_json::json!(0);
-        std::fs::write(dir.join("live.json"), value.to_string()).unwrap();
+        std::fs::write(dir.join("mvp1.json"), value.to_string()).unwrap();
         let result = std::panic::catch_unwind(|| Manifest::read(&dir));
         assert!(result.is_ok(), "malformed metadata panicked instead of returning an error");
         assert!(result.unwrap().is_err());
@@ -137,7 +176,7 @@ pub mod tests {
     fn an_interrupted_export_cannot_use_the_previous_manifest() {
         let dir = std::env::temp_dir().join(format!("wan-kernel-interrupted-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
-        std::fs::write(dir.join("live.json"), fixture().to_string()).unwrap();
+        std::fs::write(dir.join("mvp1.json"), fixture().to_string()).unwrap();
         std::fs::write(dir.join(".exporting"), "{}").unwrap();
         let error = Manifest::read(&dir).unwrap_err().to_string();
         assert!(error.contains("export"), "{error}");
@@ -146,14 +185,14 @@ pub mod tests {
 
     #[test]
     fn only_packages_with_the_requested_kernels_can_be_loaded() {
-        let config = Config::read(&crate::root().join("configs/live.json")).unwrap();
+        let config = Config::read(&crate::root().join("configs/mvp1.json")).unwrap();
         let dir = std::env::temp_dir().join(format!("wan-kernel-manifest-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let mut value = fixture();
-        std::fs::write(dir.join("live.json"), value.to_string()).unwrap();
+        std::fs::write(dir.join("mvp1.json"), value.to_string()).unwrap();
         assert!(Manifest::read_for(&dir, &config.export.kernels).is_ok());
         value["kernels"]["cross_attention"] = serde_json::json!(["efficient"]);
-        std::fs::write(dir.join("live.json"), value.to_string()).unwrap();
+        std::fs::write(dir.join("mvp1.json"), value.to_string()).unwrap();
         let error = Manifest::read_for(&dir, &config.export.kernels).unwrap_err().to_string();
         assert!(error.contains("cross_attention") && error.contains("export"), "{error}");
         std::fs::remove_dir_all(&dir).unwrap();

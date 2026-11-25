@@ -60,7 +60,39 @@ pub struct Sampling { pub algorithm: String, pub steps: usize, pub timestep_shif
 pub struct Context { pub chunk_frames: usize, pub window_frames: usize, pub sink_frames: usize }
 #[derive(Deserialize, Serialize, Debug, Clone, PartialEq)]
 #[serde(deny_unknown_fields)]
-pub struct Rope { pub interpolate: bool, pub native_size: String, pub scene_offset_frames: usize }
+pub struct Rope {
+    pub interpolate: bool, pub native_size: String, pub scene_offset_frames: usize,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub stretch: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub by_parts: Option<RopeParts>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ntk_aware: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub frequency_aware: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub attn_logit_scale: Option<f64>,
+    /// M of height and width given directly (the scale of the slowest pair of each side), in place of the stretch
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub m: Option<RopeM>,
+    /// NTK only, mu in [0, 1]: pair j of n is scaled by M^(mu + (1 - mu) j / (n - 1)), NTK at 0, PI at 1
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ntk_pi_mix: Option<f64>,
+}
+#[derive(Deserialize, Serialize, Debug, Clone, PartialEq)]
+#[serde(deny_unknown_fields)]
+pub struct RopeParts { pub alpha: f64, pub beta: f64 }
+#[derive(Deserialize, Serialize, Debug, Clone, Copy, PartialEq)]
+#[serde(deny_unknown_fields)]
+pub struct RopeM { pub height: f64, pub width: f64 }
+/// A point of generate.rope_sweep: M of height and width and, when given, the NTK to PI mix of that point
+#[derive(Deserialize, Serialize, Debug, Clone, Copy, PartialEq)]
+#[serde(deny_unknown_fields)]
+pub struct SweepPoint {
+    pub height: f64, pub width: f64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ntk_pi_mix: Option<f64>,
+}
 
 #[derive(Deserialize, Serialize, Debug, Clone, PartialEq)]
 #[serde(deny_unknown_fields)]
@@ -73,20 +105,68 @@ pub struct Generate {
     pub drain: Drain,
     pub prompts: PromptSource,
     pub seed: u64,
+    /// where a chunk's keys and values come from: a pass at t = 0 over the clean chunk (as trained) or the sampler's
+    /// last pass (one pass a chunk fewer); video.rs chunk_passes
+    pub cache_write: CacheWrite,
     pub offloading: Offloading,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub output: Option<Output>,
+    /// the knobs of the descent in resolution (descent.rs), applied by the host without a new export
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub descent: Option<Descent>,
+    /// offline: the chains again for every M of height and width, in one process (the packages loaded once): the
+    /// RoPE table of export.rope with this m (rope.rs), the noise of the seed anew, into <run>/<point tag>/
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub rope_sweep: Option<Vec<SweepPoint>>,
+    /// debug kv_write only: timesteps in (0, 1000) of probe passes over the clean chunk noised to t, whose keys and
+    /// values are compared with the pass at t = 0 (kvwrite.rs)
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub kv_probe: Option<Vec<f64>>,
 }
 
 #[derive(Deserialize, Serialize, Debug, Clone, Copy, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
-pub enum DebugTool { Fps }
+pub enum CacheWrite {
+    /// a pass at t = 0 over the clean chunk with the whole window, as trained
+    CleanPass,
+    /// the same pass attending to the sink and the chunk only (the frame mask of kernels.sparse)
+    CleanPassSink,
+    /// the sampler's last pass, no third pass
+    LastStep,
+}
+
+#[derive(Deserialize, Serialize, Debug, Clone, PartialEq)]
+#[serde(deny_unknown_fields)]
+pub struct Descent {
+    /// lambda: a number, a number per block, or per block a number or a list per head (descent::lambda_table)
+    pub attn_logit_scale: serde_json::Value,
+    /// the sampler's shift instead of the packages' one, or null
+    pub timestep_shift: Option<f64>,
+    /// a run folder (descent.json, latent.f32, <chain>.mp4) to compare with, or null
+    pub reference: Option<std::path::PathBuf>,
+    /// "fresh": noise drawn at this size; "native_resized": the native size's noise of the same seed resized by area
+    /// with unit variance (descent::resize_noise; correlated, the model answers with colour blotches);
+    /// "native_spectral": its lowest frequencies, white again (descent::spectral_noise)
+    pub noise: String,
+}
+
+#[derive(Deserialize, Serialize, Debug, Clone, Copy, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum DebugTool { Fps, Memory, Transfers, Prompts,
+    /// the metrics of the descent in resolution (descent.rs): heavy, so only when named
+    Descent,
+    /// the last step's keys and values against the pass at t = 0 (kvwrite.rs): copies of every cache, only when named
+    KvWrite }
 
 #[derive(Deserialize, Serialize, Debug, Clone, PartialEq)]
 #[serde(untagged)]
 pub enum DebugSelection { Switch(bool), Tool(DebugTool), Tools(Vec<DebugTool>) }
 impl Default for DebugSelection { fn default() -> Self { Self::Switch(false) } }
 impl DebugSelection {
+    pub fn includes(&self, tool: DebugTool) -> bool {
+        match self { Self::Switch(all) => *all && !matches!(tool, DebugTool::Descent | DebugTool::KvWrite), Self::Tool(selected) => *selected == tool,
+                     Self::Tools(selected) => selected.contains(&tool) }
+    }
     pub fn enabled(&self) -> bool { !matches!(self, Self::Switch(false)) }
 }
 
@@ -128,7 +208,7 @@ pub struct Output {
 }
 
 /// Implementations baked into the AOT packages, not switches the host can change at run time.
-#[derive(Deserialize, Serialize, Debug, Clone, PartialEq, Eq)]
+#[derive(Deserialize, Serialize, Debug, Clone, PartialEq)]
 #[serde(deny_unknown_fields)]
 pub struct Kernels {
     pub attention: String,
@@ -136,13 +216,58 @@ pub struct Kernels {
     pub linear: String,
     pub kv_cache: String,
     pub kv_store: String,
-    #[serde(default, deserialize_with = "explicit_rope", skip_serializing_if = "Option::is_none")]
-    pub rope: Option<String>,
+    /// the RoPE arithmetic; with fuse.rope_into_sage the joint kernel reproduces it (fused_float32: its own float32)
+    pub rope: String,
     pub rope_dtype: String,
+    pub fuse: Fuse,
+    /// how the W4A4 low-rank branch adds the partial products of its column blocks: "atomic" (Nunchaku's float atomics,
+    /// the last bits change from run to run) or "ordered" (each block stores its own, added in a fixed order: the same
+    /// bits on every run; live::w4a4_*_ordered, ops/w4a4_ops.cpp)
+    pub lora_sum: String,
+    /// Block-sparse self-attention of the joint Sage/RoPE kernel; absent or disabled, the packages hold none of it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sparse: Option<Sparse>,
 }
 
-fn explicit_rope<'de, D: serde::Deserializer<'de>>(input: D) -> Result<Option<String>, D::Error> {
-    String::deserialize(input).map(Some)
+/// Each kernel fusion a switch of its own. rope_into_sage is baked into the block packages (RMSNorm, RoPE and the INT8
+/// quantization of Q and K inside Sage's preparation); qkv (q, k, v as one W4A4 layer) and gelu_mlp (Nunchaku's fused
+/// feed forward) into the weight pack, which export checks against them.
+#[derive(Deserialize, Serialize, Debug, Clone, Copy, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct Fuse {
+    pub rope_into_sage: bool,
+    pub qkv: bool,
+    pub gelu_mlp: bool,
+}
+
+#[derive(Deserialize, Serialize, Debug, Clone, PartialEq)]
+#[serde(deny_unknown_fields)]
+pub struct Sparse {
+    pub enabled: bool,
+    /// the weakest key blocks are skipped while their estimated shares of the attention add up to less: 0 skips none
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub skip_mass: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub frames: Option<SparseFrames>,
+}
+
+/// The static frame mask: the chunk always; the sink (and a shot's pinned chunk) with `sink`; of the ring, the
+/// `recent_frames` frames before the chunk.
+#[derive(Deserialize, Serialize, Debug, Clone, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct SparseFrames {
+    pub sink: bool,
+    pub recent_frames: usize,
+}
+
+impl Kernels {
+    /// The block sparsity the packages implement, if any: (skip mass, frames).
+    pub fn block_sparsity(&self) -> Option<(f64, &SparseFrames)> {
+        match &self.sparse {
+            Some(Sparse { enabled: true, skip_mass: Some(mass), frames: Some(frames) }) => Some((*mass, frames)),
+            _ => None,
+        }
+    }
 }
 
 impl Kernels {
@@ -166,13 +291,34 @@ impl Kernels {
         if dense && self.cross_attention == ["sage_sm89"] {
             return Err("kernels.cross_attention: torch_sdpa takes SDPA backends for both attention paths".into());
         }
-        match self.attention.as_str() {
-            "sage_sm89" | "torch_sdpa" if matches!(self.rope.as_deref(), Some("torch_inductor" | "triton" | "longlive_triton")) => {},
-            // owns its RoPE; "longlive_triton" only names the rounding it reproduces
-            "sage_rope_sm89" if matches!(self.rope.as_deref(), None | Some("longlive_triton")) => {},
-            "sage_rope_sm89" => return Err("kernels.rope: sage_rope_sm89 takes none or longlive_triton".into()),
-            "sage_sm89" | "torch_sdpa" => return Err("kernels.rope: choose torch_inductor, triton or longlive_triton".into()),
-            _ => return Err(format!("kernels.attention: {:?} is unsupported", self.attention)),
+        if !matches!(self.attention.as_str(), "sage_sm89" | "torch_sdpa") {
+            return Err(format!("kernels.attention: {:?} is unsupported", self.attention));
+        }
+        // the fused kernel must add the error of the separate kernel it replaces: LongLive's roundings, or its own
+        // float32 by name (no separate kernel computes that one)
+        match (self.fuse.rope_into_sage, self.rope.as_str()) {
+            (false, "torch_inductor" | "triton" | "longlive_triton") => {},
+            (false, "fused_float32") => return Err("kernels.rope: fused_float32 exists only with kernels.fuse.rope_into_sage".into()),
+            (false, _) => return Err("kernels.rope: choose torch_inductor, triton or longlive_triton".into()),
+            (true, _) if self.attention != "sage_sm89" => return Err("kernels.fuse.rope_into_sage needs attention sage_sm89".into()),
+            (true, "longlive_triton" | "fused_float32") => {},
+            (true, other) => return Err(format!("kernels.fuse.rope_into_sage rounds as longlive_triton or fused_float32 only, not {other:?}")),
+        }
+        if self.linear != "nunchaku_w4a4" && (self.fuse.qkv || self.fuse.gelu_mlp) {
+            return Err("kernels.fuse.qkv/gelu_mlp: only W4A4 weight packs fuse layers".into());
+        }
+        match (self.lora_sum.as_str(), self.linear.as_str()) {
+            ("atomic", _) | ("ordered", "nunchaku_w4a4") => {}
+            ("ordered", _) => return Err("kernels.lora_sum: ordered exists only for the W4A4 linear (nunchaku_w4a4)".into()),
+            (other, _) => return Err(format!("kernels.lora_sum: {other:?}; choose atomic or ordered")),
+        }
+        if self.sparse.is_some() && !self.fuse.rope_into_sage {
+            return Err("kernels.sparse needs kernels.fuse.rope_into_sage".into());
+        }
+        if let Some((mass, _)) = self.block_sparsity() {
+            if !(mass.is_finite() && (0.0..1.0).contains(&mass)) {
+                return Err("kernels.sparse.skip_mass must be in [0, 1)".into());
+            }
         }
         if self.cross_attention != ["sage_sm89"] && (self.cross_attention.is_empty() || self.cross_attention.iter().enumerate().any(|(i, b)|
             !matches!(b.as_str(), "cudnn" | "efficient" | "math") || self.cross_attention[..i].contains(b))) {
@@ -229,6 +375,8 @@ pub struct Offloading {
     pub resources: BTreeMap<Resource, Tier>,
     /// a copy must take no more than its share of compute divided by this
     pub copy_spare: f32,
+    /// frames per second the prefetch calibration may give up for fewer slots (RAM and VRAM buffers of the weights)
+    pub prefetch_fps_tolerance: f64,
     /// GiB of the GPU the calibration leaves to other programs when it keeps rows there
     pub vram_margin_gib: f64,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -237,6 +385,49 @@ pub struct Offloading {
     /// GiB T5's activations take on the GPU while a prompt is encoded, beside its two row slots
     pub t5_activations_gib: f64,
     pub t5: T5Weights,
+    /// how the calibration places "auto" resources (last, so that the default leaves the key of calibration.json as
+    /// it was): greedy_ram, as little GPU as there can be at the same speed, or greedy_vram, the GPU filled first
+    #[serde(skip_serializing_if = "Policy::is_greedy_ram")]
+    pub policy: Policy,
+}
+
+/// The rule of the calibration for "auto" resources.
+#[derive(Deserialize, Serialize, Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum Policy {
+    /// as little GPU memory as there can be without losing speed: the cache and the rows go to RAM (or the disk)
+    /// whenever their copies hide behind the blocks' compute
+    #[default]
+    GreedyRam,
+    /// the GPU filled first, up to all of it less the margin: the cache, then rows of weights for good, the rest
+    /// streamed from pinned RAM, the disk last (greedy_vram)
+    GreedyVram,
+}
+impl Policy {
+    pub fn is_greedy_ram(&self) -> bool { *self == Policy::GreedyRam }
+}
+
+/// Where greedy_vram puts the cache and how many rows of weights it keeps on the GPU, and where the others stream from.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Greedy { pub kv: Tier, pub resident: usize, pub streamed_from: Tier }
+
+/// greedy_vram: `room` bytes of the GPU (free less the margin and the workspace) take the KV cache (`kv_bytes`) first,
+/// then rows of `row_bytes` for good, leaving `slots` rows for the streamed ones if any are streamed; the streamed
+/// rows (and the cache, if it did not fit) go to pinned RAM if `ram` bytes hold them, else the rows to the disk.
+pub fn greedy_vram(n: usize, room: usize, kv_bytes: usize, row_bytes: usize, slots: usize, ram: usize) -> Greedy {
+    let (kv, left) = if kv_bytes <= room { (Tier::Vram, room - kv_bytes) } else { (Tier::Ram, room) };
+    if left >= n * row_bytes { return Greedy { kv, resident: n, streamed_from: Tier::Vram }; }
+    let resident = (left.saturating_sub(slots * row_bytes) / row_bytes).min(n);
+    let ram_need = (n - resident) * row_bytes + if kv == Tier::Ram { kv_bytes } else { 0 };
+    Greedy { kv, resident, streamed_from: if ram_need <= ram { Tier::Ram } else { Tier::Disk } }
+}
+
+/// What the key of calibration.json hashes: the offloading with calibration if_needed; the default policy is left
+/// out, so that a configuration without it keeps the key it had before the policy existed.
+pub fn placement_text(o: &Offloading) -> String {
+    let mut c = o.clone();
+    c.calibration = CalibrationPolicy::IfNeeded;
+    format!("{c:?}").replace(", policy: GreedyRam", "")
 }
 
 /// T5's blocks (5.6 GB, their reads most of a prompt's time) go through the same streamed rows as the DiT's, from the
@@ -246,6 +437,8 @@ pub struct Offloading {
 #[serde(default, deny_unknown_fields)]
 pub struct T5Weights {
     pub resident_gib: f64,
+    /// passes per second of T5's block chain the prefetch calibration may give up for fewer slots
+    pub prefetch_tolerance: f64,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub resident: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -254,7 +447,7 @@ pub struct T5Weights {
 
 impl Default for T5Weights {
     fn default() -> T5Weights {
-        T5Weights { resident_gib: 1.0, resident: None, activations: None }
+        T5Weights { resident_gib: 1.0, prefetch_tolerance: 0.0, resident: None, activations: None }
     }
 }
 
@@ -276,11 +469,13 @@ impl Default for Offloading {
             calibration: CalibrationPolicy::IfNeeded,
             resources: Resource::ALL.iter().map(|&r| (r, Tier::Auto)).collect(),
             copy_spare: 1.1,
+            prefetch_fps_tolerance: 0.5,
             vram_margin_gib: 1.5,
             vram_margin_fraction: None,
             ram_margin_fraction: 0.0,
             t5_activations_gib: 0.33,
             t5: T5Weights::default(),
+            policy: Policy::GreedyRam,
         }
     }
 }
@@ -317,6 +512,8 @@ impl Offloading {
     /// brings it up as far as its copies need (without calibration "auto" is "ram").
     pub fn initial(&self, resource: Resource) -> Tier {
         match self.tier(resource) {
+            // greedy_vram: the cache wants the GPU first (it falls back to RAM at load if it does not fit)
+            Tier::Auto if resource == Resource::KvCache && self.policy == Policy::GreedyVram => Tier::Vram,
             Tier::Auto if resource == Resource::KvCache => Tier::Ram,
             Tier::Auto if self.calibration != CalibrationPolicy::Disabled => resource.tiers()[0],
             Tier::Auto => Tier::Ram,
@@ -329,7 +526,9 @@ impl Offloading {
         if !self.copy_spare.is_finite() || self.copy_spare < 1.0
             || !self.vram_margin_gib.is_finite() || self.vram_margin_gib < 0.0
             || !self.t5_activations_gib.is_finite() || self.t5_activations_gib < 0.0
-            || !self.t5.resident_gib.is_finite() || self.t5.resident_gib < 0.0 {
+            || !self.t5.resident_gib.is_finite() || self.t5.resident_gib < 0.0
+            || !self.prefetch_fps_tolerance.is_finite() || self.prefetch_fps_tolerance < 0.0
+            || !self.t5.prefetch_tolerance.is_finite() || self.t5.prefetch_tolerance < 0.0 {
             return Err("invalid offloading budgets".into());
         }
         if !self.ram_margin_fraction.is_finite() || !(0.0..1.0).contains(&self.ram_margin_fraction)
@@ -388,6 +587,13 @@ pub fn kv_tier(configured: Tier, wanted: Tier, ram_fits: bool, vram_fits: bool) 
     }
 }
 
+/// `required` includes KV and the weight buffers that must coexist with it. `available` is already net of
+/// the system reserve and pending T5/pixel buffers; do not subtract existing allocations again.
+pub fn kv_tier_with_ram_budget(configured: Tier, wanted: Tier, available: usize, required: usize,
+                              vram_fits: bool) -> Result<Tier, String> {
+    kv_tier(configured, wanted, required <= available, vram_fits)
+}
+
 /// Where the calibration put every resource, kept in <packages>/calibration.json for the next run of the same
 /// configuration and packages (`key`), so that it makes every resource on its tier at once.
 #[derive(Deserialize, Serialize, Debug, Clone, PartialEq)]
@@ -397,18 +603,21 @@ pub struct Placement {
     /// weight rows streamed (the others on the GPU), when the weights are in RAM
     pub rows_streamed: usize,
     pub kv: Tier,
+    #[serde(default = "default_prefetch_slots")]
+    pub weight_slots: [usize; 2],
 }
+
+fn default_prefetch_slots() -> [usize; 2] { [2, 2] }
 
 impl Placement {
     const FILE: &'static str = "calibration.json";
 
-    /// The key of a configuration of the offloading over packages whose manifest is `manifest` (live.json's text).
+    /// The key of a configuration of the offloading over packages whose manifest is `manifest` (mvp1.json's text).
     pub fn key(offloading: &Offloading, manifest: &str) -> String {
         use std::hash::{Hash, Hasher};
         let mut h = std::collections::hash_map::DefaultHasher::new();
-        let mut placement_config = offloading.clone();
-        placement_config.calibration = CalibrationPolicy::IfNeeded;
-        format!("{placement_config:?}").hash(&mut h);
+        "native-prefetch-v2".hash(&mut h);
+        placement_text(offloading).hash(&mut h);
         manifest.hash(&mut h);
         format!("{:016x}", h.finish())
     }
@@ -416,7 +625,8 @@ impl Placement {
     /// The placement kept in `directory` for `key`, if there is one.
     pub fn read(directory: &Path, key: &str) -> Option<Placement> {
         let text = std::fs::read_to_string(directory.join(Self::FILE)).ok()?;
-        serde_json::from_str::<Placement>(&text).ok().filter(|p| p.key == key)
+        serde_json::from_str::<Placement>(&text).ok().filter(|p| p.key == key
+            && p.weight_slots.iter().all(|&n| n > 0 && n <= 30))
     }
 
     pub fn write(&self, directory: &Path) -> std::io::Result<()> {
@@ -430,6 +640,8 @@ impl Config {
         Self::parse(&text).map_err(|e| std::io::Error::other(format!("{}: {e}", path.display())))
     }
     pub fn parse(text: &str) -> serde_json::Result<Config> {
+        // the strict contract first, on the JSON itself: the cheapest check, and the only one of keys and branches
+        crate::contract::check(&serde_json::from_str(text)?).map_err(<serde_json::Error as serde::de::Error>::custom)?;
         let stages: [Component; 2] = serde_json::from_str(text)?;
         let config = match stages {
             [Component::Export(export), Component::Generate(generate)] => Config { export, generate },
@@ -439,7 +651,9 @@ impl Config {
         Ok(config)
     }
     pub fn value(&self) -> serde_json::Value {
-        serde_json::to_value([Component::Export(self.export.clone()), Component::Generate(self.generate.clone())]).unwrap()
+        let mut value = serde_json::to_value([Component::Export(self.export.clone()), Component::Generate(self.generate.clone())]).unwrap();
+        crate::contract::normalize(&mut value);
+        value
     }
     pub fn validate(&self) -> Result<(), String> {
         let e = &self.export;
@@ -468,16 +682,78 @@ impl Config {
         if e.output.as_os_str().is_empty() || self.generate.packages_from != "export" {
             return Err("generate must consume export.output".into());
         }
-        if e.sampling.algorithm != "unipc" || e.sampling.steps != 2 || e.sampling.timestep_shift != 5.0 {
-            return Err("the current distilled checkpoint supports unipc, 2 steps, shift 5".into());
+        if e.sampling.algorithm != "unipc" || e.sampling.steps != 2 || !(e.sampling.timestep_shift.is_finite() && e.sampling.timestep_shift > 0.0 && e.sampling.timestep_shift <= 20.0) {
+            return Err("the current distilled checkpoint supports unipc, 2 steps, and a timestep shift in (0, 20]".into());
         }
-        if e.context.chunk_frames != 8 || e.context.window_frames != 32 || e.context.sink_frames != 8 || e.rope.native_size != "704x1280" {
-            return Err("unsupported LongLive2 context or native RoPE size".into());
+        // the stretch is bounded by the factor it gives a side of the token grid, (native / now)^stretch in [1/4, 4]
+        let factor_ok = |stretch: f64| -> bool {
+            let native = size(&e.rope.native_size).unwrap_or((h, w));
+            [(native.0, h), (native.1, w)].iter().all(|&(n, now)| {
+                let f = (n as f64 / now as f64).powf(stretch);
+                f.is_finite() && (0.25..=4.0).contains(&f)
+            })
+        };
+        if e.rope.stretch.is_some_and(|v| !v.is_finite() || !factor_ok(v))
+            || e.rope.by_parts.as_ref().is_some_and(|p| !p.alpha.is_finite() || !p.beta.is_finite() || p.alpha <= 0.0 || p.alpha >= p.beta)
+            || ([e.rope.ntk_aware == Some(true), e.rope.by_parts.is_some(), e.rope.frequency_aware == Some(true)].into_iter().filter(|v| *v).count() > 1)
+            || (!e.rope.interpolate && (e.rope.stretch.is_some() || e.rope.by_parts.is_some() || e.rope.ntk_aware.is_some() || e.rope.frequency_aware.is_some() || e.rope.attn_logit_scale.is_some())) || e.rope.attn_logit_scale.is_some_and(|v| !v.is_finite() || v <= 0.0 || v > 4.0) {
+            return Err("invalid RoPE profile: enable interpolation, choose one profile and valid finite parameters".into());
+        }
+        if let Some(m) = e.rope.m {
+            if !e.rope.interpolate || e.rope.stretch.is_some() || ![m.height, m.width].iter().all(|v| v.is_finite() && (0.25..=4.0).contains(v)) {
+                return Err("rope.m: M of height and width in [1/4, 4], with interpolation on and stretch null".into());
+            }
+        }
+        if self.generate.cache_write == CacheWrite::CleanPassSink && e.kernels.block_sparsity().is_none() {
+            return Err("generate.cache_write clean_pass_sink: the frame mask of block-sparse packages, enable kernels.sparse".into());
+        }
+        if let Some(probe) = &self.generate.kv_probe {
+            if probe.is_empty() || !probe.iter().all(|t| t.is_finite() && *t > 0.0 && *t < 1000.0)
+                || !self.generate.debug.includes(DebugTool::KvWrite) {
+                return Err("generate.kv_probe: timesteps in (0, 1000), with debug kv_write".into());
+            }
+        }
+        if let Some(points) = &self.generate.rope_sweep {
+            if points.is_empty() || !e.rope.interpolate || self.generate.mode != Mode::Offline
+                || !points.iter().all(|m| [m.height, m.width].iter().all(|v| v.is_finite() && (0.25..=4.0).contains(v)))
+                || points.iter().any(|p| p.ntk_pi_mix.is_some_and(|v| !(0.0..=1.0).contains(&v) || e.rope.ntk_aware != Some(true))) {
+                return Err("generate.rope_sweep: offline, interpolation on, M of height and width in [1/4, 4], a mix in [0, 1] with NTK".into());
+            }
+        }
+        if e.rope.ntk_pi_mix.is_some_and(|v| !(0.0..=1.0).contains(&v) || e.rope.ntk_aware != Some(true) || !e.rope.interpolate) {
+            return Err("rope.ntk_pi_mix: in [0, 1], of the NTK profile (ntk_aware true)".into());
+        }
+        // LongLive 2's chunk and sink; its KV window as trained (32) or shorter by whole chunks down to the sink alone
+        if e.context.chunk_frames != 8 {
+            return Err("export.context.chunk_frames: LongLive 2 runs chunks of 8 frames".into());
+        }
+        if e.context.sink_frames != 8 {
+            return Err("export.context.sink_frames: LongLive 2 keeps a sink of 8 frames".into());
+        }
+        if ![32, 24, 16].contains(&e.context.window_frames) {
+            return Err(format!("export.context.window_frames: {} is untested; choose 32 (as trained), 24 or 16", e.context.window_frames));
+        }
+        if e.rope.native_size != "704x1280" {
+            return Err("export.rope.native_size: LongLive 2 is trained at 704x1280".into());
+        }
+        let ring_frames = e.context.window_frames - e.context.chunk_frames - e.context.sink_frames;
+        if e.kernels.block_sparsity().is_some_and(|(_, f)| f.recent_frames > ring_frames) {
+            return Err(format!("kernels.sparse.frames.recent_frames: the ring holds {ring_frames} frames"));
         }
         match &self.generate.prompts {
             PromptSource::Interactive { initial: Some(p) } if p.trim().is_empty() => return Err("initial prompt must be nonempty or absent".into()),
             PromptSource::Script { file, chains } if file.as_os_str().is_empty() || chains.iter().any(|c| c.is_empty()) => return Err("invalid prompt script".into()),
             _ => {}
+        }
+        if let Some(d) = &self.generate.descent {
+            if d.timestep_shift.is_some_and(|v| !(v.is_finite() && v > 0.0 && v <= 20.0)) {
+                return Err("generate.descent.timestep_shift must be in (0, 20] or null".into());
+            }
+            if !["fresh", "native_resized", "native_spectral"].contains(&d.noise.as_str()) {
+                return Err("generate.descent.noise must be fresh, native_resized or native_spectral".into());
+            }
+            // the sizes are checked against the model at load (lambda_table), the numbers here
+            crate::descent::check_scale(&d.attn_logit_scale)?;
         }
         if self.generate.mode == Mode::Offline && self.generate.output.is_none() {
             return Err("offline output settings are required".into());
@@ -507,6 +783,52 @@ mod tests {
         value[0]["kernels"]["rope"] = serde_json::json!("triton");
         assert!(Config::parse(&value.to_string()).is_err());
     }
+    /// The KV window of LongLive 2 (export.context.window_frames): 32 as trained, or 24 and 16 (the ring of 16, 8 or 0
+    /// frames between the sink and the chunk); the export sizes the cache and the block steps from it. Any other window,
+    /// chunk or sink is refused by its key.
+    #[test]
+    fn the_kv_window_is_32_24_or_16_frames() {
+        let base = repository().value();
+        for window in [32, 24, 16] {
+            let mut value = base.clone();
+            value[0]["context"]["window_frames"] = serde_json::json!(window);
+            assert_eq!(Config::parse(&value.to_string()).unwrap().export.context.window_frames, window);
+        }
+        for window in [8, 20, 40] {
+            let mut value = base.clone();
+            value[0]["context"]["window_frames"] = serde_json::json!(window);
+            let refused = Config::parse(&value.to_string()).expect_err("an untested window must be refused").to_string();
+            assert!(refused.contains("export.context.window_frames"), "{refused}");
+        }
+        for (key, bad) in [("chunk_frames", 4), ("sink_frames", 4)] {
+            let mut value = base.clone();
+            value[0]["context"][key] = serde_json::json!(bad);
+            assert!(Config::parse(&value.to_string()).expect_err("refused").to_string().contains(&format!("export.context.{key}")));
+        }
+    }
+    #[test]
+    fn prefetch_tolerances_come_from_the_config_and_are_part_of_the_placement_key() {
+        let mut value = repository().value();
+        assert_eq!(Config::parse(&value.to_string()).unwrap().generate.offloading.prefetch_fps_tolerance, 0.5);
+        assert_eq!(Config::parse(&value.to_string()).unwrap().generate.offloading.t5.prefetch_tolerance, 0.0);
+        value[1]["offloading"]["prefetch_fps_tolerance"] = serde_json::json!(0.25);
+        value[1]["offloading"]["t5"]["prefetch_tolerance"] = serde_json::json!(0.1);
+        let c = Config::parse(&value.to_string()).unwrap();
+        assert_eq!(c.generate.offloading.prefetch_fps_tolerance, 0.25);
+        assert_eq!(c.generate.offloading.t5.prefetch_tolerance, 0.1);
+        let base = Offloading::default();
+        let mut other = base.clone();
+        other.prefetch_fps_tolerance = 0.25;
+        assert_ne!(Placement::key(&base, "m"), Placement::key(&other, "m"));
+        for bad in [-0.1, f64::NAN] {
+            let mut o = Offloading::default();
+            o.prefetch_fps_tolerance = bad;
+            assert!(o.validate().is_err());
+            let mut o = Offloading::default();
+            o.t5.prefetch_tolerance = bad;
+            assert!(o.validate().is_err());
+        }
+    }
     #[test]
     fn automatic_kv_never_goes_to_the_disk() {
         assert_eq!(kv_tier(Tier::Auto, Tier::Ram, true, false), Ok(Tier::Ram));
@@ -517,6 +839,13 @@ mod tests {
         assert_eq!(kv_tier(Tier::Auto, Tier::Disk, true, false), Ok(Tier::Ram));
         assert!(kv_tier(Tier::Auto, Tier::Ram, false, false).unwrap_err().contains("disk"));
         assert_eq!(kv_tier(Tier::Disk, Tier::Disk, false, false), Ok(Tier::Disk));
+    }
+    #[test]
+    fn kv_admission_includes_weight_staging_before_choosing_ram() {
+        // KV alone fits in 5 units, but KV + mandatory weight staging requires 6.
+        assert_eq!(kv_tier_with_ram_budget(Tier::Auto, Tier::Ram, 5, 6, true), Ok(Tier::Vram));
+        assert!(kv_tier_with_ram_budget(Tier::Auto, Tier::Ram, 5, 6, false).is_err());
+        assert_eq!(kv_tier_with_ram_budget(Tier::Auto, Tier::Ram, 6, 6, true), Ok(Tier::Ram));
     }
     #[test]
     fn point_a_prime_takes_memory_efficient_sdpa_and_rejects_sage_cross() {
@@ -539,6 +868,8 @@ mod tests {
     fn dense_linear_uses_the_same_native_configuration() {
         let mut value = repository().value();
         value[0]["kernels"]["linear"] = serde_json::json!("torch_bf16");
+        assert!(Config::parse(&value.to_string()).unwrap_err().to_string().contains("only W4A4 weight packs fuse layers"));
+        value[0]["kernels"]["fuse"] = serde_json::json!({"rope_into_sage": true, "qkv": false, "gelu_mlp": false});
         assert_eq!(Config::parse(&value.to_string()).unwrap().export.kernels.linear, "torch_bf16");
     }
     #[test]
@@ -546,6 +877,7 @@ mod tests {
         let mut value = repository().value();
         value[0]["kernels"]["attention"] = serde_json::json!("torch_sdpa");
         value[0]["kernels"]["rope"] = serde_json::json!("torch_inductor");
+        value[0]["kernels"]["fuse"]["rope_into_sage"] = serde_json::json!(false);
         value[0]["kernels"]["kv_cache"] = serde_json::json!("bfloat16");
         value[0]["kernels"]["kv_store"] = serde_json::json!("torch");
         value[0]["kernels"]["cross_attention"] = serde_json::json!(["math"]);
@@ -562,14 +894,22 @@ mod tests {
         assert!(Config::parse(&value.to_string()).is_err());
     }
     use super::*;
-    fn repository() -> Config { Config::parse(include_str!("../../../configs/live.json")).unwrap() }
+    fn repository() -> Config { Config::parse(include_str!("../../../configs/mvp1.json")).unwrap() }
     #[test]
     fn debug_selects_only_known_tools_and_drain_accepts_intervals_or_end() {
         use serde_json::json;
-        for debug in [json!(false), json!(true), json!("fps"), json!(["fps"])] {
+        for debug in [json!(false), json!(true), json!("fps"), json!(["fps"]), json!("memory"), json!("transfers"), json!("prompts"), json!(["fps", "memory", "transfers", "prompts"])] {
             for every in ["5s", "10s", "0.5s", "end"] {
                 let mut value = repository().value();
                 value[1]["debug"] = debug.clone();
+                if debug == json!(false) {
+                    // no diagnostics, no drain: the contract refuses a drain beside them
+                    value[1].as_object_mut().unwrap().remove("drain");
+                    assert!(Config::parse(&value.to_string()).is_ok());
+                    value[1]["drain"] = json!({"every": every});
+                    assert!(Config::parse(&value.to_string()).is_err());
+                    continue;
+                }
                 value[1]["drain"] = json!({"every": every});
                 let parsed = Config::parse(&value.to_string()).expect("valid debug/drain config refused");
                 assert_eq!(parsed.value()[1]["drain"], value[1]["drain"]);
@@ -577,8 +917,8 @@ mod tests {
         }
         let mut value = repository().value();
         value[1].as_object_mut().unwrap().remove("debug");
-        value[1].as_object_mut().unwrap().remove("drain");
-        assert!(Config::parse(&value.to_string()).is_ok());
+        assert!(Config::parse(&value.to_string()).is_err(), "debug must be written out");
+        value[1]["drain"] = json!({"every": "5s"});
         for debug in [json!("unknown"), json!(["fps", "unknown"]), json!([]), json!(["fps", "fps"]), json!(1)] {
             value[1]["debug"] = debug;
             assert!(Config::parse(&value.to_string()).is_err());
@@ -610,25 +950,48 @@ mod tests {
     #[test]
     fn triton_and_inductor_rope_are_explicit_export_choices() {
         let mut value = repository().value();
-        value[0]["kernels"]["attention"] = serde_json::json!("sage_sm89");
-        for backend in ["torch_inductor", "triton"] {
+        value[0]["kernels"]["fuse"]["rope_into_sage"] = serde_json::json!(false);
+        for backend in ["torch_inductor", "triton", "longlive_triton"] {
             value[0]["kernels"]["rope"] = serde_json::json!(backend);
             let config = Config::parse(&value.to_string()).expect("supported RoPE refused");
-            assert_eq!(config.export.kernels.rope.as_deref(), Some(backend));
+            assert_eq!(config.export.kernels.rope, backend);
         }
     }
     #[test]
-    fn joint_sage_rope_replaces_the_independent_rope_choice() {
+    fn each_fusion_is_its_own_switch_and_fused_rope_rounds_as_a_separate_one() {
+        use serde_json::json;
+        let parse = |v: &serde_json::Value| Config::parse(&v.to_string()).map_err(|e| e.to_string());
         let mut value = repository().value();
-        value[0]["kernels"]["attention"] = serde_json::json!("sage_rope_sm89");
-        value[0]["kernels"].as_object_mut().unwrap().remove("rope");
-        let config = Config::parse(&value.to_string()).expect("joint backend refused");
-        assert!(config.export.kernels.rope.is_none());
-        assert!(config.value()[0]["kernels"].get("rope").is_none());
-        value[0]["kernels"]["rope"] = serde_json::json!("triton");
-        assert!(Config::parse(&value.to_string()).is_err());
-        value[0]["kernels"]["rope"] = serde_json::Value::Null;
-        assert!(Config::parse(&value.to_string()).is_err());
+        for (fused, rope) in [(true, "longlive_triton"), (true, "fused_float32"), (false, "longlive_triton")] {
+            value[0]["kernels"]["fuse"]["rope_into_sage"] = json!(fused);
+            value[0]["kernels"]["rope"] = json!(rope);
+            let k = parse(&value).expect("supported fusion refused").export.kernels;
+            assert_eq!((k.fuse.rope_into_sage, k.rope.as_str()), (fused, rope));
+        }
+        value[0]["kernels"]["fuse"]["rope_into_sage"] = json!(true);
+        for rope in ["triton", "torch_inductor"] {
+            value[0]["kernels"]["rope"] = json!(rope);
+            assert!(parse(&value).unwrap_err().contains("rounds as longlive_triton or fused_float32 only"), "{rope}");
+        }
+        value[0]["kernels"]["rope"] = json!("fused_float32");
+        value[0]["kernels"]["fuse"]["rope_into_sage"] = json!(false);
+        assert!(parse(&value).unwrap_err().contains("fused_float32 exists only with kernels.fuse.rope_into_sage"));
+        value[0]["kernels"]["rope"] = json!("longlive_triton");
+        value[0]["kernels"]["attention"] = json!("sage_rope_sm89");
+        assert!(parse(&value).is_err(), "the old joint name is a switch now");
+        value[0]["kernels"]["attention"] = json!("torch_sdpa");
+        value[0]["kernels"]["kv_cache"] = json!("bfloat16");
+        value[0]["kernels"]["kv_store"] = json!("torch");
+        value[0]["kernels"]["cross_attention"] = json!(["efficient"]);
+        value[0]["kernels"]["fuse"]["rope_into_sage"] = json!(true);
+        assert!(parse(&value).unwrap_err().contains("rope_into_sage needs attention sage_sm89"));
+        for (qkv, gelu) in [(true, false), (false, true), (false, false)] {
+            let mut layers = repository().value();
+            layers[0]["kernels"]["fuse"]["qkv"] = json!(qkv);
+            layers[0]["kernels"]["fuse"]["gelu_mlp"] = json!(gelu);
+            let k = parse(&layers).expect("layer fusions are independent switches").export.kernels;
+            assert_eq!((k.fuse.qkv, k.fuse.gelu_mlp), (qkv, gelu));
+        }
     }
     #[test]
     fn sage_cross_is_an_explicit_complete_backend() {
@@ -710,10 +1073,15 @@ mod tests {
     #[test]
     fn prompt_sources_are_independent_of_output_and_have_no_hidden_initial_prompt() {
         let mut value=repository().value();
-        value[1]["prompts"] = serde_json::json!({"source":"interactive"});
+        value[1]["prompts"] = serde_json::json!({"source":"interactive","initial":null});
         assert_eq!(Config::parse(&value.to_string()).unwrap().generate.prompts.initial(),None);
-        value[1]["prompts"] = serde_json::json!({"source":"script","file":"a.json"});
+        value[1]["prompts"] = serde_json::json!({"source":"interactive"});
+        assert!(Config::parse(&value.to_string()).is_err(), "initial must be written out, null or a prompt");
+        value[1]["prompts"] = serde_json::json!({"source":"script","file":"a.json","chains":[]});
         assert!(Config::parse(&value.to_string()).is_ok());
+        value[1]["prompts"] = serde_json::json!({"source":"script","file":"a.json"});
+        assert!(Config::parse(&value.to_string()).is_err(), "chains must be written out");
+        value[1]["prompts"] = serde_json::json!({"source":"script","file":"a.json","chains":[]});
         value[1]["prompts"]["initial"] = serde_json::json!("bad");
         assert!(Config::parse(&value.to_string()).is_err());
     }
@@ -731,11 +1099,14 @@ mod tests {
     fn a_placement_is_used_again_for_the_same_configuration_only() {
         let dir = std::env::temp_dir().join(format!("live-placement-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
-        let p = Placement { key: "k1".into(), weights: Tier::Disk, rows_streamed: 30, kv: Tier::Ram };
+        let p = Placement { key: "k1".into(), weights: Tier::Disk, rows_streamed: 30, kv: Tier::Ram, weight_slots: [3, 4] };
         assert_eq!(Placement::read(&dir, "k1"), None);
         p.write(&dir).unwrap();
-        assert_eq!(Placement::read(&dir, "k1"), Some(p));
+        assert_eq!(Placement::read(&dir, "k1"), Some(p.clone()));
         assert_eq!(Placement::read(&dir, "k2"), None);
+        let invalid = Placement { weight_slots: [0, 4], ..p.clone() };
+        invalid.write(&dir).unwrap();
+        assert_eq!(Placement::read(&dir, "k1"), None);
         std::fs::remove_dir_all(&dir).unwrap();
         // the key changes with the configuration of the offloading and with the packages
         let o = Offloading::default();
@@ -770,3 +1141,122 @@ mod tests {
         assert_eq!(choose(30, &t, 1.1, true, false).1, Tier::Auto);
     }
 }
+    /// greedy_vram: the cache on the GPU first, then rows of weights for good, the rest streamed from pinned RAM, the
+    /// disk last; the GPU is filled up to `room` bytes (free less the margin and the workspace)
+    #[test]
+    fn greedy_vram_fills_the_gpu_with_the_cache_then_rows_then_streams_from_ram_then_disk() {
+        let (n, row, kv, slots) = (30, 100, 1000, 2);
+        // everything fits: cache and all rows on the GPU, nothing streamed, no slots needed
+        assert_eq!(greedy_vram(n, 1000 + 30 * 100, kv, row, slots, 10_000),
+                   Greedy { kv: Tier::Vram, resident: 30, streamed_from: Tier::Vram });
+        // the cache and 4 rows besides the 2 streaming slots: 26 rows streamed from RAM
+        assert_eq!(greedy_vram(n, 1000 + 6 * 100, kv, row, slots, 10_000),
+                   Greedy { kv: Tier::Vram, resident: 4, streamed_from: Tier::Ram });
+        // RAM too small for the streamed rows: from the disk
+        assert_eq!(greedy_vram(n, 1000 + 6 * 100, kv, row, slots, 2_000),
+                   Greedy { kv: Tier::Vram, resident: 4, streamed_from: Tier::Disk });
+        // the cache does not fit: it goes to RAM, the GPU takes rows only, RAM must hold the cache and the rows
+        assert_eq!(greedy_vram(n, 700, kv, row, slots, 10_000),
+                   Greedy { kv: Tier::Ram, resident: 5, streamed_from: Tier::Ram });
+        assert_eq!(greedy_vram(n, 700, kv, row, slots, 3_000),
+                   Greedy { kv: Tier::Ram, resident: 5, streamed_from: Tier::Disk });
+        // no room even for the slots: nothing resident
+        assert_eq!(greedy_vram(n, 1000 + 100, kv, row, slots, 10_000).resident, 0);
+    }
+
+    /// greedy_vram decides the cache at load, before the weights' buffers take the GPU: it starts there if it fits
+    #[test]
+    fn greedy_vram_starts_the_cache_on_the_gpu_and_greedy_ram_in_ram() {
+        let mut o = Offloading::default();
+        assert_eq!(o.initial(Resource::KvCache), Tier::Ram);
+        o.policy = Policy::GreedyVram;
+        assert_eq!(o.initial(Resource::KvCache), Tier::Vram);
+        o.resources.insert(Resource::KvCache, Tier::Ram);
+        assert_eq!(o.initial(Resource::KvCache), Tier::Ram, "an explicit tier wins over the policy");
+    }
+
+    /// the default policy leaves the key of calibration.json as it was before the policy existed
+    #[test]
+    fn the_default_policy_keeps_the_calibration_key_and_greedy_vram_changes_it() {
+        let mut o = Offloading::default();
+        assert_eq!(o.policy, Policy::GreedyRam);
+        assert!(!placement_text(&o).contains("policy"), "{}", placement_text(&o));
+        assert_eq!(placement_text(&o), format!("{o:?}").replace(", policy: GreedyRam", ""));
+        let before = Placement::key(&o, "m");
+        o.policy = Policy::GreedyVram;
+        assert!(placement_text(&o).contains("GreedyVram"));
+        assert_ne!(Placement::key(&o, "m"), before);
+    }
+
+    /// the stretch is bounded by the factor it gives a side, (trained / now)^stretch in [1/4, 4], not by itself: near the
+    /// native size a side's ratio is close to 1 and a strong factor needs a large stretch (672: M 1.45 is stretch 8)
+    #[test]
+    fn the_rope_stretch_is_bounded_by_the_factor_it_gives() {
+        let at = |size: &str, stretch: f64| {
+            let mut v: serde_json::Value = serde_json::from_str(include_str!("../../../configs/mvp1.json")).unwrap();
+            v[0]["video"]["size"] = serde_json::json!(size);
+            v[0]["rope"] = serde_json::json!({"interpolate": true, "native_size": "704x1280", "scene_offset_frames": 8,
+                                              "stretch": stretch, "by_parts": null, "ntk_aware": true});
+            Config::parse(&v.to_string()).map_err(|e| e.to_string()).and_then(|c| c.validate())
+        };
+        assert!(at("672x1216", 8.0).is_ok(), "M 1.45 at 672");
+        assert!(at("512x928", 1.0).is_ok());
+        assert!(at("512x928", 5.0).is_err(), "a factor of 4.9");
+        assert!(at("512x928", -5.0).is_err(), "a factor of 1/4.9");
+        assert!(at("672x1216", 1e300).is_err(), "an infinite factor");
+    }
+
+    /// rope.m gives M per side in place of the stretch (each in [1/4, 4]), rope.ntk_pi_mix in [0, 1] is of NTK only
+    #[test]
+    fn rope_m_per_side_and_the_ntk_pi_mix_are_checked() {
+        let at = |rope: serde_json::Value| {
+            let mut v: serde_json::Value = serde_json::from_str(include_str!("../../../configs/mvp1.json")).unwrap();
+            v[0]["video"]["size"] = serde_json::json!("608x1120");
+            let mut base = serde_json::json!({"interpolate": true, "native_size": "704x1280", "scene_offset_frames": 8,
+                                              "stretch": null, "by_parts": null, "ntk_aware": true});
+            for (k, value) in rope.as_object().unwrap() { base[k] = value.clone(); }
+            v[0]["rope"] = base;
+            Config::parse(&v.to_string()).map_err(|e| e.to_string()).and_then(|c| c.validate())
+        };
+        let m = |h: f64, w: f64| serde_json::json!({"height": h, "width": w});
+        assert!(at(serde_json::json!({"m": m(1.2, 1.4)})).is_ok());
+        assert!(at(serde_json::json!({"m": m(1.2, 1.2), "ntk_pi_mix": 0.5})).is_ok());
+        assert!(at(serde_json::json!({"m": m(1.2, 5.0)})).is_err(), "width M 5");
+        assert!(at(serde_json::json!({"m": m(0.2, 1.0)})).is_err(), "height M 0.2");
+        assert!(at(serde_json::json!({"m": m(1.2, 1.2), "stretch": 1.0})).is_err(), "m and a stretch");
+        assert!(at(serde_json::json!({"m": m(1.2, 1.2), "ntk_pi_mix": 1.5})).is_err(), "mix 1.5");
+        assert!(at(serde_json::json!({"m": m(1.2, 1.2), "ntk_aware": false, "ntk_pi_mix": 0.5})).is_err(), "mix without NTK");
+        assert!(at(serde_json::json!({"stretch": 1.0})).is_ok(), "the stretch alone as before");
+    }
+
+    /// the descent's metrics are heavy (a probe and a copy per block): only when named, never by debug: true
+    #[test]
+    fn descent_metrics_are_selected_only_by_name() {
+        assert!(!DebugSelection::Switch(true).includes(DebugTool::Descent));
+        assert!(DebugSelection::Tools(vec![DebugTool::Fps, DebugTool::Descent]).includes(DebugTool::Descent));
+        let mut value: serde_json::Value = serde_json::from_str(include_str!("../../../configs/mvp1.json")).unwrap();
+        value[1]["debug"] = serde_json::json!(["fps", "descent"]);
+        value[1]["drain"] = serde_json::json!({"every": "end"});
+        let parsed = Config::parse(&value.to_string()).unwrap();
+        assert!(parsed.generate.debug.includes(DebugTool::Descent));
+    }
+
+    /// the comparison of the last step's keys and values with the pass at t = 0 (kvwrite.rs) copies a sample of every
+    /// block's cache twice a chunk: only when named
+    #[test]
+    fn the_kv_write_comparison_is_selected_only_by_name() {
+        assert!(!DebugSelection::Switch(true).includes(DebugTool::KvWrite));
+        let mut value: serde_json::Value = serde_json::from_str(include_str!("../../../configs/mvp1.json")).unwrap();
+        value[1]["debug"] = serde_json::json!(["fps", "kv_write"]);
+        value[1]["drain"] = serde_json::json!({"every": "end"});
+        assert!(Config::parse(&value.to_string()).unwrap().generate.debug.includes(DebugTool::KvWrite));
+    }
+
+    #[test]
+    fn debug_true_selects_all_metrics_but_fps_stays_lightweight() {
+        for tool in [DebugTool::Fps, DebugTool::Memory, DebugTool::Transfers, DebugTool::Prompts] {
+            assert!(DebugSelection::Switch(true).includes(tool));
+            assert!(!DebugSelection::Switch(false).includes(tool));
+            assert_eq!(DebugSelection::Tool(DebugTool::Fps).includes(tool), tool == DebugTool::Fps);
+        }
+    }

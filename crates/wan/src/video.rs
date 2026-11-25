@@ -17,7 +17,7 @@ use crate::cache::{Buffers, Format, Offloaded, Ring, Write};
 use crate::gpu::{DeviceBuffer, Event, PinnedBuffer, Stream};
 
 const SCALAR: usize = 256;
-use crate::config::{choose, Offloading, Placement, Resource, Tier, Times};
+use crate::config::{choose, greedy_vram, Offloading, Placement, Policy, Resource, Tier, Times};
 use crate::manifest::Manifest;
 use crate::packages::{self, Loaded};
 use crate::rows::{spread, Rows};
@@ -48,6 +48,8 @@ struct Calibrating {
     reserve: usize,
     /// what must stay free on the GPU whatever the margin: T5's slots and activations
     spare: f32,
+    /// frames per second the schedule may give up for fewer slots
+    fps_tolerance: f64,
     weights: bool,
     kv: bool,
 }
@@ -73,6 +75,9 @@ enum Calibration {
 }
 
 pub struct Video {
+    pub t5_slot_depth: std::sync::Arc<std::sync::atomic::AtomicUsize>,
+    last_chunk_started: Option<std::time::Instant>,
+    observed_chunk_s: Option<f64>,
     pub m: Manifest,
     runtime: Runtime,
     p: Packages,
@@ -83,6 +88,14 @@ pub struct Video {
     /// the time pairs of RoPE, [2, positions, pairs] float32, as export_live.py wrote them
     time_rope: Vec<f32>,
     time_rows: DeviceBuffer,
+    /// the height and width RoPE table [2, hw_rows, hw_pairs] float32 (rope.rs), an input of every block package that
+    /// takes it (manifest hw_rows > 0); set by set_hw_rope before the first chunk
+    hw_rope: Option<DeviceBuffer>,
+    /// block sparsity only (kernels.sparse): the frame mask of the chunk's attention, int32 per 64 keys of the cache
+    /// buffer (Ring::allowed_key_blocks), an input of every block package
+    key_blocks: Option<DeviceBuffer>,
+    /// cache_write clean_pass_sink: the frame mask of the pass at t = 0 (the sink and the chunk only)
+    key_blocks_write: Option<DeviceBuffer>,
     /// t and c of the packages, one float32 each, SCALAR bytes apart: a package takes its inputs 16-byte aligned (an
     /// input off that is copied by AOTInductor first, with a warning on every call)
     scalars: DeviceBuffer,
@@ -107,26 +120,73 @@ pub struct Video {
     pin_next: bool,
     rng: rand::rngs::StdRng,
     pub compute: Stream,
+    /// the descent in resolution (generate.descent, debug "descent"): lambda in the rows, the probe, the metrics
+    descent: Option<Descent>,
+    /// debug kv_write: the last step's keys and values against the pass at t = 0, per block (kvwrite.rs)
+    kv_write: Option<crate::kvwrite::Report>,
+    /// generate.cache_write: where a chunk's keys and values come from (chunk_passes)
+    cache_write: crate::config::CacheWrite,
+    /// generate.kv_probe: timesteps of the probe passes, their noise (its own generator: the video's noise stays as it
+    /// is) and the latent they read
+    kv_probe: Vec<f64>,
+    probe_rng: rand::rngs::StdRng,
+    probe_x: Option<DeviceBuffer>,
+}
+
+/// A pass of the model in a chunk: a step of the sampler (`write`: its keys and values are the ones the chunk keeps), or
+/// the pass at t = 0 over the clean chunk that writes them.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum PassKind { Sample { step: usize, write: bool }, Clean }
+
+/// The passes of a chunk of `steps` sampler steps under generate.cache_write.
+pub fn chunk_passes(steps: usize, mode: crate::config::CacheWrite) -> Vec<PassKind> {
+    let last = matches!(mode, crate::config::CacheWrite::LastStep); // CleanPassSink: the same passes, a narrower mask
+    let mut passes: Vec<PassKind> = (0..steps).map(|step| PassKind::Sample { step, write: last && step + 1 == steps }).collect();
+    if !last { passes.push(PassKind::Clean); }
+    passes
+}
+
+/// lambda over norm_q of every block's row and the metrics of the first chunk (descent.rs).
+pub struct Descent {
+    pub lambda: Vec<Vec<f64>>,
+    /// lambda * norm_q.weight of every block, bfloat16, `bytes` apart, written at `offset` of the block's row
+    patch: Option<(DeviceBuffer, usize, usize)>,
+    /// the probe package and the queries it is measured at, when the metrics are on
+    probe: Option<(Loaded, Vec<usize>)>,
+    /// the native latent's height and width when the noise is the native size's one resized (noise native_resized)
+    native_noise: Option<(usize, usize, bool)>,
+    pub report: crate::descent::Report,
+}
+
+impl Descent {
+    /// whether the metrics are on (the probe is loaded)
+    pub fn measures(&self) -> bool { self.probe.is_some() }
 }
 
 fn f32_bytes(values: &[f32]) -> &[u8] {
     unsafe { std::slice::from_raw_parts(values.as_ptr() as *const u8, values.len() * 4) }
 }
 
+/// Key blocks of the cache buffer, [max_tokens + chunk] tokens in Sage's blocks of 64: the frame mask's length.
+fn key_blocks(m: &Manifest) -> usize {
+    (m.max_tokens + m.chunk_tokens).div_ceil(64)
+}
+
 impl Video {
-    /// `offloading` (configs/live.json): which resources are offloaded, and whether the calibration chooses which of
+    /// `offloading` (configs/mvp1.json): which resources are offloaded, and whether the calibration chooses which of
     /// them stay so (Video::calibrate) or they stay as configured.
     /// The placement a calibration of the same configuration and packages left in <directory>/calibration.json is
     /// reused with calibration=if_needed; calibration=always measures again.
     pub fn load(directory: &Path, mut m: Manifest, runtime: Runtime, seed: u64, offloading: &Offloading)
         -> Result<Video> {
-        let key = Placement::key(offloading, &std::fs::read_to_string(directory.join("live.json"))?);
-        let calibrates = Resource::ALL.iter().any(|&r| offloading.calibrates(r));
+        let key = Placement::key(offloading, &std::fs::read_to_string(directory.join("mvp1.json"))?);
+        let calibrates = offloading.enabled && offloading.calibration != crate::config::CalibrationPolicy::Disabled;
         let kept = if calibrates && offloading.calibration == crate::config::CalibrationPolicy::IfNeeded { Placement::read(directory, &key) } else { None };
         let (mut weights, mut kv_tier) = match &kept {
             Some(p) => (p.weights, p.kv),
             None => (offloading.initial(Resource::BlockWeights), offloading.initial(Resource::KvCache)),
         };
+        let [host_slots, device_slots] = kept.as_ref().map_or([2, 2], |p| p.weight_slots);
         m.stream_blocks = match (&kept, weights) {
             (_, Tier::Vram) => 0,
             (Some(p), Tier::Ram | Tier::Disk) => p.rows_streamed,
@@ -144,6 +204,7 @@ impl Video {
         let calibrate = (calibrates && kept.is_none()).then(|| Calibrating {
             reserve,
             spare: offloading.copy_spare,
+            fps_tolerance: offloading.prefetch_fps_tolerance,
             weights: offloading.calibrates(Resource::BlockWeights),
             kv: offloading.calibrates(Resource::KvCache),
         });
@@ -162,30 +223,42 @@ impl Video {
         let pending_host = 4 * m.chunk * m.height * m.width * 3 + t5_slots;
         let headroom = crate::budget::available()?.saturating_sub(pending_host);
         let (free, _) = cudarc::driver::result::mem_get_info()?;
-        let ram_fits = kv_bytes * m.blocks <= headroom;
+        let host_rows_bytes = |tier, count| match tier {
+            Tier::Disk => host_slots * crate::disk::span(m.row_bytes),
+            Tier::Ram => count * m.row_bytes,
+            _ => 0,
+        };
+        let weight_host = host_rows_bytes(weights, m.stream_blocks);
+        let minimum_weight_host = if offloading.tier(Resource::BlockWeights) == Tier::Auto {
+            weight_host.min(host_rows_bytes(Tier::Disk, m.blocks))
+        } else { weight_host };
+        let ram_required = (kv_bytes * m.blocks).saturating_add(minimum_weight_host);
         // on the GPU beside the two slots of streamed rows at least
-        let vram_fits = crate::budget::fits(free, m.blocks * kv_bytes + 2 * m.row_bytes, reserve + m.generation_workspace_bytes);
-        if kv_tier == Tier::Ram && !ram_fits && offloading.tier(Resource::KvCache) != Tier::Auto {
+        let vram_fits = crate::budget::fits(free, m.blocks * kv_bytes + device_slots * m.row_bytes, reserve + m.generation_workspace_bytes);
+        if kv_tier == Tier::Ram && ram_required > headroom && offloading.tier(Resource::KvCache) != Tier::Auto {
             return Err("explicit RAM KV exceeds RAM budget; choose auto or disk".into());
         }
-        kv_tier = crate::config::kv_tier(offloading.tier(Resource::KvCache), kv_tier, ram_fits, vram_fits)?;
+        kv_tier = crate::config::kv_tier_with_ram_budget(offloading.tier(Resource::KvCache), kv_tier,
+                                                       headroom, ram_required, vram_fits)?;
         let kv_host = if kv_tier == Tier::Ram { m.blocks * kv_bytes } else if kv_tier == Tier::Disk { 2 * kv_bytes } else { 0 };
         if weights == Tier::Ram && m.stream_blocks * m.row_bytes > headroom.saturating_sub(kv_host) {
             if offloading.tier(Resource::BlockWeights) == Tier::Auto { weights = Tier::Disk; }
             else { return Err("explicit RAM weights exceed RAM budget; choose auto or disk".into()); }
         }
-        let gpu_rows = (m.blocks - m.stream_blocks + 2) * m.row_bytes;
+        let gpu_rows = (m.blocks - m.stream_blocks + device_slots) * m.row_bytes;
         let gpu_kv = if kv_tier == Tier::Vram { m.blocks * kv_bytes } else { 2 * kv_bytes };
         if !crate::budget::fits(free, gpu_rows + gpu_kv, reserve + m.generation_workspace_bytes) {
             if offloading.tier(Resource::BlockWeights) == Tier::Auto { weights = Tier::Disk; m.stream_blocks = m.blocks; }
             // the weights now take two slots only; the cache stays in memory, never on the disk under "auto"
-            let vram_fits = crate::budget::fits(free, m.blocks * kv_bytes + 2 * m.row_bytes, reserve + m.generation_workspace_bytes);
-            kv_tier = crate::config::kv_tier(offloading.tier(Resource::KvCache), kv_tier, ram_fits, vram_fits)?;
+            let vram_fits = crate::budget::fits(free, m.blocks * kv_bytes + device_slots * m.row_bytes, reserve + m.generation_workspace_bytes);
+            let ram_required = (kv_bytes * m.blocks).saturating_add(host_rows_bytes(weights, m.stream_blocks));
+            kv_tier = crate::config::kv_tier_with_ram_budget(offloading.tier(Resource::KvCache), kv_tier,
+                                                           headroom, ram_required, vram_fits)?;
         }
         let host_kv = match kv_tier { Tier::Ram => m.blocks * kv_bytes, Tier::Disk => 2 * kv_bytes, _ => 0 };
-        let host_rows = if weights == Tier::Disk { 2 * crate::disk::span(m.row_bytes) } else { m.stream_blocks * m.row_bytes };
+        let host_rows = host_rows_bytes(weights, m.stream_blocks);
         crate::cache::check_host_capacity(host_kv + host_rows + pending_host, crate::budget::available()?)?;
-        let rows = Rows::load(&m.pack, m.blocks, m.row_bytes, &spread(m.blocks, m.stream_blocks), weights == Tier::Disk, &compute)?;
+        let rows = Rows::load_with_slots(&m.pack, m.blocks, m.row_bytes, &spread(m.blocks, m.stream_blocks), weights == Tier::Disk, &compute, host_slots, device_slots)?;
         let kv = match kv_tier {
             Tier::Ram => Kv::Offloaded(Offloaded::new(m.blocks, tokens, m.heads, m.head_dim, cache_format(&m), &compute)?),
             Tier::Disk => Kv::Offloaded(Offloaded::new_disk(m.blocks, tokens, m.heads, m.head_dim, cache_format(&m), &compute)?),
@@ -205,8 +278,20 @@ impl Video {
             .map(|shape| DeviceBuffer::zeroed(shape.iter().product::<i64>() as usize * 2, &compute))
             .collect::<std::result::Result<_, _>>()?;
         Ok(Video {
+            t5_slot_depth: std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(2)),
+            last_chunk_started: None,
+            observed_chunk_s: None,
             ring: Ring::new(m.max_tokens, m.sink_tokens, m.chunk, m.tokens_per_frame),
             time_rows: DeviceBuffer::new(2 * m.chunk * m.time_pairs * 4)?,
+            hw_rope: None,
+            key_blocks: match m.kernels.block_sparsity() {
+                Some(_) => Some(DeviceBuffer::new(key_blocks(&m) * 4)?),
+                None => None,
+            },
+            key_blocks_write: match m.kernels.block_sparsity() {
+                Some(_) => Some(DeviceBuffer::new(key_blocks(&m) * 4)?),
+                None => None,
+            },
             scalars: DeviceBuffer::new(2 * SCALAR)?,
             pixels: PinnedBuffer::new(4 * m.chunk * m.height * m.width * 3)?,
             decoded: Event::new()?,
@@ -232,7 +317,108 @@ impl Video {
             pin_next: false,
             rng: rand::rngs::StdRng::seed_from_u64(seed),
             compute,
+            descent: None,
+            kv_write: None,
+            cache_write: crate::config::CacheWrite::CleanPass,
+            kv_probe: Vec::new(),
+            probe_rng: rand::rngs::StdRng::seed_from_u64(seed ^ 0x6b76_7072_6f62_65),
+            probe_x: None,
         })
+    }
+
+    /// The descent's knobs and metrics: lambda written over norm_q of the rows on the GPU (no new export), the
+    /// sampler of another shift (checked against the packages' `packaged` one), the probe package for the metrics.
+    pub fn set_descent(&mut self, directory: &Path, config: Option<&crate::config::Descent>, packaged: f64, metrics: bool,
+                       seed: u64, native: (usize, usize)) -> Result<()> {
+        use crate::descent;
+        if config.is_none() && !metrics { return Ok(()); }
+        let one = serde_json::json!(1.0);
+        let lambda = descent::lambda_table(config.map_or(&one, |c| &c.attn_logit_scale), self.m.blocks, self.m.heads)?;
+        let patch = if lambda.iter().flatten().all(|v| *v == 1.0) { None } else {
+            let layout_path = { let mut p = self.m.pack.clone().into_os_string(); p.push(".json"); std::path::PathBuf::from(p) };
+            let layout: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(&layout_path)?)?;
+            let (offset, bytes) = descent::norm_q_slice(&layout)?;
+            let mut file = std::fs::File::open(&self.m.pack)?;
+            let mut all = Vec::with_capacity(self.m.blocks * bytes);
+            for (b, heads) in lambda.iter().enumerate() {
+                use std::io::{Read, Seek};
+                let mut original = vec![0u8; bytes];
+                file.seek(std::io::SeekFrom::Start((b * self.m.row_bytes + offset) as u64))?;
+                file.read_exact(&mut original)?;
+                all.extend(descent::scaled_norm(&original, heads));
+            }
+            let buffer = DeviceBuffer::new(all.len())?;
+            self.compute.copy_to_device(buffer.ptr, &all)?;
+            self.compute.synchronize()?;
+            println!("descent: attn_logit_scale over norm_q of the rows, mean {:.4}",
+                     lambda.iter().flatten().sum::<f64>() / (self.m.blocks * self.m.heads) as f64);
+            Some((buffer, offset, bytes))
+        };
+        if let Some(shift) = config.and_then(|c| c.timestep_shift) {
+            let (t, c) = descent::sampler(&self.m.timesteps, &self.m.sampler, packaged, Some(shift))?;
+            println!("descent: timestep_shift {shift} instead of {packaged}: timesteps {t:?}, coefficients {c:?}");
+            (self.m.timesteps, self.m.sampler) = (t, c);
+        }
+        let probe = if metrics {
+            if !directory.join("probe.pt2").exists() {
+                return Err(format!("{}: no probe package (debug descent): export these packages again", directory.display()).into());
+            }
+            Some((packages::load(&self.runtime, directory, "probe", &self.compute)?,
+                  descent::sample_queries(self.m.chunk_tokens, descent::QUERIES, seed)))
+        } else { None };
+        let [_, f, h, w] = self.m.latent;
+        let report = descent::Report { grid: Some(descent::Grid { frames: f, height: h / 2, width: w / 2 }), ..Default::default() };
+        let native_noise = config.filter(|c| c.noise != "fresh").map(|c| (native.0 / 16, native.1 / 16, c.noise == "native_spectral"));
+        if let Some((h, w, _)) = native_noise { println!("descent: noise of the native latent {h}x{w} resized to {}x{}", self.m.latent[2], self.m.latent[3]); }
+        self.descent = Some(Descent { lambda, patch, probe, native_noise, report });
+        Ok(())
+    }
+
+    pub fn descent(&self) -> Option<&Descent> { self.descent.as_ref() }
+
+    /// debug kv_write on: every chunk compares a sample of each block's last-step keys and values with the pass at
+    /// t = 0. Reads the caches on the GPU, so only with the KV cache resident.
+    pub fn set_kv_write(&mut self, on: bool, probe: &[f64]) -> Result<()> {
+        if on && !matches!(self.kv, Kv::Resident(_)) {
+            return Err("debug kv_write needs the KV cache on the GPU (offloading.resources.kv_cache vram)".into());
+        }
+        self.kv_write = on.then(|| crate::kvwrite::Report::new(self.m.blocks));
+        self.kv_probe = if on { probe.to_vec() } else { Vec::new() };
+        if !self.kv_probe.is_empty() {
+            self.probe_x = Some(DeviceBuffer::zeroed(self.m.latent.iter().product::<usize>() * 4, &self.compute)?);
+        }
+        Ok(())
+    }
+    pub fn kv_write(&self) -> Option<&crate::kvwrite::Report> { self.kv_write.as_ref() }
+
+    /// generate.cache_write of the run (set before the first chunk)
+    pub fn set_cache_write(&mut self, mode: crate::config::CacheWrite) { self.cache_write = mode; }
+
+    fn read_chunk_kv(&self, at: usize) -> Result<Option<Vec<(Vec<u8>, Vec<f32>, Vec<u8>, Vec<f32>)>>> {
+        let (Some(_), Kv::Resident(caches)) = (&self.kv_write, &self.kv) else { return Ok(None) };
+        let tokens: Vec<usize> = crate::kvwrite::sample(self.m.chunk_tokens).into_iter().map(|i| at + i).collect();
+        Ok(Some(caches.iter().map(|c| c.read_tokens(&tokens, &self.compute)).collect::<Result<Vec<_>>>()?))
+    }
+
+    /// The attention of a block over the chunk, from the probe on the block's row and inputs.
+    fn measure_attention(&self, probe: &Loaded, queries: &[usize], row: Tensor, tokens: Tensor, e0: Tensor, time: Tensor, hw: Option<Tensor>)
+        -> Result<Vec<Vec<crate::descent::Stat>>> {
+        let mut inputs = vec![row, tokens, e0, time];
+        inputs.extend(hw);
+        let out = probe.run(&inputs, self.compute.raw())?;
+        let (q, k) = (self.host_bf16(&out[0])?, self.host_bf16(&out[1])?);
+        let [_, f, h, w] = self.m.latent;
+        Ok(crate::descent::attention(&q, &k, self.m.heads, self.m.head_dim,
+            crate::descent::Grid { frames: f, height: h / 2, width: w / 2 }, queries, &crate::descent::MULTIPLIERS))
+    }
+
+    /// A bfloat16 tensor on the GPU as float32 on the host, after the compute stream's work on it.
+    fn host_bf16(&self, t: &Tensor) -> Result<Vec<f32>> {
+        let mut bytes = vec![0u8; t.bytes()];
+        self.compute.synchronize()?;
+        self.compute.copy_to_host(&mut bytes, t.data as u64)?;
+        self.compute.synchronize()?;
+        Ok(crate::descent::bf16_bytes_to_f32(&bytes))
     }
 
     pub fn runtime(&self) -> &Runtime {
@@ -245,9 +431,10 @@ impl Video {
     /// to hide behind, so k = n t_block / t_copy (a tenth to spare) is the most that can be streamed without waiting,
     /// and only the other blocks get rows on the GPU for good. Those are capped by the room the GPU has, `reserve`
     /// bytes left free.
-    fn calibrate(&mut self, times: Vec<(Event, Event)>, whole: (Event, Event), c: Calibrating) -> Result<()> {
+    fn calibrate(&mut self, times: Vec<(Event, Event)>, whole: (Event, Event), mut c: Calibrating) -> Result<()> {
+        c.reserve = self.reserve;
         self.compute.synchronize()?;
-        let _ = whole; // the pass's own time is the trial's (decide_kv)
+        let measured_pass_ms = whole.0.elapsed_ms(&whole.1)?;
         let mut blocks: Vec<f32> = times.iter().map(|(a, b)| a.elapsed_ms(b)).collect::<std::result::Result<_, _>>()?;
         blocks.sort_by(f32::total_cmp);
         let block = blocks[blocks.len() / 2];
@@ -260,9 +447,25 @@ impl Video {
         let kv_ms = match &self.kv { Kv::Offloaded(o) => o.time_copy()?, _ => 0.0 };
         let read = self.rows.time_read()?;
         let times = Times { block_ms: block, row_copy_ms: row, row_read_ms: read, kv_copy_ms: kv_ms };
-        let (kv_tier, mut weights_tier, mut rows) = choose(n, &times, c.spare, c.kv && !matches!(&self.kv, Kv::Offloaded(o) if o.is_disk()), c.weights);
+        let (mut kv_tier, mut weights_tier, mut rows) = choose(n, &times, c.spare, c.kv && !matches!(&self.kv, Kv::Offloaded(o) if o.is_disk()), c.weights);
         let (free, _) = cudarc::driver::result::mem_get_info()?;
         let resident_bytes = n * cache_format(&self.m).bytes(self.m.max_tokens + self.m.chunk_tokens, self.m.heads, self.m.head_dim);
+        let greedy = self.offloading.policy == Policy::GreedyVram;
+        if greedy {
+            // greedy_vram: the cache on the GPU if it fits, then as many rows for good as fit, the rest streamed from
+            // RAM (or the disk when RAM is short); the moves below are the same as greedy_ram's
+            let kv_in_ram = matches!(&self.kv, Kv::Offloaded(o) if !o.is_disk());
+            let room = free.saturating_sub(c.reserve + self.m.generation_workspace_bytes);
+            let ram = crate::budget::available()? + if kv_in_ram { resident_bytes } else { 0 };
+            let (_, slots) = self.rows.slot_counts();
+            // the cache was placed at load (on the GPU if it fitted); here it is moved only if it is in RAM and now fits
+            let kv_need = if matches!(&self.kv, Kv::Resident(_)) { 0 } else if c.kv && kv_in_ram { resident_bytes } else { usize::MAX };
+            let g = greedy_vram(n, room, kv_need, self.m.row_bytes, slots, ram);
+            if c.kv { kv_tier = g.kv; }
+            if c.weights { weights_tier = Tier::Ram; rows = n - g.resident; }
+            println!("greedy_vram: room {:.2} GiB, KV {:?}, {} of {n} rows for good, the rest from {:?}",
+                     room as f64 / (1u64 << 30) as f64, g.kv, g.resident, g.streamed_from);
+        }
         if kv_tier == Tier::Vram && crate::budget::fits(free, resident_bytes, c.reserve + self.m.generation_workspace_bytes)
             && matches!(&self.kv, Kv::Offloaded(o) if !o.is_disk()) {
             if let Kv::Offloaded(_) = self.kv {
@@ -272,7 +475,7 @@ impl Video {
         }
         // A VRAM recommendation may be rejected by capacity. Keep charging KV
         // transfer time when it actually remains offloaded (also for disk staging).
-        if c.weights && kv_tier != Tier::Ram && matches!(&self.kv, Kv::Offloaded(_)) {
+        if !greedy && c.weights && kv_tier != Tier::Ram && matches!(&self.kv, Kv::Offloaded(_)) {
             let remaining = Times { block_ms: (block - c.spare * kv_ms).max(0.0), ..times };
             let (_, tier, count) = choose(n, &remaining, c.spare, false, true);
             weights_tier = tier; rows = count;
@@ -319,6 +522,15 @@ impl Video {
             (_, Kv::Offloaded(_)) => "in RAM",
             (_, Kv::Resident(_)) => "on the GPU",
         };
+        let passes = (self.m.timesteps.len() + 1) as f64;
+        let fixed_per_pass = self.observed_chunk_s.map_or(0.0, |s| (s - measured_pass_ms as f64 * passes / 1000.0).max(0.0) / passes);
+        let report = self.rows.calibrate_schedule(read as f64, row as f64,
+            block as f64 * self.m.blocks as f64 / self.rows.streamed().max(1) as f64,
+            c.spare as f64, (4 * self.m.chunk) as f64 / passes, c.fps_tolerance, fixed_per_pass,
+            c.reserve + self.m.generation_workspace_bytes, &self.compute)?;
+        let report = serde_json::json!({"placement_key":self.placement.1,"measured_baseline_pass_ms":measured_pass_ms,"observed_baseline_chunk_s":self.observed_chunk_s,"weights":report});
+        std::fs::write(self.placement.0.join("prefetch-calibration.json"), serde_json::to_vec_pretty(&report)?)?;
+        println!("prefetch calibrated: {}", report);
         println!("offloading calibrated: block {block:.1} ms, row copy {row:.1} ms, row read from the disk {read:.1} ms, \
                   cache copy {kv_ms:.1} ms; weights {weights_where}, KV cache {kv_where}{note}");
         if !matches!(self.calibration, Calibration::Trial(_)) {
@@ -339,7 +551,8 @@ impl Video {
         };
         let kv = match self.kv { Kv::Offloaded(ref o) => if o.is_disk() { Tier::Disk } else { Tier::Ram }, Kv::Resident(_) => Tier::Vram };
         let (directory, key) = &self.placement;
-        Placement { key: key.clone(), weights, rows_streamed: self.rows.streamed(), kv }.write(directory)?;
+        let (host, device) = self.rows.slot_counts();
+        Placement { key: key.clone(), weights, rows_streamed: self.rows.streamed(), kv, weight_slots: [host, device] }.write(directory)?;
         Ok(())
     }
 
@@ -359,8 +572,8 @@ impl Video {
         self.keep_placement()
     }
 
-    /// debug-tools: the late copies of streamed rows since the last call (Rows::copy_waits).
-    #[cfg(feature = "debug-tools")]
+    /// The late copies of streamed rows since the last call (Rows::copy_waits).
+    #[cfg(feature = "fps")]
     pub fn copy_waits(&self) -> Result<(usize, usize, f32)> {
         Ok(self.rows.copy_waits(&self.compute)?)
     }
@@ -438,6 +651,37 @@ impl Video {
         Ok(())
     }
 
+    /// The height and width RoPE table of the block packages (rope::hw_table), [2, hw_rows, hw_pairs] float32; packages of
+    /// before (hw_rows 0) hold it as a constant and take none. A new table is in effect from the next pass.
+    pub fn set_hw_rope(&mut self, table: &[f32]) -> Result<()> {
+        if self.m.hw_rows == 0 {
+            return Ok(());
+        }
+        if table.len() != 2 * self.m.hw_rows * self.m.hw_pairs {
+            return Err(format!("the RoPE table has {} numbers, the packages take 2 x {} x {}", table.len(), self.m.hw_rows, self.m.hw_pairs).into());
+        }
+        if self.hw_rope.is_none() {
+            self.hw_rope = Some(DeviceBuffer::new(table.len() * 4)?);
+        }
+        let buffer = self.hw_rope.as_ref().unwrap();
+        self.compute.copy_to_device(buffer.ptr, f32_bytes(table))?;
+        self.compute.synchronize()?;
+        Ok(())
+    }
+
+    /// The noise of `seed` from its beginning, as a run of its own would draw it.
+    pub fn reseed(&mut self, seed: u64) {
+        self.rng = rand::rngs::StdRng::seed_from_u64(seed);
+    }
+
+    fn hw_tensor(&self) -> Result<Option<Tensor>> {
+        match (&self.hw_rope, self.m.hw_rows) {
+            (_, 0) => Ok(None),
+            (Some(b), rows) => Ok(Some(b.tensor(0, DType::F32, &[2, rows as i64, self.m.hw_pairs as i64]))),
+            (None, _) => Err("the packages take the RoPE table as an input: set_hw_rope first".into()),
+        }
+    }
+
     /// One pass of the model over the chunk `x` at timestep `t`: the tokens after the last block and the time
     /// embedding.
     /// `step` and `at`: the block package and where the chunk is written (the ring before this chunk's commit);
@@ -452,8 +696,16 @@ impl Video {
             o.begin_pass(at)?;
         }
         let time = self.time_rows.tensor(0, DType::F32, &[2, self.m.chunk as i64, self.m.time_pairs as i64]);
+        let hw = self.hw_tensor()?;
+        // cache_write clean_pass_sink: the pass that writes the chunk reads the sink and the chunk only
+        let mask = match (write, self.cache_write) {
+            (Some(_), crate::config::CacheWrite::CleanPassSink) => self.key_blocks_write.as_ref(),
+            _ => self.key_blocks.as_ref(),
+        };
+        let frames = mask.map(|b| b.tensor(0, DType::I32, &[key_blocks(&self.m) as i64]));
         // the calibration times the blocks of the first pass that reads a full cache
         let full = step + 1 == self.m.block_steps;
+        self.rows.profile_cpu(TIMED || matches!(self.calibration, Calibration::Armed(..)));
         let mut times = match self.calibration {
             Calibration::Armed(..) if full => Some(Vec::with_capacity(self.m.blocks)),
             _ => None,
@@ -466,8 +718,22 @@ impl Video {
             }
             _ => None,
         };
+        let descent = self.descent.take();
+        // the metrics are of the first chunk of a video (its attention sees its own keys only), of the sampler's passes
+        let measuring = write.is_none() && self.start == 0
+            && descent.as_ref().is_some_and(|d| d.probe.is_some() && d.report.latent.is_empty());
+        let pass_index = descent.as_ref().map_or(0, |d| d.report.records.iter().map(|r| r.pass + 1).max().unwrap_or(0));
+        let mut records = Vec::new();
         for b in 0..self.m.blocks {
             let row = self.rows.row::<TIMED>(b, &self.compute)?;
+            if let Some((patch, offset, bytes)) = descent.as_ref().and_then(|d| d.patch.as_ref()) {
+                self.compute.copy_on_device(row.data as u64 + *offset as u64, patch.at(b * bytes), *bytes)?;
+            }
+            let heads = match (&descent, measuring) {
+                (Some(Descent { probe: Some((probe, queries)), .. }), true) =>
+                    self.measure_attention(probe, queries, row, *tokens, *e0, time, hw)?,
+                _ => Vec::new(),
+            };
             let [k, ks, v, vs] = match &self.kv {
                 Kv::Resident(caches) => caches[b].tensors(),
                 Kv::Offloaded(o) => o.tensors(b, &self.compute)?,
@@ -481,7 +747,11 @@ impl Video {
                 }
                 None => None,
             };
-            let mut out = package.run(&[row, *tokens, *e0, *cross[0], *cross[1], time, k, ks, v, vs], s)?;
+            let mut inputs = vec![row, *tokens, *e0, *cross[0], *cross[1], time];
+            inputs.extend(hw);
+            inputs.extend([k, ks, v, vs]);
+            inputs.extend(frames);
+            let mut out = package.run(&inputs, s)?;
             if let (Some(times), Some((start, end))) = (&mut times, span) {
                 end.record(&self.compute)?;
                 times.push((start, end));
@@ -491,7 +761,14 @@ impl Video {
                 o.end_block(b, &self.compute, write)?;
             }
             tokens = out.remove(0);
+            if measuring {
+                let values = self.host_bf16(&tokens)?;
+                records.push(crate::descent::Record { pass: pass_index, block: b, heads,
+                                                      rms: crate::descent::token_rms(&values, values.len() / self.m.chunk_tokens) });
+            }
         }
+        self.descent = descent;
+        if let Some(d) = self.descent.as_mut() { d.report.records.extend(records); }
         if let Some((start, end)) = whole {
             end.record(&self.compute)?;
             self.calibration = match (times, &self.calibration) {
@@ -508,7 +785,16 @@ impl Video {
     pub fn next_chunk(&mut self, noise: Option<&[f32]>) -> Result<Output> {
         self.next_chunk_timed::<false>(noise)
     }
+    /// Whether the chunk computed last attended to the full KV window.
+    pub fn window_full(&self) -> bool { full_window(self.start, self.m.chunk, self.m.tokens_per_frame, self.m.max_tokens) }
     pub fn next_chunk_timed<const TIMED: bool>(&mut self, noise: Option<&[f32]>) -> Result<Output> {
+        let (_, total) = cudarc::driver::result::mem_get_info()?;
+        if let Some(t5) = &self.m.t5 {
+            self.reserve = self.offloading.margin_bytes(total as usize) + self.offloading.activation_bytes(t5.activation_bytes)?
+                + self.t5_slot_depth.load(std::sync::atomic::Ordering::Relaxed) * t5.row_bytes;
+        }
+        let now = std::time::Instant::now();
+        if let Some(previous) = self.last_chunk_started.replace(now) { self.observed_chunk_s = Some((now - previous).as_secs_f64()); }
         if crate::budget::available()? == 0 && self.offloading.enabled {
             self.compute.synchronize()?;
             if self.offloading.tier(Resource::BlockWeights) == Tier::Auto { self.rows.to_disk(&self.compute)?; }
@@ -546,13 +832,32 @@ impl Video {
             rows.extend_from_slice(&self.time_rope[from..from + chunk * pairs]);
         }
         self.compute.copy_to_device(self.time_rows.ptr, f32_bytes(&rows))?;
+        if let (Some(buffer), Some((_, frames))) = (&self.key_blocks, m.kernels.block_sparsity()) {
+            // the ring before this chunk's commit: every pass of the chunk, the writing one too, reads these keys
+            let mask = self.ring.allowed_key_blocks(frames.sink, frames.recent_frames, 64);
+            let bytes: Vec<u8> = mask.iter().flat_map(|v| v.to_le_bytes()).collect();
+            self.compute.copy_to_device(buffer.ptr, &bytes)?;
+        }
+        if let (Some(buffer), crate::config::CacheWrite::CleanPassSink) = (&self.key_blocks_write, self.cache_write) {
+            let mask = self.ring.allowed_key_blocks(true, 0, 64);
+            let bytes: Vec<u8> = mask.iter().flat_map(|v| v.to_le_bytes()).collect();
+            self.compute.copy_to_device(buffer.ptr, &bytes)?;
+        }
         let count = m.latent.iter().product::<usize>();
         let fresh: Vec<f32>;
         let noise = match noise {
             Some(n) => n,
             None => {
                 let normal = rand_distr::StandardNormal;
-                fresh = (0..count).map(|_| normal.sample(&mut self.rng)).collect();
+                fresh = match self.descent.as_ref().and_then(|d| d.native_noise) {
+                    Some((hn, wn, spectral)) => {
+                        let [c, f, h, w] = m.latent;
+                        let native: Vec<f32> = (0..c * f * hn * wn).map(|_| normal.sample(&mut self.rng)).collect();
+                        if spectral { crate::descent::spectral_noise(&native, c * f, hn, wn, h, w) }
+                        else { crate::descent::resize_noise(&native, c * f, hn, wn, h, w) }
+                    }
+                    None => (0..count).map(|_| normal.sample(&mut self.rng)).collect(),
+                };
                 &fresh
             }
         };
@@ -562,18 +867,74 @@ impl Video {
         let mut x = self.noise.tensor(0, DType::F32, &shape);
         let mut kept: Option<Output> = None;
         let (step, at) = (self.ring.step(), self.ring.saved);
-        for k in 0..self.m.timesteps.len() {
-            let (tokens, t_emb) = self.pass::<TIMED>(x, self.m.timesteps[k], step, at, None)?;
+        let plan = chunk_passes(self.m.timesteps.len(), self.cache_write);
+        // the chunk kept (the commit): its copies run after the pass that writes the chunk's keys and values
+        let copies = self.ring.commit();
+        let write = Write { at, n: self.m.chunk_tokens, copies: &copies };
+        for pass in &plan {
+            let PassKind::Sample { step: k, write: writes } = *pass else { continue };
+            let (tokens, t_emb) = self.pass::<TIMED>(x, self.m.timesteps[k], step, at, writes.then_some(&write))?;
             let c = self.scalar(1, self.m.sampler[k])?;
             let next = self.p.post.run(&[*tokens, *t_emb, x, c], self.compute.raw())?.remove(0);
             x = *next;
             kept = Some(next);
         }
-        // the clean chunk written into the caches at t = 0, as trained (write_pass), and kept (the commit); the pass's
+        if self.start == 0 && self.descent.as_ref().is_some_and(|d| d.probe.is_some() && d.report.latent.is_empty()) {
+            let latent = kept.as_ref().unwrap();
+            let mut bytes = vec![0u8; latent.bytes()];
+            self.compute.synchronize()?;
+            self.compute.copy_to_host(&mut bytes, latent.data as u64)?;
+            self.compute.synchronize()?;
+            let d = self.descent.as_mut().unwrap();
+            d.report.latent = bytes.chunks_exact(4).map(|b| f32::from_le_bytes(b.try_into().unwrap())).collect();
+            d.report.latent_shape = self.m.latent;
+        }
+        // cache_write clean_pass: the clean chunk written into the caches at t = 0, as trained (write_pass); the pass's
         // output is not needed
-        let copies = self.ring.commit();
-        let write = Write { at, n: self.m.chunk_tokens, copies: &copies };
-        drop(self.pass::<TIMED>(x, 0.0, step, at, Some(&write))?);
+        let last_step = if plan.contains(&PassKind::Clean) { self.read_chunk_kv(at)? } else { None };
+        // generate.kv_probe: passes over the clean chunk noised to t, each leaving its keys and values at `at`; the pass
+        // at t = 0 then writes the chunk's own over them
+        let mut probes = Vec::new();
+        if last_step.is_some() && !self.kv_probe.is_empty() {
+            let latent = kept.as_ref().unwrap();
+            let mut bytes = vec![0u8; latent.bytes()];
+            self.compute.synchronize()?;
+            self.compute.copy_to_host(&mut bytes, latent.data as u64)?;
+            self.compute.synchronize()?;
+            let x0: Vec<f32> = bytes.chunks_exact(4).map(|b| f32::from_le_bytes(b.try_into().unwrap())).collect();
+            let shape: Vec<i64> = self.m.latent.iter().map(|&v| v as i64).collect();
+            for t in self.kv_probe.clone() {
+                let noise: Vec<f32> = (0..x0.len()).map(|_| rand_distr::StandardNormal.sample(&mut self.probe_rng)).collect();
+                let buffer = self.probe_x.as_ref().unwrap();
+                self.compute.copy_to_device(buffer.ptr, f32_bytes(&crate::kvwrite::noised(&x0, &noise, t)))?;
+                let xt = buffer.tensor(0, DType::F32, &shape);
+                drop(self.pass::<TIMED>(xt, t as f32, step, at, None)?);
+                probes.push((t, self.read_chunk_kv(at)?.unwrap()));
+            }
+        }
+        if plan.contains(&PassKind::Clean) {
+            drop(self.pass::<TIMED>(x, 0.0, step, at, Some(&write))?);
+        }
+        if let (Some(before), Some(after)) = (last_step, self.read_chunk_kv(at)?) {
+            let (h, d) = (self.m.heads, self.m.head_dim);
+            let report = self.kv_write.as_mut().unwrap();
+            let compare = |sums: &mut Vec<crate::kvwrite::Sums>, before: &[(Vec<u8>, Vec<f32>, Vec<u8>, Vec<f32>)]| {
+                for (b, ((sk, sks, sv, svs), (ck, cks, cv, cvs))) in before.iter().zip(&after).enumerate() {
+                    for t in 0..sks.len() / h {
+                        let (rows, scales) = (t * h * d..(t + 1) * h * d, t * h..(t + 1) * h);
+                        sums[b].add_token(&crate::kvwrite::dequantize(&sk[rows.clone()], &sks[scales.clone()], d),
+                                          &crate::kvwrite::dequantize(&ck[rows.clone()], &cks[scales.clone()], d),
+                                          &crate::kvwrite::dequantize(&sv[rows.clone()], &svs[scales.clone()], d),
+                                          &crate::kvwrite::dequantize(&cv[rows], &cvs[scales], d));
+                    }
+                }
+            };
+            compare(&mut report.blocks, &before);
+            for (t, snapshot) in &probes {
+                compare(report.probe(*t).unwrap(), snapshot);
+            }
+            report.chunks += 1;
+        }
         if let Kv::Resident(caches) = &self.kv {
             for cache in caches {
                 cache.copy(&copies, &self.compute)?;
@@ -648,6 +1009,38 @@ impl Video {
             self.trim = 0;
         }
         Ok(frames)
+    }
+}
+
+/// Whether the chunk that ends at latent frame `start_after` attended to the full KV window: the cache before it
+/// held `max_tokens` tokens.
+pub fn full_window(start_after: usize, chunk: usize, tokens_per_frame: usize, max_tokens: usize) -> bool {
+    start_after >= chunk && (start_after - chunk) * tokens_per_frame >= max_tokens
+}
+
+#[cfg(test)]
+mod pass_plan_tests {
+    use super::*;
+    use crate::config::CacheWrite;
+
+    /// clean_pass: the sampler's steps write nothing that is kept, a pass at t = 0 writes the chunk; last_step: the
+    /// sampler's last pass writes it and there is no third pass
+    #[test]
+    fn a_chunk_is_two_sampler_passes_and_where_the_cache_is_written() {
+        assert_eq!(chunk_passes(2, CacheWrite::CleanPass),
+                   vec![PassKind::Sample { step: 0, write: false }, PassKind::Sample { step: 1, write: false }, PassKind::Clean]);
+        assert_eq!(chunk_passes(2, CacheWrite::CleanPassSink), chunk_passes(2, CacheWrite::CleanPass));
+        assert_eq!(chunk_passes(2, CacheWrite::LastStep),
+                   vec![PassKind::Sample { step: 0, write: false }, PassKind::Sample { step: 1, write: true }]);
+    }
+
+    /// 544x960, window 32: chunk 8 latent frames of 510 tokens, cache 12240 tokens. The chunk just computed had the
+    /// full window when the cache before it held 24 frames: chunks 0, 1, 2 fill it, chunk 3 is the first full one.
+    #[test]
+    fn a_chunk_has_the_full_window_once_the_cache_before_it_is_full() {
+        let full: Vec<bool> = (1..=6).map(|k| full_window(8 * k, 8, 510, 12240)).collect();
+        assert_eq!(full, vec![false, false, false, true, true, true]);
+        assert!(!full_window(0, 8, 510, 12240));
     }
 }
 

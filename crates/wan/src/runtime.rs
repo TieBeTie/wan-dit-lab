@@ -16,6 +16,7 @@ pub fn load(args: &Args) -> Result<(Video, T5, DeviceBuffer)> {
     let manifest = manifest::Manifest::read_for(&args.packages(), &args.pipeline.export.kernels)?;
     let operators: Vec<PathBuf> = ["live_w4a4", "live_sage"].iter()
         .map(|n| root().join("ops").join("build").join(format!("{n}.dll"))).collect();
+    crate::stage::enter(crate::stage::Step::Runtime);
     let runtime = aoti::Runtime::load(&aoti::Runtime::default_torch_lib(), &operators)?;
     let gpu = Gpu::new()?;
     gpu.bind()?;
@@ -28,10 +29,21 @@ pub fn load(args: &Args) -> Result<(Video, T5, DeviceBuffer)> {
     };
     #[cfg(feature = "debug-tools")]
     used("the context and the operators");
-    let video = Video::load(&args.packages(), manifest, runtime.clone(), args.pipeline.generate.seed, &args.pipeline.generate.offloading)?;
+    crate::stage::enter(crate::stage::Step::Video);
+    let mut video = Video::load(&args.packages(), manifest, runtime.clone(), args.pipeline.generate.seed, &args.pipeline.generate.offloading)?;
+    if video.m.hw_rows > 0 {
+        let table = crate::rope::hw_table(&args.pipeline.export.rope, (video.m.height, video.m.width), video.m.head_dim, video.m.hw_rows)?;
+        video.set_hw_rope(&table)?;
+    }
+    let g = &args.pipeline.generate;
+    video.set_descent(&args.packages(), g.descent.as_ref(), args.pipeline.export.sampling.timestep_shift,
+                      g.debug.includes(crate::config::DebugTool::Descent), g.seed, native_size(&args.pipeline.export.rope.native_size)?)?;
+    video.set_kv_write(g.debug.includes(crate::config::DebugTool::KvWrite), g.kv_probe.as_deref().unwrap_or(&[]))?;
+    video.set_cache_write(g.cache_write);
     #[cfg(feature = "debug-tools")]
     used("the video's packages and buffers");
-    let spec = video.m.t5.clone().ok_or("live.json has no T5: export it with export_live.py")?;
+    crate::stage::enter(crate::stage::Step::T5);
+    let spec = video.m.t5.clone().ok_or("mvp1.json has no T5: export it with export_live.py")?;
     let mut t5_weights = args.pipeline.generate.offloading.t5.clone();
     if t5_weights.resident.as_deref() == Some("auto") {
         if video.m.generation_workspace_bytes == 0 {
@@ -44,12 +56,23 @@ pub fn load(args: &Args) -> Result<(Video, T5, DeviceBuffer)> {
         println!("auto T5: measured activations {:.0} MiB, resident budget {:.0} MiB",
                  spec.activation_bytes as f64 / 1048576.0, budget as f64 / 1048576.0);
     }
-    let t5 = T5::load(&spec, video.m.text_len, video.m.text_dim, &runtime, &args.packages(), &video.compute,
+    let mut t5 = T5::load(&spec, video.m.text_len, video.m.text_dim, &runtime, &args.packages(), &video.compute,
                       &t5_weights)?;
+    let (_, total) = gpu.memory()?;
+    let off = &args.pipeline.generate.offloading;
+    let reserve = off.margin_bytes(total as usize) + off.activation_bytes(spec.activation_bytes)? + video.m.generation_workspace_bytes;
+    let key = crate::config::Placement::key(off, &std::fs::read_to_string(args.packages().join("mvp1.json"))?);
+    t5.configure_prefetch(off, reserve, &args.packages(), key, video.t5_slot_depth.clone(), &video.compute)?;
     #[cfg(feature = "debug-tools")]
     used("T5");
     let embeddings = DeviceBuffer::new(video.m.text_len * video.m.text_dim * 4)?;
     Ok((video, t5, embeddings))
+}
+
+/// Height and width of "HxW".
+fn native_size(size: &str) -> Result<(usize, usize)> {
+    let (h, w) = size.split_once('x').ok_or("rope.native_size must be HxW")?;
+    Ok((h.parse()?, w.parse()?))
 }
 
 /// GPU bytes T5's resident rows may take: what is free beyond the reserve, the model's workspace and what the

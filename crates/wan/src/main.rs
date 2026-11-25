@@ -20,12 +20,17 @@
 mod cache;
 mod budget;
 mod kv_disk;
+mod kvwrite;
 mod config;
+mod contract;
+mod descent;
+mod curve;
 mod disk;
 mod encoder;
 mod gpu;
 mod manifest;
 mod measure;
+mod migrate;
 mod offline;
 mod packages;
 mod pipeline;
@@ -33,10 +38,17 @@ mod runtime;
 mod generation;
 mod telemetry;
 mod prompts;
+mod queue;
+mod search;
+mod rope;
 mod rows;
+mod prefetch;
 mod t5;
 mod video;
 mod window;
+mod look;
+mod stage;
+mod stamp;
 
 use std::path::{Path, PathBuf};
 
@@ -73,7 +85,7 @@ fn defaults(path: &Path) -> Args {
 fn parse_from(argv: &[String]) -> Result<Args> {
     let config_path = match argv.iter().position(|a| a == "--config") {
         Some(i) => root().join(argv.get(i + 1).ok_or("--config needs a value")?),
-        None => root().join("configs/live.json"),
+        None => root().join("configs/mvp1.json"),
     };
     let config = config::Config::read(&config_path)?;
     let mut a = Args { pipeline: config, command: "run".into(), send: None, chunks: 12,
@@ -131,26 +143,50 @@ use runtime::set_prompt;
 fn main() -> Result<()> {
     let argv: Vec<String> = std::env::args().skip(1).collect();
     if argv.iter().any(|a| a == "--help" || a == "-h") {
-        println!("wan --config configs/live.json [--prompt TEXT] [--plan | --export-only]\nwan --config configs/offline.json [--chains IDS]\nwan bench --chunks N [--rebuild never]\nwan --send TEXT [--scene | --new]");
+        println!("wan --config configs/mvp1.json [--prompt TEXT] [--plan | --export-only]\nwan --config configs/offline.json [--chains IDS]\nwan bench --chunks N [--rebuild never]\nwan --send TEXT [--scene | --new]
+wan migrate [--check]");
         return Ok(());
     }
+    if argv.first().map(String::as_str) == Some("queue") { std::process::exit(queue::main(&argv[1..])); }
+    if argv.first().map(String::as_str) == Some("migrate") { std::process::exit(migrate::main(&argv[1..])); }
+    if argv.first().map(String::as_str) == Some("search") { std::process::exit(search::main(&argv[1..])); }
+    if argv.first().map(String::as_str) == Some("descent") { std::process::exit(descent::main(&argv[1..])); }
     let args = parse_from(&argv)?;
     if let Some(p) = &args.send { prompts::send(p.cut, &p.text, live_protocol::PORT)?; return Ok(()); }
     if args.command == "plan" { println!("{}", serde_json::to_string_pretty(&args.pipeline.value())?); return Ok(()); }
     // Resolve prompt scripts before any expensive preparation or GPU allocation.
     let _ = generation::sequences(&args.pipeline.generate.prompts)?;
+    // One GPU, one run: wait in the queue (artifacts/queue) for this run's turn, then hold the card until the end.
+    let config = argv.iter().position(|a| a == "--config").and_then(|i| argv.get(i + 1)).map(|c| root().join(c));
+    // A run started by `wan search` runs inside the search's ticket.
+    let inherited = std::env::var(queue::HELD).ok().filter(|id| queue::held(&queue::dir(), id, &queue::system_processes()));
+    if let Some(id) = &inherited { println!("[очередь] внутри задания {id}"); return gpu(args); }
+    let ticket = queue::enter(&argv, config.as_deref())?;
+    let result = gpu(args);
+    ticket.finish(if result.is_ok() { 0 } else { 1 });
+    result
+}
+
+fn gpu(args: Args) -> Result<()> {
     #[cfg(not(feature = "fps"))]
     if args.command != "export" && args.pipeline.generate.debug.enabled() {
         return Err("this executable was built without diagnostics; use debug=false or rebuild with feature fps".into());
     }
-    pipeline::prepare(&args.pipeline)?;
-    if args.command == "export" { return Ok(()); }
+    if args.command == "export" { return pipeline::prepare(&args.pipeline); }
+    // the window opens first and prepares the packages behind its loading screen; the rest prepare here
+    if !windowed(&args) { pipeline::prepare(&args.pipeline)?; }
     #[cfg(feature = "fps")]
     if args.pipeline.generate.debug.enabled() {
-        let metrics = telemetry::Fps::spawn(&args.pipeline.generate.drain)?;
+        let metrics = telemetry::Metrics::spawn(&args.pipeline.generate.drain, &args.pipeline.generate.debug)?;
         return execute(args, metrics);
     }
     execute(args, telemetry::Off)
+}
+
+/// Whether this run shows the window (see execute): a live run, not offline, bench, check or render.
+fn windowed(args: &Args) -> bool {
+    !(args.command == "run" && args.pipeline.generate.mode == config::Mode::Offline)
+        && !["check", "render", "bench"].contains(&args.command.as_str())
 }
 
 fn execute<M: telemetry::Probe>(args: Args, metrics: M) -> Result<()> {
@@ -174,12 +210,12 @@ mod kernel_tests {
     use super::*;
     #[test]
     fn mismatched_kernels_fail_before_loading_operators_or_the_gpu() {
-        let mut args = defaults(&root().join("configs/live.json"));
+        let mut args = defaults(&root().join("configs/mvp1.json"));
         let dir = std::env::temp_dir().join(format!("wan-kernel-startup-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let mut manifest = crate::manifest::tests::fixture();
         manifest["kernels"]["cross_attention"] = serde_json::json!(["efficient"]);
-        std::fs::write(dir.join("live.json"), manifest.to_string()).unwrap();
+        std::fs::write(dir.join("mvp1.json"), manifest.to_string()).unwrap();
         args.pipeline.export.output = dir.clone();
         let error = load(&args).err().expect("mismatched packages loaded").to_string();
         assert!(error.contains("cross_attention"), "runtime touched before validation: {error}");

@@ -44,6 +44,10 @@ pub fn read_row(file: &File, index: usize, row_bytes: usize, buffer: &mut [u8]) 
             break; // the end of the file: its last sector was not whole, and a read after it would be unaligned
         }
     }
+    if done < start - low + row_bytes {
+        return Err(std::io::Error::new(std::io::ErrorKind::UnexpectedEof,
+            format!("weight row {index}: needed {} bytes from offset {low}, read {done}", start - low + row_bytes)));
+    }
     Ok(start - low)
 }
 
@@ -51,6 +55,17 @@ pub fn read_row(file: &File, index: usize, row_bytes: usize, buffer: &mut [u8]) 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn truncated_row_is_an_error_instead_of_stale_buffer_contents() {
+        let path = std::env::temp_dir().join(format!("wan-disk-truncated-{}.bin", std::process::id()));
+        std::fs::write(&path, vec![7u8; 6000]).unwrap();
+        let mut storage = vec![0xAA; span(5000) + SECTOR];
+        let skip = storage.as_ptr().align_offset(SECTOR);
+        let result = read_row(&open_unbuffered(&path).unwrap(), 1, 5000, &mut storage[skip..]);
+        std::fs::remove_file(path).unwrap();
+        assert_eq!(result.unwrap_err().kind(), std::io::ErrorKind::UnexpectedEof);
+    }
 
     #[test]
     fn the_last_row_reads_when_the_file_ends_inside_a_sector() {

@@ -42,6 +42,6 @@
     "vram_fraction": null
   },
   "output": {
-    "path": "~/Documents/Experiments/DIT/outputs/harness/results.jsonl"
+    "path": "D:/Experiments/DIT/outputs/harness/results.jsonl"
   }
 }

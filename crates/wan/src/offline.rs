@@ -86,7 +86,7 @@ pub fn run<M: crate::telemetry::Probe>(args: &crate::Args, loaded: (crate::Video
     let (h,w,fps) = (generator.video.m.height, generator.video.m.width, generator.video.m.fps);
     let argv: Vec<String> = std::env::args().collect();
     let write_run = |sequences: &[crate::generation::Sequence]| -> crate::Result<()> {
-        let packages = std::fs::read_to_string(args.packages().join("live.json"))?;
+        let packages = std::fs::read_to_string(args.packages().join("mvp1.json"))?;
         let calibration = std::fs::read_to_string(args.packages().join("calibration.json")).ok();
         let snapshot = snapshot(&args.pipeline.value().to_string(), &argv, &packages, calibration.as_deref(),
                                 sequences, fps, generator.video.m.chunk * 4, generator.video.m.decoder_trim);
@@ -103,9 +103,33 @@ pub fn run<M: crate::telemetry::Probe>(args: &crate::Args, loaded: (crate::Video
         sequences.push(("interactive".into(), vec![Step { cut: first.cut, text: first.text, chunks: args.chunks }]));
     }
     let mut actual_sequences = Vec::new();
-    for (id, steps) in &sequences {
+    // the descent's metrics compare the frames of the first chain with the reference's (debug "descent")
+    let measuring = generator.video.descent().is_some_and(|d| d.measures());
+    let mut captured: Vec<Vec<u8>> = Vec::new();
+    // generate.rope_sweep: every chain again per M of height and width, the packages loaded once (rope.rs)
+    let points: Vec<Option<crate::config::SweepPoint>> = match &g.rope_sweep {
+        Some(points) => points.iter().copied().map(Some).collect(),
+        None => vec![None],
+    };
+    for (point_index, point) in points.iter().enumerate() {
+    let point_out = match point {
+        Some(m) => {
+            let rope = crate::rope::with_point(&args.pipeline.export.rope, *m);
+            let v = &mut generator.video;
+            let table = crate::rope::hw_table(&rope, (v.m.height, v.m.width), v.m.head_dim, v.m.hw_rows)?;
+            if v.m.hw_rows == 0 { return Err("generate.rope_sweep: these packages hold the RoPE table as a constant, export them again".into()); }
+            v.set_hw_rope(&table)?;
+            v.reseed(g.seed);
+            let dir = out.join(crate::rope::point_tag(*m));
+            std::fs::create_dir_all(&dir)?;
+            println!("[rope sweep] {} of {}: M height {} width {} mix {:?}", point_index + 1, points.len(), m.height, m.width, rope.ntk_pi_mix);
+            dir
+        }
+        None => out.clone(),
+    };
+    for (index, (id, steps)) in sequences.iter().enumerate() {
         let mut actual_steps: Vec<Step> = Vec::new();
-        let path = out.join(format!("{id}.mp4"));
+        let path = point_out.join(format!("{id}.mp4"));
         let mut a = ffmpeg_args(h,w,fps,&path);
         // Encoding is explicit in the offline config; validation currently supports this codec/pixel format.
         let at = a.iter().position(|s| s == "-crf").unwrap();
@@ -113,7 +137,10 @@ pub fn run<M: crate::telemetry::Probe>(args: &crate::Args, loaded: (crate::Video
         let mut child = std::process::Command::new("ffmpeg").args(a).stdin(std::process::Stdio::piped()).spawn()?;
         let mut input = child.stdin.take().unwrap();
         let mut emit = |frames: Vec<Vec<u8>>, _: &crate::Video, _: &str| -> crate::Result<()> {
-            for frame in frames { input.write_all(&frame)?; }
+            for frame in frames {
+                input.write_all(&frame)?;
+                if measuring && index == 0 && point_index == 0 { captured.push(frame); }
+            }
             Ok(())
         };
         let result = if interactive {
@@ -140,16 +167,56 @@ pub fn run<M: crate::telemetry::Probe>(args: &crate::Args, loaded: (crate::Video
         drop(input);
         if let Err(e) = result { let _ = child.kill(); let _ = child.wait(); return Err(e); }
         if !child.wait()?.success() { return Err(format!("ffmpeg failed on {id}").into()); }
-        actual_sequences.push((id.clone(), if interactive { actual_steps } else { steps.clone() }));
+        if point_index == 0 { actual_sequences.push((id.clone(), if interactive { actual_steps } else { steps.clone() })); }
         println!("{}", path.display());
     }
-    let packages = std::fs::read_to_string(args.packages().join("live.json"))?;
+    }
+    let packages = std::fs::read_to_string(args.packages().join("mvp1.json"))?;
     let calibration = std::fs::read_to_string(args.packages().join("calibration.json")).ok();
     let snapshot = snapshot(&args.pipeline.value().to_string(), &argv, &packages, calibration.as_deref(),
                             &actual_sequences, fps, generator.video.m.chunk * 4, generator.video.m.decoder_trim);
     std::fs::write(out.join("run.json"), serde_json::to_vec_pretty(&snapshot)?)?;
+    if let Some(report) = generator.video.kv_write() {
+        std::fs::write(out.join("kv_write.json"), serde_json::to_vec_pretty(&report.json())?)?;
+    }
+    if measuring {
+        let first = sequences.first().map(|(id, _)| id.clone()).unwrap_or_default();
+        write_descent(&out, generator.video.descent().unwrap(), g.descent.as_ref().and_then(|d| d.reference.as_deref()),
+                      &first, (h, w), &captured)?;
+    }
     println!("{}", out.display());
     generator.finish_metrics()?;
+    Ok(())
+}
+
+/// descent.json and latent.f32 of a run measured for the descent (debug "descent"), against `reference` (a run
+/// folder, relative to the repository or absolute) when there is one: its latent, its frames of the chain `chain`.
+fn write_descent(out: &Path, d: &crate::video::Descent, reference: Option<&Path>, chain: &str, size: (usize, usize),
+                 frames: &[Vec<u8>]) -> crate::Result<()> {
+    let reference = reference.map(|r| crate::root().join(r));
+    let loaded = match &reference { Some(r) => Some(crate::descent::read_reference(r)?), None => None };
+    let mut report = d.report.json(&d.lambda, loaded.as_ref().map(|(v, l, s)| (v, &l[..], *s)));
+    report["size"] = serde_json::json!([size.0, size.1]);
+    if let (Some(dir), Some((value, _, _))) = (&reference, &loaded) {
+        let theirs = value["size"].as_array().and_then(|s| Some((s.first()?.as_u64()? as usize, s.get(1)?.as_u64()? as usize)));
+        if let Some(theirs) = theirs {
+            let video = dir.join(format!("{chain}.mp4"));
+            let reference_frames = crate::descent::read_frames(&video, theirs)?;
+            report["reference"]["pixels"] = crate::descent::compare_frames(frames, size, &reference_frames, theirs);
+        }
+        report["reference"]["run"] = serde_json::json!(dir.display().to_string());
+    }
+    let latent: Vec<u8> = d.report.latent.iter().flat_map(|v| v.to_le_bytes()).collect();
+    std::fs::write(out.join("latent.f32"), latent)?;
+    std::fs::write(out.join("descent.json"), serde_json::to_vec_pretty(&report)?)?;
+    let s = &report["summary"];
+    println!("descent: relative entropy {:.4}, spatial {:.4}, temporal {:.3}; against the reference {}",
+             s["relative_entropy"].as_f64().unwrap_or(f64::NAN), s["spatial"].as_f64().unwrap_or(f64::NAN),
+             s["temporal"].as_f64().unwrap_or(f64::NAN), report.get("reference").map_or("none".to_string(), |r| {
+                 let mut r = r.clone();
+                 if let Some(m) = r.as_object_mut() { m.remove("fit"); }
+                 r.to_string()
+             }));
     Ok(())
 }
 
