@@ -14,17 +14,17 @@ def powershell(*args, check=True):
 
 
 def test_it_starts_wan_exe_over_the_config_and_the_prompt():
-    out = powershell(SCRIPT, "-Config", r"configs\live.json", "-Prompt", "a red fox", "-Print").stdout.strip()
-    assert out == r'bin\wan.exe --config configs\live.json --prompt "a red fox"'
+    out = powershell(SCRIPT, "-Config", r"configs\mvp1.json", "-Prompt", "a red fox", "-Print").stdout.strip()
+    assert out == r'bin\wan.exe --config configs\mvp1.json --prompt "a red fox"'
 
 
 def test_the_config_is_live_json_by_default():
     assert powershell(SCRIPT, "-Prompt", "a fox", "-Print").stdout.strip() == \
-        r'bin\wan.exe --config configs\live.json --prompt "a fox"'
+        r'bin\wan.exe --config configs\mvp1.json --prompt "a fox"'
 
 
 def test_no_hidden_prompt_overrides_the_config():
-    assert powershell(SCRIPT, "-Print").stdout.strip() == r'bin\wan.exe --config configs\live.json'
+    assert powershell(SCRIPT, "-Print").stdout.strip() == r'bin\wan.exe --config configs\mvp1.json'
 
 
 def test_unknown_flag_is_refused_and_starts_nothing():

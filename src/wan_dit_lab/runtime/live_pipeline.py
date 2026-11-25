@@ -1,9 +1,12 @@
 """Preparation of the two-stage Live pipeline. No torch import and no work during generation."""
+import ast
 import hashlib
 import importlib.metadata
 import json
 import math
+import os
 import platform
+import shutil
 from pathlib import Path
 
 from wan_dit_lab.runtime.live_kernels import validate_kernels
@@ -21,99 +24,78 @@ def fields(value, required, optional=()):
 
 
 def load_pipeline(path):
+    """The configuration as the Rust host has already validated it: wan.exe parses every configuration first (the
+    contract of crates/wan/src/contract.rs, then its own checks) and hands this module its own normalized form. It is
+    read here, not checked again."""
     value = json.loads(Path(path).read_text(encoding="utf-8"))
-    if not isinstance(value, list) or len(value) != 2:
+    if not isinstance(value, list) or len(value) != 2 or not all(isinstance(part, dict) for part in value):
         raise ValueError("config must be [export, generate]")
-    export, run = value
-    fields(export, ("component", "compiler", "rebuild", "output", "model", "video", "sampling", "context", "rope", "kernels"))
-    fields(run, ("component", "packages_from", "mode", "prompts", "seed", "offloading"), ("output", "debug", "drain"))
-    debug = run.get("debug", False)
-    if type(debug) is not bool and debug != "fps" and not (
-        isinstance(debug, list) and debug == ["fps"]
-    ):
-        raise ValueError("debug must be true, false, fps or a nonempty list of unique supported tools")
-    if "drain" in run:
-        fields(run["drain"], ("every",))
-        every = run["drain"]["every"]
-        if every != "end":
-            try:
-                if not isinstance(every, str) or not every.endswith("s"):
-                    raise ValueError("duration needs seconds")
-                seconds = float(every[:-1])
-                if not math.isfinite(seconds) or seconds < 1e-9 or seconds >= 2**64:
-                    raise ValueError("duration out of range")
-            except (ValueError, OverflowError) as e:
-                raise ValueError("drain.every must be a positive duration such as 5s, or end") from e
-    if export["component"] != "export" or run["component"] != "generate" or run["packages_from"] != "export":
-        raise ValueError("components must be export then generate, with packages_from=export")
-    if export["compiler"] != "torch_aot_inductor" or export["rebuild"] not in ("if_missing_or_changed", "always", "never"):
-        raise ValueError("unsupported compiler or rebuild policy")
-    validate_kernels(export["kernels"])
-    fields(export["model"], ("architecture", "checkpoint", "block_weights", "text_encoder", "decoder"))
-    fields(export["model"]["text_encoder"], ("checkpoint", "block_weights", "tokenizer"), ("precision",))
-    if export["model"]["text_encoder"].get("precision", "int8") not in ("int8", "bfloat16"):
-        raise ValueError("text_encoder.precision must be int8 or bfloat16")
-    fields(export["video"], ("size", "fps"))
-    h, w = map(int, export["video"]["size"].split("x"))
-    if h <= 0 or w <= 0 or h % 32 or w % 32 or export["video"]["fps"] != 24:
-        raise ValueError("LongLive2 needs positive multiples of 32 and 24 fps")
-    fields(export["sampling"], ("algorithm", "steps", "timestep_shift"))
-    if export["sampling"]["algorithm"] != "unipc" or export["sampling"]["steps"] != 2 or export["sampling"]["timestep_shift"] != 5.0:
-        raise ValueError("the current distilled checkpoint supports unipc, 2 steps, shift 5")
-    fields(export["context"], ("chunk_frames", "window_frames", "sink_frames"))
-    c = export["context"]
-    if c != {"chunk_frames": 8, "window_frames": 32, "sink_frames": 8}:
-        raise ValueError("the current model supports latent context 8/32/8")
-    fields(export["rope"], ("interpolate", "native_size", "scene_offset_frames"))
-    rope = export["rope"]
-    if type(rope["interpolate"]) is not bool or rope["native_size"] != "704x1280" or type(rope["scene_offset_frames"]) is not int or rope["scene_offset_frames"] < 0:
-        raise ValueError("invalid LongLive2 RoPE settings")
-    if run["mode"] not in ("live", "offline") or type(run["seed"]) is not int or run["seed"] < 0:
-        raise ValueError("invalid mode or seed")
-    prompts = run["prompts"]
-    if prompts.get("source") == "interactive":
-        fields(prompts, ("source",), ("initial",))
-        if "initial" in prompts and (not isinstance(prompts["initial"], str) or not prompts["initial"].strip()):
-            raise ValueError("initial prompt must be nonempty or absent")
-    elif prompts.get("source") == "script":
-        fields(prompts, ("source", "file"), ("chains",))
-        if not isinstance(prompts["file"], str) or not prompts["file"]:
-            raise ValueError("script file is required")
-        if not isinstance(prompts.get("chains", []), list) or any(not isinstance(c, str) or not c for c in prompts.get("chains", [])):
-            raise ValueError("chains must be a list of identifiers")
-    else:
-        raise ValueError("unknown prompt source")
-    off = run["offloading"]
-    fields(off, ("enabled", "calibration", "resources", "copy_spare", "t5"), ("vram_margin_gib", "vram_margin_fraction", "ram_margin_fraction", "t5_activations_gib"))
-    if off["calibration"] not in ("if_needed", "always", "disabled"):
-        raise ValueError("invalid calibration policy")
-    fields(off["resources"], ("block_weights", "kv_cache"))
-    if off["resources"]["block_weights"] not in ("auto", "disk", "ram", "vram") or off["resources"]["kv_cache"] not in ("auto", "disk", "ram", "vram"):
-        raise ValueError("invalid offloading tier")
-    fields(off["t5"], (), ("resident_gib", "resident", "activations"))
-    if any(off["t5"].get(k, "auto") != "auto" for k in ("resident", "activations")):
-        raise ValueError("invalid T5 automatic policy")
-    if not 0 <= off.get("ram_margin_fraction", 0) < 1:
-        raise ValueError("invalid RAM fraction")
-    if "vram_margin_fraction" in off and not 0 <= off["vram_margin_fraction"] < 1:
-        raise ValueError("invalid VRAM fraction")
-    if type(off["enabled"]) is not bool or off["copy_spare"] < 1 or any(off.get(k, 0) < 0 for k in ("vram_margin_gib", "t5_activations_gib")) or off["t5"].get("resident_gib", 0) < 0:
-        raise ValueError("invalid offloading budgets")
-    if run["mode"] == "offline" and "output" not in run:
-        raise ValueError("offline output settings are required")
-    if "output" in run:
-        fields(run["output"], ("directory", "codec", "crf", "pixel_format"))
-        if run["output"]["codec"] != "libx264" or run["output"]["pixel_format"] != "yuv420p" or not 0 <= run["output"]["crf"] <= 51:
-            raise ValueError("unsupported output encoding")
-    return export, run
+    return value[0], value[1]
+
+
+DIGEST_CACHE = ROOT / "artifacts/digest_cache.json"
+_digests = None  # what the file at _digests_from held when it was read
+_digests_from = None
+
+
+def _remembered():
+    global _digests, _digests_from
+    if _digests is None or _digests_from != DIGEST_CACHE:
+        _digests_from = DIGEST_CACHE
+        try:
+            value = json.loads(DIGEST_CACHE.read_text(encoding="utf-8"))
+            _digests = value if isinstance(value, dict) else {}
+        except (OSError, ValueError):
+            _digests = {}
+    return _digests
 
 
 def digest(path):
+    """SHA-256 of a file, read from the disk only when the file changed: the digest is kept with the file's size and
+    modification time (as a layer cache keeps a layer), and a start of Live that changed nothing reads nothing. The
+    weights are tens of gigabytes; hashing them was most of the preparation."""
+    path = Path(path)
+    stat = path.stat()
+    key = str(path.resolve())
+    kept = _remembered().get(key)
+    if kept and kept.get("size") == stat.st_size and kept.get("mtime_ns") == stat.st_mtime_ns:
+        return kept["sha256"]
     h = hashlib.sha256()
-    with Path(path).open("rb") as stream:
+    with path.open("rb") as stream:
         for chunk in iter(lambda: stream.read(4 * 1024 * 1024), b""):
             h.update(chunk)
+    _remembered()[key] = {"size": stat.st_size, "mtime_ns": stat.st_mtime_ns, "sha256": h.hexdigest()}
+    _save_digests()
     return h.hexdigest()
+
+
+def _save_digests():
+    temporary = DIGEST_CACHE.with_name(DIGEST_CACHE.name + f".{os.getpid()}")
+    try:
+        temporary.write_text(json.dumps(_remembered()), encoding="utf-8")
+        os.replace(temporary, DIGEST_CACHE)
+    except OSError:
+        pass  # the cache only saves time; a read-only disk costs the time and nothing else
+
+
+def code_digest(path):
+    """The digest of what a file does: for Python, its syntax tree without docstrings, so a comment, a docstring or
+    blank lines change no package (a comment in multi_head_attention.py rebuilt them all on 2026-11-23); any other
+    file, and Python that does not parse, by its bytes."""
+    path = Path(path)
+    if path.suffix != ".py":
+        return digest(path)
+    try:
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+    except (SyntaxError, UnicodeDecodeError, ValueError):
+        return digest(path)
+    for node in ast.walk(tree):
+        body = getattr(node, "body", None)
+        if (isinstance(node, (ast.Module, ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef)) and body
+                and isinstance(body[0], ast.Expr) and isinstance(body[0].value, ast.Constant)
+                and isinstance(body[0].value.value, str)):
+            node.body = body[1:] or [ast.Pass()]
+    return "ast:" + hashlib.sha256(ast.dump(tree, include_attributes=False).encode()).hexdigest()
 
 
 def source_files(root):
@@ -131,7 +113,7 @@ def source_files(root):
     return sorted(set(paths))
 
 
-def export_identity(export, root=ROOT, *, sources=None, versions=None):
+def input_paths(export, root=ROOT, sources=None):
     root = Path(root)
     paths = []
     def inputs(value):
@@ -145,6 +127,33 @@ def export_identity(export, root=ROOT, *, sources=None, versions=None):
                 paths.extend(sorted(p for p in path.rglob("*") if p.is_file()) if path.is_dir() else [path])
     inputs(export["model"])
     paths.extend(source_files(root) if sources is None else sources)
+    return paths
+
+
+def warm_listing(export, root=ROOT):
+    """What the Rust host watches (crates/wan/src/stamp.rs): the files whose size or time change would change the
+    identity, the package files, and the folders whose entries would. Written at the cold path; read by no Python."""
+    root = Path(root)
+    files = input_paths(export, root)
+    try:
+        import importlib.util
+        files.append(Path(importlib.util.find_spec("torch").origin).parent / "version.py")
+    except (ImportError, AttributeError, ValueError):
+        pass
+    output = root / export["output"]
+    try:
+        manifest = json.loads((output / "mvp1.json").read_text(encoding="utf-8"))
+        files.extend([output / "mvp1.json", *(output / name for name in package_names(manifest))])
+    except (OSError, ValueError, KeyError, TypeError):
+        pass
+    files = sorted({str(Path(p).resolve()) for p in files})
+    folders = sorted({str(Path(p).parent) for p in files})
+    return {"files": files, "folders": folders}
+
+
+def export_identity(export, root=ROOT, *, sources=None, versions=None):
+    root = Path(root)
+    paths = input_paths(export, root, sources)
     if versions is None:
         versions = {"python": platform.python_version()}
         for name in ("torch", "triton", "triton-windows", "safetensors"):
@@ -153,7 +162,12 @@ def export_identity(export, root=ROOT, *, sources=None, versions=None):
             except importlib.metadata.PackageNotFoundError:
                 pass
     recipe = {k: v for k, v in export.items() if k not in ("output", "rebuild")}
-    identities = {str(Path(p).resolve()): digest(p) for p in sorted(set(paths))}
+    # the height and width RoPE table is an input of the block packages that wan.exe computes from these keys
+    # (crates/wan/src/rope.rs): they change no package (attn_logit_scale stays, it scales the time table too)
+    if isinstance(recipe.get("rope"), dict):
+        recipe["rope"] = {k: v for k, v in recipe["rope"].items()
+                          if k not in ("interpolate", "stretch", "by_parts", "ntk_aware", "frequency_aware", "m", "ntk_pi_mix")}
+    identities = {str(Path(p).resolve()): code_digest(p) for p in sorted(set(paths))}
     return hashlib.sha256(json.dumps([recipe, versions, identities], sort_keys=True).encode()).hexdigest()
 
 
@@ -182,7 +196,7 @@ def reusable(directory, identity):
     if (directory / ".exporting").exists():
         return False
     try:
-        manifest = json.loads((directory / "live.json").read_text(encoding="utf-8"))
+        manifest = json.loads((directory / "mvp1.json").read_text(encoding="utf-8"))
         if manifest["export"]["identity"] != identity or set(manifest["files"]) != set(package_names(manifest)):
             return False
         return all((directory / n).stat().st_size == f["bytes"] and digest(directory / n) == f["sha256"]
@@ -192,15 +206,31 @@ def reusable(directory, identity):
 
 
 def prepare(export, identity, compile_packages):
-    current = reusable(export["output"], identity)
+    """Reuses the packages of `export` when they match `identity`; otherwise `compile_packages(folder)` builds them in
+    a folder beside them, which replaces them only once complete: a failed export leaves the working packages as they
+    were (on 2026-11-23 one failed at block_2 after overwriting text..block_1)."""
+    directory = Path(export["output"])
+    staging, previous = (directory.with_name(directory.name + suffix) for suffix in (".next", ".previous"))
+    if previous.is_dir() and not directory.exists():  # a swap interrupted between its two renames
+        os.replace(previous, directory)
+    current = reusable(directory, identity)
     if export["rebuild"] != "always" and current:
         return False
     if export["rebuild"] == "never":
         raise ValueError("packages require export, but rebuild=never")
-    directory = Path(export["output"])
-    directory.mkdir(parents=True, exist_ok=True)
-    (directory / ".exporting").write_text(identity, encoding="utf-8")
-    compile_packages()
-    if not reusable(export["output"], identity):
-        raise ValueError("export did not publish complete packages with the requested identity")
+    shutil.rmtree(staging, ignore_errors=True)
+    staging.mkdir(parents=True)
+    (staging / ".exporting").write_text(identity, encoding="utf-8")
+    try:
+        compile_packages(staging)
+        if not reusable(staging, identity):
+            raise ValueError("export did not publish complete packages with the requested identity")
+    except BaseException:
+        shutil.rmtree(staging, ignore_errors=True)
+        raise
+    shutil.rmtree(previous, ignore_errors=True)
+    if directory.exists():
+        os.replace(directory, previous)
+    os.replace(staging, directory)
+    shutil.rmtree(previous, ignore_errors=True)
     return True

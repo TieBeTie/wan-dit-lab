@@ -186,22 +186,24 @@ def smoothing(act_amax, weight, alpha=0.5):
     return (act_amax.float().to(w.device).clamp(min=1e-5) ** alpha / w ** (1 - alpha)).clamp(min=1e-2, max=1e2)
 
 
-def linear(x, t):
+def linear(x, t, ordered=False):
     """y = x W^T + b for x [M, K] bfloat16 and t the tensors of quantize: live::w4a4_linear (native/ops), the
-    activation quantized to INT4 with its low-rank branch, then Nunchaku's W4A4 GEMM."""
-    return w4a4_linear(x, *(t[part] for part in PARTS))
+    activation quantized to INT4 with its low-rank branch, then Nunchaku's W4A4 GEMM. ordered: the low-rank branch's
+    down projection summed over the column blocks in a fixed order, the same bits on every call (Nunchaku adds them
+    with float atomics: live::w4a4_linear_ordered)."""
+    return w4a4_linear(x, *(t[part] for part in PARTS), ordered=ordered)
 
 
 GELU_SHIFT = 0.171875  # the kernel's SHIFT_GELU: GELU(x) > -0.17, so GELU(x) + GELU_SHIFT is quantized unsigned
 
 
-def gelu_mlp(x, t1, t2):
+def gelu_mlp(x, t1, t2, ordered=False):
     """y = GELU(x W1^T + b1) W2^T + b2, GELU in tanh form as Wan's feed forward, for x [M, K] bfloat16; t1, t2 the
     tensors of quantize, t2 made with shift=GELU_SHIFT. Nunchaku's fused_gelu_mlp (nunchaku/ops/fused.py): the first
     GEMM applies in its epilogue GELU, the down projection of the second layer's low-rank branch (on GELU's output)
     and the INT4 quantization of GELU's output + shift for the second GEMM, so the hidden layer never goes to memory
-    in 16 bits (live::w4a4_gelu_mlp)."""
-    return w4a4_gelu_mlp(x, *(t1[part] for part in PARTS), *(t2[part] for part in PARTS))
+    in 16 bits (live::w4a4_gelu_mlp). ordered: as in linear, for both layers (live::w4a4_gelu_mlp_ordered)."""
+    return w4a4_gelu_mlp(x, *(t1[part] for part in PARTS), *(t2[part] for part in PARTS), ordered=ordered)
 
 
 PARTS = ("qweight", "wscales", "proj_down", "proj_up", "smooth", "bias")  # of a W4A4 layer, as quantize gives them
@@ -209,25 +211,28 @@ PARTS = ("qweight", "wscales", "proj_down", "proj_up", "smooth", "bias")  # of a
 
 # The kernels as one operator each (C++, native/ops), so that torch.compile keeps the rest of a block in its graph
 # around them and AOTInductor calls them without Python.
-def w4a4_linear(x, qweight, wscales, proj_down, proj_up, smooth, bias):
-    return operators.load().w4a4_linear(x, qweight, wscales, proj_down, proj_up, smooth, bias)
+def w4a4_linear(x, qweight, wscales, proj_down, proj_up, smooth, bias, ordered=False):
+    ops = operators.load()
+    return (ops.w4a4_linear_ordered if ordered else ops.w4a4_linear)(x, qweight, wscales, proj_down, proj_up, smooth, bias)
 
 
-def w4a4_gelu_mlp(*args):
-    return operators.load().w4a4_gelu_mlp(*args)
+def w4a4_gelu_mlp(*args, ordered=False):
+    ops = operators.load()
+    return (ops.w4a4_gelu_mlp_ordered if ordered else ops.w4a4_gelu_mlp)(*args)
 
 
 class PackedW4A4Linear(torch.nn.Module):
     """A linear layer in W4A4 whose tensors are views of a row of bytes (a block of a block_w4a4_v1 pack in a slot of
-    BlockOffloader), as fp8.PackedFp8Linear is for FP8."""
+    BlockOffloader), as fp8.PackedFp8Linear is for FP8. ordered: as in linear, set by the export (kernels.lora_sum)."""
 
     def __init__(self, **parts):
         super().__init__()
         self.parts = [parts[name] for name in PARTS]
         self.out_features = parts["proj_up"].shape[0]
+        self.ordered = False
 
     def forward(self, X):
-        y = w4a4_linear(X.reshape(-1, X.shape[-1]).to(torch.bfloat16).contiguous(), *self.parts)
+        y = w4a4_linear(X.reshape(-1, X.shape[-1]).to(torch.bfloat16).contiguous(), *self.parts, ordered=self.ordered)
         return y.reshape(*X.shape[:-1], self.out_features)
 
 
@@ -239,10 +244,20 @@ class PackedW4A4GeluMLP(torch.nn.Module):
         super().__init__()
         self.parts = [fc1[name] for name in PARTS] + [fc2[name] for name in PARTS]
         self.out_features = fc2["proj_up"].shape[0]
+        self.ordered = False
 
     def forward(self, X):
-        y = w4a4_gelu_mlp(X.reshape(-1, X.shape[-1]).to(torch.bfloat16).contiguous(), *self.parts)
+        y = w4a4_gelu_mlp(X.reshape(-1, X.shape[-1]).to(torch.bfloat16).contiguous(), *self.parts, ordered=self.ordered)
         return y.reshape(*X.shape[:-1], self.out_features)
+
+
+def order_low_rank_sum(module, ordered):
+    """Every W4A4 layer of `module` sums its low-rank branch in a fixed order (ordered) or with Nunchaku's atomics:
+    kernels.lora_sum of the export."""
+    for m in module.modules():
+        if isinstance(m, (PackedW4A4Linear, PackedW4A4GeluMLP)):
+            m.ordered = bool(ordered)
+    return module
 
 
 class FusedQKVAttention(MultiHeadAttention):
@@ -443,6 +458,13 @@ def mapped_pack(blocks, path, source):
         return torch.from_numpy(data).reshape(len(blocks), size), metadata["layout"]
 
 
+def fusions(layout):
+    """The layer fusions a pack's layout holds, as slot installs them: q, k, v as one layer self_attn.qkv, and the
+    GELU MLP wherever an entry is marked gelu_mlp or self_attn.qkv is there (packs made before that mark)."""
+    qkv = any(e["name"].startswith("self_attn.qkv.") for e in layout)
+    return {"qkv": qkv, "gelu_mlp": qkv or any(e.get("gelu_mlp") for e in layout)}
+
+
 def slot(row, like, layout):
     """A copy of the block `like` (structure only) over `row`, a uint8 row of a block_w4a4_v1 or v2 pack."""
     import copy
@@ -455,8 +477,7 @@ def slot(row, like, layout):
     entries = {e["name"]: e for e in layout}
     module = copy.deepcopy(like).to("meta").requires_grad_(False)
     names = [e["name"].removesuffix(".qweight") for e in layout if e["name"].endswith(".qweight")]
-    gelu_mlp = any(e.get("gelu_mlp") or e["name"].startswith("self_attn.qkv.") for e in layout)
-    install(module, {g: {part: view(entries[f"{g}.{part}"]) for part in PARTS} for g in names}, gelu_mlp)
+    install(module, {g: {part: view(entries[f"{g}.{part}"]) for part in PARTS} for g in names}, fusions(layout)["gelu_mlp"])
     for name, _ in list(module.named_parameters()):
         parent, _, attr = name.rpartition(".")
         owner = module.get_submodule(parent) if parent else module

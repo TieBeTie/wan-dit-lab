@@ -44,14 +44,16 @@ def _load(Cache, Scale, Chunk, b, h, offs, at, L, d,
 def _sum_max(Cache, Scale, Chunk, Sum, Max, at, L,
              scb, scn, sch, ssb, ssn, ssh, snb, snn, snh, Heads, Tokens,
              D: tl.constexpr, T: tl.constexpr, SUM: tl.constexpr, HMAP: tl.constexpr, TMAP: tl.constexpr):
-    """Over a tile of T tokens of one head: the sum of each channel (SUM) or the largest |x|, added to [B, H, D]."""
+    """Over a tile of T tokens of one head: the sum of each channel (SUM), stored as this tile's row of
+    [tiles, B, H, D] for the caller to add in a fixed order (an atomic sum reorders the additions from run to run),
+    or the largest |x|, maxed into [B, H, D] (a maximum does not depend on the order)."""
     t, h, b = tl.program_id(0), tl.program_id(1), tl.program_id(2)
-    H = tl.num_programs(1)
+    H, B = tl.num_programs(1), tl.num_programs(2)
     d = tl.arange(0, D)
     x = _load(Cache, Scale, Chunk, b, h, t * T + tl.arange(0, T), at, L, d,
               scb, scn, sch, ssb, ssn, ssh, snb, snn, snh, Heads, Tokens, HMAP, TMAP)
     if SUM:
-        tl.atomic_add(Sum + (b * H + h) * D + d, tl.sum(x, axis=0))
+        tl.store(Sum + ((t * B + b) * H + h) * D + d, tl.sum(x, axis=0))
     else:
         tl.atomic_max(Max + (b * H + h) * D + d, tl.max(tl.abs(x), axis=0))
 
@@ -152,10 +154,10 @@ def _attend(Q: torch.Tensor, cache_k: torch.Tensor, cache_ks: torch.Tensor, cach
     T = 64
     tiles = triton.cdiv(L, T)
 
-    k_sum = torch.zeros(B, H, D, device=dev, dtype=torch.float32)
-    wrap_triton(_sum_max)[(tiles, H, B)](cache_k, cache_ks, K, k_sum, torch.empty_like(k_sum), at, L, *k_args, *maps,
-                                         D=D, T=T, SUM=True, HMAP=hmap, TMAP=tmap)
-    k_mean = k_sum / L
+    k_tiles = torch.empty(tiles, B, H, D, device=dev, dtype=torch.float32)
+    wrap_triton(_sum_max)[(tiles, H, B)](cache_k, cache_ks, K, k_tiles, torch.empty(B, H, D, device=dev), at, L,
+                                         *k_args, *maps, D=D, T=T, SUM=True, HMAP=hmap, TMAP=tmap)
+    k_mean = k_tiles.sum(dim=0) / L
     blocks = triton.cdiv(L, BLKK)
     k_int8 = torch.empty(B, L, H, D, device=dev, dtype=torch.int8)
     k_scale = torch.empty(B, H, blocks * (BLKK // WARPK) * 4, device=dev, dtype=torch.float32)

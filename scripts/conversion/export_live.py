@@ -5,7 +5,7 @@ computation of a chunk is one of these packages, with no Python in the process t
     python scripts/conversion/export_live.py                 # all of them, into artifacts/live
     python scripts/conversion/export_live.py --only block_3 decoder
 
-What a chunk is made of, the packages named as in the manifest (live.json):
+What a chunk is made of, the packages named as in the manifest (mvp1.json):
 
     text     T5 embeddings [1, 512, 4096] -> text_embedding [1, 512, dim]              once per prompt
     cross    row of a block, text -> keys and values of its cross-attention              once per prompt and block
@@ -50,7 +50,7 @@ from wan_dit_lab.models.text_encoder import TEXT_LEN
 from wan_dit_lab.models.vae import TAEHVStream
 from wan_dit_lab.quantization import w4a4
 from wan_dit_lab.runtime.live_presets import KEYS, POSITIONS, SCENE_PREFIX, rope_table
-from wan_dit_lab.runtime.live_kernels import CROSS_BACKENDS, begin_export
+from wan_dit_lab.runtime.live_kernels import CROSS_BACKENDS, begin_export, validate_pack
 from wan_dit_lab.runtime.live_pipeline import export_identity, load_pipeline, publish
 
 
@@ -157,14 +157,15 @@ def block_rows(blocks, path, checkpoint, linear):
 class Bound(torch.nn.Module):
     """One block structure, rebound to views of a dense or quantized byte row per call."""
 
-    def __init__(self, template, layout, row_bytes, *, linear="nunchaku_w4a4", rope=None, attention="sage_sm89", cross_attention=None):
+    def __init__(self, template, layout, row_bytes, *, linear="nunchaku_w4a4", rope=None, attention="sage_sm89", cross_attention=None,
+                 sparse=None, rope_into_sage=False):
         super().__init__()
         from wan_dit_lab.models.rope import rope_apply
         if rope == "triton":
             from wan_dit_lab.kernels.rope_triton import rope_apply
         elif rope == "longlive_triton":
             from wan_dit_lab.kernels.longlive_rope import rope_apply
-        elif rope != "torch_inductor" and attention != "sage_rope_sm89":
+        elif rope != "torch_inductor" and not (rope_into_sage and rope == "fused_float32"):
             raise ValueError(f"unsupported RoPE: {rope}")
         row = torch.empty(row_bytes, dtype=torch.uint8, device="meta")
         if linear == "torch_bf16":
@@ -179,17 +180,20 @@ class Bound(torch.nn.Module):
             raise ValueError(f"unsupported linear: {linear}")
         if cross_attention == ["sage_sm89"]:
             self.block.cross_attn.sage_cross_tokens = TEXT_LEN
-        # joint Sage/RoPE owns its RoPE kernel; naming LongLive's makes it round as that kernel does
-        self.longlive_rounding = attention == "sage_rope_sm89" and rope == "longlive_triton"
-        if attention == "sage_rope_sm89":
-            if rope not in (None, "longlive_triton"):
-                raise ValueError("joint Sage/RoPE owns its RoPE kernel")
+        # kernels.fuse.rope_into_sage: the joint Sage/RoPE kernel computes RoPE, rounding as the separate kernel `rope`
+        # names (LongLive's), or in float32 throughout (fused_float32)
+        self.longlive_rounding = rope_into_sage and rope == "longlive_triton"
+        if rope_into_sage:
+            if attention != "sage_sm89" or rope not in ("longlive_triton", "fused_float32"):
+                raise ValueError("joint Sage/RoPE takes attention sage_sm89 and rope longlive_triton or fused_float32")
             self.block.self_attn.sage_rope = True
         else:
             self.block.self_attn.rope_kernel = rope_apply
         if rope == "triton" and attention != "torch_sdpa":
             self.block.self_attn.rope_input_dtype = torch.float32
         self.attention = attention
+        # block sparsity (kernels.sparse) of the joint kernel: the package then takes the frame mask as an input
+        self.skip_mass = float(sparse["skip_mass"]) if sparse and sparse["enabled"] else None
         self.entries = {e["name"]: e for e in layout}
         self.params = []  # its parameters as plain attributes, rebound like the packed layers' parts
         for name, _ in list(self.block.named_parameters()):
@@ -225,9 +229,11 @@ class Cache:
     `at` and read the same past tokens and current chunk.
     """
 
-    def __init__(self, at, k, ks, v, vs, *, attention="sage_sm89", longlive_rounding=False):
+    def __init__(self, at, k, ks, v, vs, *, attention="sage_sm89", longlive_rounding=False, skip_mass=None,
+                 key_keep=None):
         self.at, self.buffers = at, (k, ks, v, vs)
         self.attention, self.longlive_rounding = attention, longlive_rounding
+        self.skip_mass, self.key_keep = skip_mass, key_keep
 
     def attend(self, Q, K, V):
         k, ks, v, vs = self.buffers
@@ -255,23 +261,57 @@ class Cache:
     def attend_rope(self, q, k, v, norm_q, norm_k, grid, freq, start):
         from wan_dit_lab.kernels import sage_rope
         return sage_rope.attend(q, k, v, norm_q, norm_k, grid[0], freq, start, *self.buffers, self.at,
-                                longlive_rounding=self.longlive_rounding)
+                                longlive_rounding=self.longlive_rounding, skip_mass=self.skip_mass,
+                                key_keep=self.key_keep)
 
 
 class BlockStep(torch.nn.Module):
-    def __init__(self, bound, at, grid, hw):
+    def __init__(self, bound, at, grid):
         super().__init__()
         self.bound, self.at, self.grid = bound, at, grid
-        self.register_buffer("hw", hw)  # height and width of the RoPE table, [2, rows, pairs]
 
-    def forward(self, row, X, e0, cross_k, cross_v, time_rope, k, ks, v, vs):
-        rows = self.hw.shape[1]
+    def forward(self, row, X, e0, cross_k, cross_v, time_rope, hw, k, ks, v, vs, key_keep=None):
+        # hw: height and width of the RoPE table [2, rows, pairs], an input (wan.exe computes it from rope, rope.rs)
+        # key_keep (block sparsity only): int32 [blocks of 64 tokens of the cache buffer], the host's frame mask
+        rows = hw.shape[1]
         time_rope = torch.nn.functional.pad(time_rope, (0, 0, 0, rows - time_rope.shape[1]))
-        freqs = torch.cat([time_rope, self.hw], dim=-1)
+        freqs = torch.cat([time_rope, hw], dim=-1)
         with torch.autocast("cuda", dtype=DTYPE):
             return self.bound.bind(row)(X, e0, grid_sizes=(self.grid,), freqs=freqs,
                                         cache=Cache(self.at, k, ks, v, vs, attention=self.bound.attention,
-                                                    longlive_rounding=self.bound.longlive_rounding), context_kv=(cross_k, cross_v))
+                                                    longlive_rounding=self.bound.longlive_rounding,
+                                                    skip_mass=self.bound.skip_mass, key_keep=key_keep),
+                                        context_kv=(cross_k, cross_v))
+
+
+class Probe(torch.nn.Module):
+    """Debug only (wan.exe, debug "descent"): the rotated queries and keys [1, tokens, heads, head_dim] bfloat16 of a
+    block's self-attention over the chunk, from the same row, tokens, modulation and RoPE rows as its block package;
+    softmax of q.k / sqrt(d) is that block's attention to the chunk's own keys (all a first chunk has). RoPE in torch
+    (models.rope), whatever kernel the block package rotates with."""
+
+    def __init__(self, bound, grid):
+        super().__init__()
+        self.bound, self.grid = bound, grid
+
+    def forward(self, row, X, e0, time_rope, hw):
+        from wan_dit_lab.models.rope import rope_apply
+        rows = hw.shape[1]
+        time_rope = torch.nn.functional.pad(time_rope, (0, 0, 0, rows - time_rope.shape[1]))
+        freqs = torch.cat([time_rope, hw], dim=-1)
+        with torch.autocast("cuda", dtype=DTYPE):
+            block = self.bound.bind(row)
+            shift, scale = (e0 + block.modulation).chunk(6, dim=1)[:2]
+            x = block.norm1(X) * (1 + scale) + shift
+            a = block.self_attn
+            if hasattr(a, "qkv"):
+                q, k, _ = a.qkv(x).split(a.dim, dim=-1)
+            else:
+                q, k = a.q(x), a.k(x)
+            shape = (x.shape[0], x.shape[-2], a.num_heads, a.head_dim)
+            Q = rope_apply(a.norm_q(q).reshape(shape), (self.grid,), freqs)
+            K = rope_apply(a.norm_k(k).reshape(shape), (self.grid,), freqs)
+        return Q.to(DTYPE).contiguous(), K.to(DTYPE).contiguous()
 
 
 class Cross(torch.nn.Module):
@@ -423,7 +463,7 @@ class Decoder(torch.nn.Module):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("--config", type=Path, default=ROOT / "configs" / "live.json",
+    parser.add_argument("--config", type=Path, default=ROOT / "configs" / "mvp1.json",
                         help="run config whose explicit kernels are compiled into these packages")
     parser.add_argument("--out", type=Path, default=None, help="artifacts/live/<height>x<width> by default")
     parser.add_argument("--only", nargs="*", default=None, help="names of the packages to export (all by default)")
@@ -440,13 +480,19 @@ def main():
                 chunk=recipe["context"]["chunk_frames"], context_frames=recipe["context"]["window_frames"],
                 sink_frames=recipe["context"]["sink_frames"], steps=recipe["sampling"]["steps"],
                 rope_dtype=kernels["rope_dtype"], rope_interpolate=recipe["rope"]["interpolate"],
-                native=native, stream_blocks=0)
+                native=native, stream_blocks=0, rope_stretch=recipe["rope"].get("stretch", 1.0),
+                rope_by_parts=recipe["rope"].get("by_parts"), rope_ntk_aware=recipe["rope"].get("ntk_aware", False),
+                rope_frequency_aware=recipe["rope"].get("frequency_aware", False),
+                rope_m=recipe["rope"].get("m"), rope_ntk_pi_mix=recipe["rope"].get("ntk_pi_mix"),
+                attn_logit_scale=recipe["rope"].get("attn_logit_scale", 1.0))
     assert spec["height"] % 32 == 0 and spec["width"] % 32 == 0, "a token is 32x32 pixels"
     if args.out is None:  # one directory per resolution: wan.exe --size picks it
         args.out = ROOT / recipe["output"]
     identity = export_identity(recipe, ROOT)
     previous_checks = begin_export(args.out, kernels, only=bool(args.only), identity=identity)
     load_operators()
+    from wan_dit_lab.runtime import aoti_patches
+    aoti_patches.apply()
     height, width, chunk, stride = spec["height"], spec["width"], spec["chunk"], spec["vae_stride"]
     lat_h, lat_w = height // stride, width // stride
     grid = (chunk, lat_h // 2, lat_w // 2)
@@ -463,9 +509,12 @@ def main():
     model.load_state_dict(self_forcing_weights(spec["checkpoint"]), assign=True)
     model.eval()
     rows, layout = block_rows(model.blocks, spec["pack"], spec["checkpoint"], kernels["linear"])
+    validate_pack(kernels, layout)
     template = copy.deepcopy(model.blocks[0]).to("meta")
-    bound = Bound(template, layout, rows.shape[1], linear=kernels["linear"], rope=kernels.get("rope"), attention=kernels["attention"],
-                  cross_attention=kernels["cross_attention"])
+    bound = Bound(template, layout, rows.shape[1], linear=kernels["linear"], rope=kernels["rope"], attention=kernels["attention"],
+                  cross_attention=kernels["cross_attention"], sparse=kernels.get("sparse"),
+                  rope_into_sage=kernels["fuse"]["rope_into_sage"])
+    w4a4.order_low_rank_sum(bound.block, kernels["lora_sum"] == "ordered")  # kernels.lora_sum: live::w4a4_*_ordered
     for m in (model.patch_embedding, model.text_embedding, model.time_embedding, model.time_projection, model.head):
         m.to(DEVICE)
     model.blocks = None
@@ -490,9 +539,13 @@ def main():
              torch.rand(1, max_tokens + n, heads, 1, device=DEVICE, generator=g) * 0.05]
     cache = cache + [cache[0].clone(), cache[1].clone()]
     steps = max_tokens // n + 1  # at = 0, n, ..., max_tokens
+    # block sparsity: the frame mask the host computes per chunk (cache.rs, Ring::allowed_key_blocks), all allowed here
+    frames = () if bound.skip_mass is None else (torch.ones(-(-(max_tokens + n) // 64), device=DEVICE, dtype=torch.int32),)
     for k in range(steps):
-        X_next = export(f"block_{k}", BlockStep(bound, k * n, grid, hw),
-                        (row, X, e0, cross_k, cross_v, time_rope, *[c.clone() for c in cache]))
+        X_next = export(f"block_{k}", BlockStep(bound, k * n, grid),
+                        (row, X, e0, cross_k, cross_v, time_rope, hw, *[c.clone() for c in cache], *frames))
+    # queries and keys of a block for the host's attention metrics (debug "descent"), on the first block's inputs
+    export("probe", Probe(bound, grid), (row, X, e0, time_rope, hw))
     c = torch.tensor([0.16674446821107836], device=DEVICE)
     export("post", Post(model, grid), (X_next, t_emb, x, c))
 
@@ -563,7 +616,7 @@ def main():
                                                                                            lat_h, lat_w],
         grid=list(grid), tokens_per_frame=tokens, chunk_tokens=n, max_tokens=max_tokens, sink_tokens=sink_tokens,
         heads=heads, head_dim=d, dim=dim, text_len=TEXT_LEN, text_dim=config.get("text_dim", 4096), blocks=len(rows),
-        block_steps=steps, positions=POSITIONS, time_pairs=time_pairs, shot_rope_offset=recipe["rope"]["scene_offset_frames"],
+        block_steps=steps, positions=POSITIONS, time_pairs=time_pairs, hw_rows=hw.shape[1], hw_pairs=hw.shape[2], shot_rope_offset=recipe["rope"]["scene_offset_frames"],
         scene_prefix=SCENE_PREFIX, pack=str(spec["pack"]), row_bytes=rows.shape[1],
         stream_blocks=spec["stream_blocks"], timesteps=scheduler["timesteps"], sampler=scheduler["coefficients"],
         decoder_memory=[list(m.shape) for m in memory], decoder_trim=3, t5=t5, checks=export.report)
@@ -603,7 +656,9 @@ def causal_unipc(steps, shift):
     # linear, and of that form: x_k enters with 1, earlier flows not again
     x, f = torch.randn(1 + steps, 7, dtype=torch.float64).split([1, steps])
     expected = x[0] - sum(c * f[k] for k, c in enumerate(coefficients))
-    assert float((run(x[0].clone(), list(f))[0] - expected).abs().max()) < 1e-12, "UniPC is not two Euler steps here"
+    # The scheduler keeps its sigmas in float32, so for a shift whose sigmas are not exact in float32 (3.63, not 5)
+    # the steps are linear only to about 3e-8; any other structure would be off by orders of magnitude more.
+    assert float((run(x[0].clone(), list(f))[0] - expected).abs().max()) < 1e-6, "UniPC is not two Euler steps here"
     return dict(timesteps=timesteps, coefficients=coefficients)
 
 

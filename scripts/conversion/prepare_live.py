@@ -1,5 +1,6 @@
 """Cheap package preparation entry point used by wan.exe; exits before Rust loads LibTorch."""
 import argparse
+import json
 import os
 import shutil
 import subprocess
@@ -8,7 +9,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "src"))
-from wan_dit_lab.runtime.live_pipeline import export_identity, load_pipeline, prepare  # noqa: E402
+from wan_dit_lab.runtime.live_pipeline import export_identity, load_pipeline, prepare, warm_listing  # noqa: E402
 
 
 def compiler_environment():
@@ -57,13 +58,15 @@ def main():
     print("checking export input identity", flush=True)
     identity = export_identity(export)
     export["output"] = str(ROOT / export["output"])
-    def compile_packages():
+    def compile_packages(folder):
         print("compiling packages (one compiler worker)", flush=True)
         env = compiler_environment()
-        subprocess.run([sys.executable, str(ROOT / "scripts/conversion/export_live.py"), "--config", str(args.config)],
-                       cwd=ROOT, env=env, check=True)
+        subprocess.run([sys.executable, str(ROOT / "scripts/conversion/export_live.py"), "--config", str(args.config),
+                        "--out", str(folder)], cwd=ROOT, env=env, check=True)
     rebuilt = prepare(export, identity, compile_packages)
     print("packages exported" if rebuilt else "packages match the config; export skipped", flush=True)
+    export["output"] = str(Path(export["output"]).relative_to(ROOT))
+    (ROOT / "artifacts/prepare_inputs.json").write_text(json.dumps(warm_listing(export)), encoding="utf-8")
 
 
 if __name__ == "__main__":

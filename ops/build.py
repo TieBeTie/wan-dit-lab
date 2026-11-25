@@ -12,7 +12,7 @@ import shutil
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
-ROOT = HERE.parents[1]
+ROOT = HERE.parent  # ops/ sits at the root of wan-dit-lab since the Rust workspace (a04e87d)
 os.environ.setdefault("CUDA_HOME", str(ROOT / "artifacts" / "cuda-12.8"))
 from torch.utils import cpp_extension  # noqa: E402  (reads CUDA_HOME on import)
 
@@ -41,10 +41,11 @@ LIBRARIES = {
               "--expt-extended-lambda", "--ptxas-options=--allow-expensive-optimizations=true",
               "-gencode", "arch=compute_89,code=sm_89",
               "-Xcompiler", "/Zc:__cplusplus", "-Xcompiler", "/FS", "-Xcompiler", "/bigobj"]),
-    # SageAttention's setup.py for its sm89 kernels; only the one Live runs
+    # SageAttention's setup.py for its sm89 kernels; only the one Live runs, dense and over lists of key blocks
+    # (sage_attention_sm89.cuh: upstream's kernel with the block lists behind a template argument)
     "live_sage": dict(
-        sources=[HERE / "sage_ops.cpp", S / "qattn/sm89_qk_int8_sv_f8_accum_f16_fuse_v_scale_attn_inst_buf.cu"],
-        include=[OVERRIDE, FIX, S / "qattn", S],
+        sources=[HERE / "sage_ops.cpp", HERE / "sage_sm89.cu"],
+        include=[OVERRIDE, FIX, HERE, S / "qattn", S],
         cxx=["/O2", "/std:c++17", "/Zc:__cplusplus", "/FS"],
         nvcc=["-O3", "-std=c++17", "-U__CUDA_NO_HALF_OPERATORS__", "-U__CUDA_NO_HALF_CONVERSIONS__",
               "--use_fast_math", "--threads=8", "-diag-suppress=174", "--expt-relaxed-constexpr",

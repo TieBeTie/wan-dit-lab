@@ -19,21 +19,82 @@ KERNELS = {
     "kv_store": "triton",
     "rope": "torch_inductor",
     "rope_dtype": "float32",
+    "fuse": {"rope_into_sage": False, "qkv": True, "gelu_mlp": True},
+    "lora_sum": "atomic",
 }
+UNFUSED = {"rope_into_sage": False, "qkv": False, "gelu_mlp": False}
+JOINT = {**KERNELS, "cross_attention": ["efficient"], "rope": "longlive_triton",
+         "fuse": {**KERNELS["fuse"], "rope_into_sage": True}}
 
 
 def test_fp8_original_recipe_is_accepted():
     kernels = {**KERNELS, "linear": "torch_fp8", "attention": "torch_sdpa",
                "cross_attention": ["math"], "kv_cache": "bfloat16", "kv_store": "torch",
-               "rope": "longlive_triton"}
+               "rope": "longlive_triton", "fuse": UNFUSED}
     assert validate_kernels(kernels) == kernels
 
 
-def test_fused_sage_rope_may_name_the_rounding_of_longlive_rope():
-    kernels = {**KERNELS, "attention": "sage_rope_sm89", "cross_attention": ["efficient"], "rope": "longlive_triton"}
-    assert validate_kernels(kernels) == kernels
-    with pytest.raises(ValueError):
-        validate_kernels({**kernels, "rope": "triton"})
+def test_rope_into_sage_rounds_as_longlive_or_in_float32_only():
+    # the fused kernel adds the error of a separate path (LongLive's roundings), or its own float32 one by name
+    for rope in ("longlive_triton", "fused_float32"):
+        assert validate_kernels({**JOINT, "rope": rope}) == {**JOINT, "rope": rope}
+    for rope in ("triton", "torch_inductor"):
+        with pytest.raises(ValueError, match="rope_into_sage"):
+            validate_kernels({**JOINT, "rope": rope})
+    with pytest.raises(ValueError, match="fused_float32"):
+        validate_kernels({**KERNELS, "rope": "fused_float32"})
+    with pytest.raises(ValueError, match="rope_into_sage"):
+        validate_kernels({**JOINT, "attention": "torch_sdpa"})
+    with pytest.raises(ValueError, match="attention"):
+        validate_kernels({**JOINT, "attention": "sage_rope_sm89"})  # the old joint name: a switch now
+
+
+@pytest.mark.parametrize("flags", [{"qkv": True, "gelu_mlp": False}, {"qkv": False, "gelu_mlp": True}])
+def test_fused_w4a4_layers_are_switches_only_w4a4_has(flags):
+    validate_kernels({**KERNELS, "fuse": {**KERNELS["fuse"], **flags}})
+    with pytest.raises(ValueError, match="fuse"):
+        validate_kernels({**KERNELS, "linear": "torch_bf16", "fuse": {**UNFUSED, **flags}})
+
+
+def test_the_ordered_low_rank_sum_exists_only_for_w4a4():
+    assert validate_kernels({**KERNELS, "lora_sum": "ordered"})["lora_sum"] == "ordered"
+    with pytest.raises(ValueError, match="lora_sum"):
+        validate_kernels({**KERNELS, "linear": "torch_bf16", "fuse": UNFUSED, "lora_sum": "ordered"})
+    validate_kernels({**KERNELS, "linear": "torch_bf16", "fuse": UNFUSED})
+
+
+def test_the_export_orders_every_w4a4_layer_of_a_block_it_is_told_to():
+    import torch
+    from wan_dit_lab.quantization import w4a4
+    part = torch.zeros(1)
+    parts = {name: part for name in w4a4.PARTS} | {"proj_up": torch.zeros(4, 1)}
+    block = torch.nn.Sequential(w4a4.PackedW4A4Linear(**parts), w4a4.PackedW4A4GeluMLP(parts, parts), torch.nn.Linear(1, 1))
+    assert not any(getattr(m, "ordered", False) for m in block.modules())
+    w4a4.order_low_rank_sum(block, True)
+    assert [m.ordered for m in block.modules() if hasattr(m, "ordered")] == [True, True]
+    w4a4.order_low_rank_sum(block, False)
+    assert [m.ordered for m in block.modules() if hasattr(m, "ordered")] == [False, False]
+
+
+@pytest.mark.parametrize("fuse", [{"rope_into_sage": False, "qkv": True}, {**UNFUSED, "rope": True},
+                                  {**UNFUSED, "qkv": 1}, "none"])
+def test_every_fusion_is_an_explicit_boolean(fuse):
+    with pytest.raises(ValueError, match="fuse"):
+        validate_kernels({**KERNELS, "fuse": fuse})
+
+
+def test_the_weight_pack_must_hold_the_fusions_the_config_names():
+    from wan_dit_lab.runtime.live_kernels import validate_pack
+    fused = [{"name": "self_attn.qkv.qweight"}, {"name": "ffn.2.qweight", "gelu_mlp": True}]
+    separate = [{"name": "self_attn.q.qweight"}, {"name": "ffn.2.qweight"}]
+    validate_pack(KERNELS, fused)
+    validate_pack(KERNELS, fused[:1])  # packs made before the gelu_mlp mark fuse it beside self_attn.qkv
+    validate_pack({**KERNELS, "fuse": {**KERNELS["fuse"], "qkv": False, "gelu_mlp": False}}, separate)
+    for flag in ("qkv", "gelu_mlp"):
+        with pytest.raises(ValueError, match=flag):
+            validate_pack({**KERNELS, "fuse": {**KERNELS["fuse"], flag: False}}, fused)
+        with pytest.raises(ValueError, match=flag):
+            validate_pack({**KERNELS, "fuse": {**UNFUSED, flag: True}}, separate)
 
 
 def test_fused_sage_rope_rounds_as_longlive_when_its_rope_is_named(exporter, monkeypatch):
@@ -41,16 +102,48 @@ def test_fused_sage_rope_rounds_as_longlive_when_its_rope_is_named(exporter, mon
     seen = []
     monkeypatch.setattr(sage_rope, "attend", lambda *a, **kw: seen.append(kw.get("longlive_rounding", False)))
     for rope in (None, "longlive_triton"):
-        cache = exporter.Cache(0, *[None] * 4, attention="sage_rope_sm89", longlive_rounding=rope is not None)
+        cache = exporter.Cache(0, *[None] * 4, attention="sage_sm89", longlive_rounding=rope is not None)
         cache.attend_rope(None, None, None, None, None, ((1, 1, 1),), None, 0)
     assert seen == [False, True]
+
+
+SPARSE = {"enabled": True, "skip_mass": 0.1, "frames": {"sink": True, "recent_frames": 8}}
+
+
+def test_block_sparsity_is_an_optional_choice_of_the_joint_kernel():
+    joint = JOINT
+    for sparse in (SPARSE, {"enabled": False}):
+        assert validate_kernels({**joint, "sparse": sparse}) == {**joint, "sparse": sparse}
+    with pytest.raises(ValueError, match="sparse"):
+        validate_kernels({**KERNELS, "sparse": SPARSE})
+    for bad in ({"enabled": True}, {"enabled": False, "skip_mass": 0.1}, {**SPARSE, "skip_mass": 1.0},
+                {**SPARSE, "frames": {"sink": True}}):
+        with pytest.raises(ValueError, match="sparse"):
+            validate_kernels({**joint, "sparse": bad})
+
+
+def test_the_block_reads_the_frame_mask_only_when_sparsity_is_on(exporter, monkeypatch):
+    from wan_dit_lab.kernels import sage_rope
+    seen = []
+    monkeypatch.setattr(sage_rope, "attend", lambda *a, **kw: seen.append((kw["skip_mass"], kw["key_keep"])))
+    for skip_mass, key_keep in ((None, None), (0.1, "mask")):
+        cache = exporter.Cache(0, *[None] * 4, attention="sage_sm89", skip_mass=skip_mass, key_keep=key_keep)
+        cache.attend_rope(None, None, None, None, None, ((1, 1, 1),), None, 0)
+    assert seen == [(None, None), (0.1, "mask")]
+    template = exporter.torch.nn.Module()
+    template.self_attn = exporter.torch.nn.Identity()
+    monkeypatch.setattr(exporter.w4a4, "slot", lambda row, like, layout: copy.deepcopy(like))
+    joint = dict(rope="longlive_triton", rope_into_sage=True)
+    assert exporter.Bound(template, [], 1, **joint).skip_mass is None
+    assert exporter.Bound(template, [], 1, **joint, sparse={"enabled": False}).skip_mass is None
+    assert exporter.Bound(template, [], 1, **joint, sparse=SPARSE).skip_mass == 0.1
 
 
 def test_dense_sdpa_accepts_memory_efficient_backend():
     # MATH materializes the scores: at 704x1280 a compiled block grew by 1.3 GiB per chunk of context (5.3 GiB at a
     # full window) and spilled out of 8 GiB; the original LongLive computes this attention with FlashAttention.
     kernels = {**KERNELS, "linear": "torch_fp8", "attention": "torch_sdpa", "cross_attention": ["efficient"],
-               "rope": "longlive_triton"}
+               "rope": "longlive_triton", "fuse": UNFUSED}
     assert validate_kernels(kernels) == kernels
 
 
@@ -113,7 +206,7 @@ def test_fp8_cache_attention_exports_with_memory_efficient_sdpa(exporter, tmp_pa
 def test_fp8_experiment_accepts_automatic_memory_policy():
     from wan_dit_lab.runtime.live_pipeline import load_pipeline
     _, run = load_pipeline(ROOT / "configs/experiments/director-original/s2-fp8-native.proposed.json")
-    assert run["offloading"]["t5"] == {"activations": "auto", "resident": "auto"}
+    assert run["offloading"]["t5"] == {"activations": "auto", "resident": "auto", "prefetch_tolerance": 0.0}
     assert run["debug"] == "fps"
 
 
@@ -177,11 +270,10 @@ def test_fp8_row_executes_in_compiled_package_and_rebinds(exporter, tmp_path, mo
         torch.testing.assert_close(delta, torch.ones_like(delta), rtol=0, atol=.03)
 
 
-@pytest.mark.parametrize("name", ["live.json", "offline.json"])
+@pytest.mark.parametrize("name", ["mvp1.json", "offline.json"])
 def test_run_configs_explicitly_name_every_kernel(name):
-    expected = {key: value for key, value in KERNELS.items() if key != "rope"}
-    expected["attention"] = "sage_rope_sm89"
-    expected["cross_attention"] = ["sage_sm89"]
+    # the point chosen 2026-11-12 (544x960, window 32): Sage and LongLive's RoPE apart, Sage in cross-attention
+    expected = {**KERNELS, "cross_attention": ["sage_sm89"], "rope": "longlive_triton"}
     assert read_kernels(ROOT / "configs" / name) == expected
 
 
@@ -190,21 +282,17 @@ def test_both_rope_implementations_are_explicit_supported_choices(rope):
     assert validate_kernels({**KERNELS, "rope": rope})["rope"] == rope
 
 
-def test_joint_sage_rope_owns_its_rope_instead_of_accepting_an_independent_kernel():
-    fused = {k: v for k, v in KERNELS.items() if k != "rope"}
-    fused["attention"] = "sage_rope_sm89"
-    assert validate_kernels(fused) == fused
-    with pytest.raises(ValueError, match="rope"):
-        validate_kernels({**fused, "rope": "torch_inductor"})
-
-
 def test_export_binds_joint_sage_rope_to_the_block(exporter, monkeypatch):
     template = exporter.torch.nn.Module()
     template.self_attn = exporter.torch.nn.Identity()
     monkeypatch.setattr(exporter.w4a4, "slot", lambda row, like, layout: copy.deepcopy(like))
-    bound = exporter.Bound(template, [], 1, attention="sage_rope_sm89")
-    assert bound.block.self_attn.sage_rope is True
+    for rope, longlive in (("longlive_triton", True), ("fused_float32", False)):
+        bound = exporter.Bound(template, [], 1, rope=rope, rope_into_sage=True)
+        assert bound.block.self_attn.sage_rope is True
+        assert bound.longlive_rounding is longlive
     assert not hasattr(template.self_attn, "sage_rope")
+    separate = exporter.Bound(template, [], 1, rope="longlive_triton")
+    assert not hasattr(separate.block.self_attn, "sage_rope") and separate.longlive_rounding is False
 
 
 @pytest.mark.parametrize("field", list(KERNELS))
@@ -244,7 +332,7 @@ def test_export_selects_sage_cross_before_preparing_the_prompt(exporter, monkeyp
     template.self_attn = exporter.torch.nn.Identity()
     template.cross_attn = exporter.torch.nn.Identity()
     monkeypatch.setattr(exporter.w4a4, "slot", lambda row, like, layout: copy.deepcopy(like))
-    bound = exporter.Bound(template, [], 1, attention="sage_rope_sm89", cross_attention=["sage_sm89"])
+    bound = exporter.Bound(template, [], 1, rope="longlive_triton", rope_into_sage=True, cross_attention=["sage_sm89"])
     assert bound.block.cross_attn.sage_cross_tokens == exporter.TEXT_LEN
     assert not hasattr(template.cross_attn, "sage_cross_tokens")
     exporter.Exporter(Path("unused"), None, {**KERNELS, "cross_attention": ["sage_sm89"]})
@@ -265,7 +353,7 @@ def test_missing_config_or_kernel_block_is_not_defaulted(tmp_path):
 
 
 def test_partial_export_cannot_relabel_old_or_different_packages(tmp_path):
-    path = tmp_path / "live.json"
+    path = tmp_path / "mvp1.json"
     for previous in ({}, {"kernels": {**KERNELS, "cross_attention": ["efficient"]}}):
         path.write_text(json.dumps(previous), encoding="utf-8")
         with pytest.raises(ValueError, match="full export"):
@@ -278,7 +366,7 @@ def test_partial_export_cannot_relabel_old_or_different_packages(tmp_path):
 
 
 def test_partial_export_cannot_mix_different_model_recipes(tmp_path):
-    path = tmp_path / "live.json"
+    path = tmp_path / "mvp1.json"
     path.write_text(json.dumps({"kernels": KERNELS, "export": {"identity": "old"}}), encoding="utf-8")
     with pytest.raises(ValueError, match="full export"):
         validate_partial_export(path, KERNELS, identity="new")
@@ -287,7 +375,7 @@ def test_partial_export_cannot_mix_different_model_recipes(tmp_path):
 def test_interrupted_exports_cannot_leave_a_trusted_old_manifest(tmp_path):
     from wan_dit_lab.runtime.live_kernels import begin_export, complete_export
 
-    path = tmp_path / "live.json"
+    path = tmp_path / "mvp1.json"
     path.write_text(json.dumps({"kernels": KERNELS, "checks": {"old": {"relative_l2": [0]}}}), encoding="utf-8")
     checks = begin_export(tmp_path, KERNELS, only=True)
     assert checks == {"old": {"relative_l2": [0]}}
@@ -322,7 +410,7 @@ def test_dense_export_reads_the_dense_pack_and_never_the_w4a4_pack(exporter, mon
 
 
 def test_bf16_linear_can_be_selected_without_changing_other_kernels():
-    assert validate_kernels({**KERNELS, "linear": "torch_bf16"})["linear"] == "torch_bf16"
+    assert validate_kernels({**KERNELS, "linear": "torch_bf16", "fuse": UNFUSED})["linear"] == "torch_bf16"
 
 
 def test_dense_cache_keeps_bf16_values_and_reads_only_past_and_current_chunk(exporter, monkeypatch):
@@ -487,7 +575,7 @@ def test_dense_sdpa_rope_preserves_bf16_for_matching_qkv_dtypes(exporter):
 
 def test_export_uses_the_config_size_before_loading_gpu_operators(exporter, monkeypatch, tmp_path):
     config = tmp_path / "run.json"
-    config.write_text((ROOT / "configs/live.json").read_text(encoding="utf-8"), encoding="utf-8")
+    config.write_text((ROOT / "configs/mvp1.json").read_text(encoding="utf-8"), encoding="utf-8")
     output = json.loads(config.read_text(encoding="utf-8"))[0]["output"]
     monkeypatch.setattr(exporter, "export_identity", lambda *a, **kw: "identity")
     monkeypatch.setattr(exporter, "ROOT", tmp_path)
@@ -504,7 +592,7 @@ def test_export_uses_the_config_size_before_loading_gpu_operators(exporter, monk
 
 def test_export_rejects_unsupported_choices_before_loading_gpu_operators(exporter, monkeypatch, tmp_path):
     config = tmp_path / "run.json"
-    value = json.loads((ROOT / "configs/live.json").read_text(encoding="utf-8"))
+    value = json.loads((ROOT / "configs/mvp1.json").read_text(encoding="utf-8"))
     value[0]["kernels"]["rope"] = "unknown"
     config.write_text(json.dumps(value), encoding="utf-8")
     monkeypatch.setattr(exporter.sys, "argv", ["export_live.py", "--config", str(config)])
@@ -645,3 +733,73 @@ def test_fp8_block_with_original_rope_and_fp8_sdpa_cache(exporter, tmp_path):
     export = exporter.Exporter(tmp_path, None, kernels)
     export("combined_fp8_block", step, (rows[0].cuda(), x, e0, cross_k, cross_v,
            freq[:, :1, :8].contiguous(), k, scales, v, scales.clone()))
+
+
+def test_probe_gives_the_queries_and_keys_the_block_attends_with(exporter):
+    """The probe package (debug "descent" of wan.exe): softmax of its rotated queries and keys over the values is the
+    block's own self-attention, so the entropy the host measures is that of the attention the block runs."""
+    from types import SimpleNamespace
+    from wan_dit_lab.models.block import WanBlock
+    from wan_dit_lab.models.rope import rope
+    torch = exporter.torch
+    torch.manual_seed(3)
+    dim, heads, grid = 96, 4, (2, 3, 4)
+    d = dim // heads
+    block = WanBlock(dim=dim, ffn_dim=128, num_heads=heads, eps=1e-6).eval()
+    tables = [rope(64, d - 4 * (d // 6)), rope(64, 2 * (d // 6)), rope(64, 2 * (d // 6))]
+    freqs = torch.cat(tables, dim=-1).float()
+    time_pairs = freqs.shape[-1] - 2 * (freqs.shape[-1] // 3)
+    hw = freqs[:, :max(grid), time_pairs:].contiguous()
+    n = grid[0] * grid[1] * grid[2]
+    X, e0 = torch.randn(1, n, dim), torch.randn(1, 6, dim) * 0.1
+    time_rope = freqs[:, :grid[0], :time_pairs].contiguous()
+    probe = exporter.Probe(SimpleNamespace(bind=lambda row: block), grid)
+    with torch.no_grad():
+        Q, K = probe(torch.zeros(1, dtype=torch.uint8), X, e0, time_rope, hw)
+        assert Q.shape == K.shape == (1, n, heads, d)
+        shift, scale, gate = (e0 + block.modulation).chunk(6, dim=1)[:3]
+        x = block.norm1(X) * (1 + scale) + shift
+        expected = block.self_attn(x, grid_sizes=(grid,), freq=torch.cat([torch.nn.functional.pad(
+            time_rope, (0, 0, 0, hw.shape[1] - grid[0])), hw], dim=-1))
+        V = block.self_attn.v(x).reshape(1, n, heads, d)
+        A = torch.nn.functional.scaled_dot_product_attention(Q.float().transpose(1, 2), K.float().transpose(1, 2), V.transpose(1, 2))
+        got = block.self_attn.o(A.transpose(1, 2).reshape(1, n, dim))
+    assert torch.linalg.vector_norm(got - expected) / torch.linalg.vector_norm(expected) < 2e-2
+
+
+def test_block_step_takes_the_height_and_width_rope_as_an_input(exporter, monkeypatch):
+    # the spatial RoPE table is an input of the block package, not a constant: wan.exe computes it from rope and passes
+    # it, so a new M or profile needs no export; the block sees time rows padded to the table's rows, then the table
+    import types
+    torch = exporter.torch
+    seen = {}
+
+    class Block:
+        def __call__(self, X, e0, grid_sizes, freqs, cache, context_kv):
+            seen["freqs"] = freqs
+            return X
+
+    bound = types.SimpleNamespace(bind=lambda row: Block(), attention="sage_sm89", longlive_rounding=False, skip_mass=None)
+    monkeypatch.setattr(exporter.torch, "autocast", lambda *a, **kw: __import__("contextlib").nullcontext())
+    step = exporter.BlockStep(bound, 0, (2, 3, 5))
+    assert not list(step.buffers())
+    time_rope, hw = torch.randn(2, 2, 22), torch.randn(2, 5, 42)
+    z = torch.zeros(1)
+    step(z, z, z, z, z, time_rope, hw, z, z, z, z)
+    expected = torch.cat([torch.nn.functional.pad(time_rope, (0, 0, 0, 3)), hw], dim=-1)
+    assert torch.equal(seen["freqs"], expected)
+
+
+def test_spatial_rope_keys_do_not_change_the_export_identity(tmp_path):
+    from wan_dit_lab.runtime.live_pipeline import export_identity
+    export = {"model": {}, "rope": {"interpolate": True, "native_size": "704x1280", "stretch": .3, "ntk_aware": True,
+                                    "by_parts": None, "scene_offset_frames": 8}}
+    before = export_identity(export, tmp_path, sources=[], versions={})
+    for change in ({"stretch": .5}, {"ntk_aware": False}, {"by_parts": {"alpha": .25, "beta": 2}, "ntk_aware": None},
+                   {"m": {"height": 1.2, "width": 1.4}}, {"ntk_pi_mix": .5}, {"frequency_aware": True}, {"interpolate": False}):
+        changed = copy.deepcopy(export)
+        changed["rope"].update(change)
+        assert export_identity(changed, tmp_path, sources=[], versions={}) == before, change
+    changed = copy.deepcopy(export)
+    changed["rope"]["scene_offset_frames"] = 4
+    assert export_identity(changed, tmp_path, sources=[], versions={}) != before

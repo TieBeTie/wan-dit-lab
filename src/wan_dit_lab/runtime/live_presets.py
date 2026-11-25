@@ -5,6 +5,7 @@ models it runs, and the Python model of a preset built as Live builds it, for th
 
 import copy
 import json
+import math
 from functools import partial
 
 import torch
@@ -12,7 +13,7 @@ import torch
 from wan_dit_lab.generation import causal
 from wan_dit_lab.models.checkpoint import LONGLIVE, ROOT, model_config, self_forcing_weights
 from wan_dit_lab.models.model import WanModel
-from wan_dit_lab.models.positions import rope_at, stretch
+from wan_dit_lab.models.positions import rope_at, stretch, spatial_rope
 from wan_dit_lab.models.rope import rope
 
 KEYS = ["dim", "eps", "ffn_dim", "freq_dim", "in_dim", "num_heads", "num_layers", "out_dim", "text_len"]
@@ -56,9 +57,23 @@ def rope_table(spec, head_dim, device):
     tables = [rope(POSITIONS, d - 4 * (d // 6)), rope(POSITIONS, 2 * (d // 6)), rope(POSITIONS, 2 * (d // 6))]
     if spec["rope_interpolate"]:
         cell = 2 * spec["vae_stride"]
-        scales = stretch([s // cell for s in spec["native"]], [spec["height"] // cell, spec["width"] // cell])
-        tables[1:] = [rope_at(POSITIONS, 2 * (d // 6), s) for s in scales]
-    return torch.cat(tables, dim=-1).to(device, getattr(torch, spec["rope_dtype"]))
+        trained = [s // cell for s in spec["native"]]
+        m = spec.get("rope_m")  # M of height and width given directly, in place of the stretch
+        scales = ([m["height"], m["width"]] if m is not None
+                  else stretch(trained, [spec["height"] // cell, spec["width"] // cell], spec.get("rope_stretch", 1.0)))
+        tables[1:] = [spatial_rope(POSITIONS, 2 * (d // 6), s, t,
+                      by_parts=spec.get("rope_by_parts"), ntk_aware=spec.get("rope_ntk_aware", False),
+                      frequency_aware=spec.get("rope_frequency_aware", False), ntk_pi_mix=spec.get("rope_ntk_pi_mix"))
+                      for s, t in zip(scales, trained)]
+    table = torch.cat(tables, dim=-1)
+    # Attention logit multiplier lambda: q and k both pass through this table, so sqrt(lambda) on it scales every
+    # self-attention logit by lambda (cross-attention has no RoPE and stays as it is).
+    scale = spec.get("attn_logit_scale", 1.0)
+    if not (math.isfinite(scale) and scale > 0):
+        raise ValueError("attn_logit_scale must be a positive finite number")
+    if scale != 1.0:
+        table = table * math.sqrt(scale)
+    return table.to(device, getattr(torch, spec["rope_dtype"]))
 
 
 def build_stream(spec, context, device, compiled=True):

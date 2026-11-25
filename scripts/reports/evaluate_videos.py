@@ -15,6 +15,14 @@ Per run, over every `every`-th frame:
 - sharpness: variance of the Laplacian of the grey frame, mean over the frames CLIP sees (blur lowers it)
 and when the reference has the same size: psnr and lpips (AlexNet) to it, over the whole video and over its first
 chunk (psnr_first, lpips_first: before the trajectories part, the error of the computation itself).
+At any size of either, after the zoom and shift that best match the video to the reference (the original 704x1280 frames
+the scene closer than 512x928 runs; wan_dit_lab.harness.video_metrics.align):
+- zoom, dx, dy, align_score: that cut (zoom > 1: the video is cut, < 1: the reference) and its grey correlation
+- lpips_aligned, psnr_aligned and their _first over the first chunk: LPIPS and PSNR of the cut pair at 352x640
+- lpips_aligned_crop (with --crop y0,x0,y1,x1): LPIPS of the cut pair inside that box, fractions of the frame: a
+  detail the whole frame's numbers hardly see (the handle of a cup)
+- dino_reference and dino_reference_first: mean cosine of DINOv2-small (CLS) between a frame and the reference's frame
+  at the same time, uncut: where the objects are and what they are, little moved by the zoom (--no-dino skips it)
 Writes evaluation[_<name>].json and sheet_<prompt>.jpg (a row per run, the reference first) into the experiment
 folder.
 """
@@ -87,6 +95,140 @@ def sheet(rows, labels, path, height=180):
     out.save(path, quality=88)
 
 
+class Evaluator:
+    """The models of the metrics (CLIP ViT-B-32, AlexNet LPIPS, DINOv2-small unless dino=False), loaded once on
+    `device`: a search that scores many generations keeps one, moves it to RAM with offload() while wan.exe holds the
+    card and back with to(device)."""
+
+    def __init__(self, device, dino=True, every=4):
+        self.device, self.every = device, every
+        self.dino = None
+        if dino:
+            from transformers import AutoImageProcessor, AutoModel
+            self.dino_processor = AutoImageProcessor.from_pretrained("facebook/dinov2-small")
+            self.dino = AutoModel.from_pretrained("facebook/dinov2-small").to(device).eval()
+        import lpips
+        self.perceptual = lpips.LPIPS(net="alex", verbose=False).to(device).eval()
+        import open_clip
+        self.clip, _, self.preprocess = open_clip.create_model_and_transforms("ViT-B-32", pretrained="laion2b_s34b_b79k",
+                                                                              device=device)
+        self.tokenizer = open_clip.get_tokenizer("ViT-B-32")
+        self.clip.eval()
+
+    def modules(self):
+        return [m for m in (self.dino, self.perceptual, self.clip) if m is not None]
+
+    def parameters(self):
+        return [p for m in self.modules() for p in m.parameters()]
+
+    def to(self, device):
+        self.device = device
+        for m in self.modules():
+            m.to(device)
+        return self
+
+    def offload(self):
+        """The models to RAM, the card's memory back to the driver (torch's cache emptied)."""
+        for m in self.modules():
+            m.to("cpu")
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+        return self
+
+    @torch.no_grad()
+    def embed_dino(self, video):
+        out = []
+        for i in range(0, len(video), 16):
+            batch = self.dino_processor(images=list(video[i:i + 16]), return_tensors="pt")["pixel_values"].to(self.device)
+            out.append(self.dino(pixel_values=batch).pooler_output.float().cpu().numpy())
+        return np.concatenate(out)
+
+    @torch.no_grad()
+    def lpips_mean(self, a, b):
+        to = lambda v: torch.from_numpy(v).permute(0, 3, 1, 2).float().div(127.5).sub(1).to(self.device)
+        return float(torch.cat([self.perceptual(to(a[i:i + 8]), to(b[i:i + 8])).flatten() for i in range(0, len(a), 8)]).mean())
+
+    @torch.no_grad()
+    def embed_images(self, video):
+        batch = torch.stack([self.preprocess(Image.fromarray(f)) for f in video]).to(self.device)
+        return torch.nn.functional.normalize(self.clip.encode_image(batch).float(), dim=-1)
+
+    @torch.no_grad()
+    def embed_text(self, text):
+        return torch.nn.functional.normalize(self.clip.encode_text(self.tokenizer([text]).to(self.device)).float(), dim=-1)[0]
+
+    def evaluate(self, experiment_dir, reference_dir, name="", reference_suffix="", crop=None, sheets=True):
+        """Rows of every run of the experiment against its reference; writes evaluation[_<name>].json (and the
+        sheets) into the experiment folder, as the command does."""
+        from wan_dit_lab.harness.video_metrics import align, aligned_pair, cosine_by_time, region
+        experiment_dir, reference_dir = Path(experiment_dir), Path(reference_dir)
+        box = tuple(float(v) for v in crop.split(",")) if crop else None
+        every = self.every
+        experiment = with_base(read_json(experiment_dir / "experiment.json"))
+        reference = with_base(read_json(reference_dir / "experiment.json"))
+        reference_runs = {r["id"]: r for r in reference["runs"]}
+        results, by_prompt, cache = [], {}, {}
+        for run in experiment["runs"]:
+            video_path = experiment_dir / run["id"] / "video.mp4"
+            if not video_path.exists():
+                print(f"{run['id']}: no video", flush=True)
+                continue
+            key = run["id"].split("__")[0]
+            video = frames(video_path)
+            ref_id = key + reference_suffix
+            if key not in cache and ref_id in reference_runs and (reference_dir / ref_id / "video.mp4").exists():
+                ref = frames(reference_dir / ref_id / "video.mp4")
+                cache[key] = (ref, self.embed_images(ref[::every]), self.embed_dino(ref[::every]) if self.dino else None)
+            picked = self.embed_images(video[::every])
+            text = self.embed_text(prompt_of(run))
+            diffs = np.abs(np.diff(video.astype(np.int16), axis=0)).mean(axis=(1, 2, 3))  # diffs[t-1]: frame t vs t-1
+            starts = [t for t in chunk_starts(len(video)) if t < len(video)]
+            inside = np.delete(diffs, [t - 1 for t in starts])
+            row = dict(run=run["id"], prompt=key, frames=len(video), size=list(video.shape[1:3]),
+                       clip_text=float((picked @ text).mean()),
+                       seam=float(diffs[[t - 1 for t in starts]].mean() / inside.mean()) if starts else None,
+                       flicker=float(diffs.mean()), sharpness=sharpness(video[::every]))
+            if key in cache:
+                ref_embed = cache[key][1]
+                n = min(len(ref_embed), len(picked))
+                row["clip_reference"] = float((picked[:n] * ref_embed[:n]).sum(-1).mean())
+                ref = cache[key][0]
+                if ref.shape[1:] == video.shape[1:]:
+                    n, first = min(len(ref), len(video)), 29  # the first chunk decodes to 29 frames
+                    row.update(psnr=psnr(video[:n], ref[:n]), psnr_first=psnr(video[:first], ref[:first]),
+                               lpips=self.lpips_mean(video[:n:every], ref[:n:every]),
+                               lpips_first=self.lpips_mean(video[:first], ref[:first]))
+                first = 29  # the first chunk decodes to 29 frames
+                cut = align(video, ref)
+                a, b = aligned_pair(video, ref, cut, size=(352, 640))
+                row.update(zoom=cut["zoom"], dx=cut["dx"], dy=cut["dy"], align_score=cut["score"],
+                           lpips_aligned=self.lpips_mean(a[::every], b[::every]),
+                           lpips_aligned_first=self.lpips_mean(a[:first], b[:first]),
+                           psnr_aligned=psnr(a, b), psnr_aligned_first=psnr(a[:first], b[:first]))
+                if box is not None:
+                    row["lpips_aligned_crop"] = self.lpips_mean(region(a, box)[::every], region(b, box)[::every])
+                if self.dino:
+                    mine, theirs = self.embed_dino(video[::every]), cache[key][2]
+                    row.update(dino_reference=cosine_by_time(mine, theirs),
+                               dino_reference_first=cosine_by_time(mine[:-(-first // every)], theirs[:-(-first // every)]))
+            results.append(row)
+            by_prompt.setdefault(key, []).append((run["id"], video))
+            print(json.dumps(row), flush=True)
+        file = f"evaluation_{name}.json" if name else "evaluation.json"
+        (experiment_dir / file).write_text(json.dumps(results, indent=1), encoding="utf-8")
+        if sheets:
+            for key, runs in by_prompt.items():
+                rows = ([cache[key][0][:min(len(v) for _, v in runs)]] if key in cache else []) + [v for _, v in runs]
+                labels = (["reference " + str(cache[key][0].shape[1:3])] if key in cache else []) + [r for r, _ in runs]
+                sheet(rows, labels, experiment_dir / f"sheet_{key}.jpg")
+        return json.loads(json.dumps(results))
+
+
+def psnr(a, b):
+    mse = ((a.astype(np.float32) - b.astype(np.float32)) ** 2).mean(axis=(1, 2, 3))
+    return float(np.mean(10 * np.log10(255 ** 2 / np.maximum(mse, 1e-9))))
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--experiment", type=located, required=True)
@@ -95,76 +237,12 @@ def main():
     parser.add_argument("--device", default="cpu")
     parser.add_argument("--reference-suffix", default="", help="after the prompt in the id of its reference run")
     parser.add_argument("--name", default="", help="evaluation_<name>.json")
+    parser.add_argument("--no-dino", action="store_true", help="skip dino_reference")
+    parser.add_argument("--crop", default=None,
+                        help="y0,x0,y1,x1: a box in fractions of the aligned frame, its LPIPS as lpips_aligned_crop")
     args = parser.parse_args()
-    import lpips
-    perceptual = lpips.LPIPS(net="alex", verbose=False).to(args.device).eval()
-
-    @torch.no_grad()
-    def lpips_mean(a, b):
-        to = lambda v: torch.from_numpy(v).permute(0, 3, 1, 2).float().div(127.5).sub(1).to(args.device)
-        return float(torch.cat([perceptual(to(a[i:i + 8]), to(b[i:i + 8])).flatten() for i in range(0, len(a), 8)]).mean())
-
-    def psnr(a, b):
-        mse = ((a.astype(np.float32) - b.astype(np.float32)) ** 2).mean(axis=(1, 2, 3))
-        return float(np.mean(10 * np.log10(255 ** 2 / np.maximum(mse, 1e-9))))
-    import open_clip
-    model, _, preprocess = open_clip.create_model_and_transforms("ViT-B-32", pretrained="laion2b_s34b_b79k",
-                                                                 device=args.device)
-    tokenizer = open_clip.get_tokenizer("ViT-B-32")
-    model.eval()
-
-    @torch.no_grad()
-    def embed_images(video):
-        batch = torch.stack([preprocess(Image.fromarray(f)) for f in video]).to(args.device)
-        return torch.nn.functional.normalize(model.encode_image(batch).float(), dim=-1)
-
-    @torch.no_grad()
-    def embed_text(text):
-        return torch.nn.functional.normalize(model.encode_text(tokenizer([text]).to(args.device)).float(), dim=-1)[0]
-
-    experiment = with_base(read_json(args.experiment / "experiment.json"))
-    reference = with_base(read_json(args.reference / "experiment.json"))
-    reference_runs = {r["id"]: r for r in reference["runs"]}
-    results, by_prompt, cache = [], {}, {}
-    for run in experiment["runs"]:
-        video_path = args.experiment / run["id"] / "video.mp4"
-        if not video_path.exists():
-            print(f"{run['id']}: no video", flush=True)
-            continue
-        key = run["id"].split("__")[0]
-        video = frames(video_path)
-        ref_id = key + args.reference_suffix
-        if key not in cache and ref_id in reference_runs and (args.reference / ref_id / "video.mp4").exists():
-            ref = frames(args.reference / ref_id / "video.mp4")
-            cache[key] = (ref, embed_images(ref[::args.every]))
-        picked = embed_images(video[::args.every])
-        text = embed_text(prompt_of(run))
-        diffs = np.abs(np.diff(video.astype(np.int16), axis=0)).mean(axis=(1, 2, 3))  # diffs[t-1]: frame t vs t-1
-        starts = [t for t in chunk_starts(len(video)) if t < len(video)]
-        inside = np.delete(diffs, [t - 1 for t in starts])
-        row = dict(run=run["id"], prompt=key, frames=len(video), size=list(video.shape[1:3]),
-                   clip_text=float((picked @ text).mean()),
-                   seam=float(diffs[[t - 1 for t in starts]].mean() / inside.mean()) if starts else None,
-                   flicker=float(diffs.mean()), sharpness=sharpness(video[::args.every]))
-        if key in cache:
-            ref_embed = cache[key][1]
-            n = min(len(ref_embed), len(picked))
-            row["clip_reference"] = float((picked[:n] * ref_embed[:n]).sum(-1).mean())
-            ref = cache[key][0]
-            if ref.shape[1:] == video.shape[1:]:
-                n, first = min(len(ref), len(video)), 29  # the first chunk decodes to 29 frames
-                row.update(psnr=psnr(video[:n], ref[:n]), psnr_first=psnr(video[:first], ref[:first]),
-                           lpips=lpips_mean(video[:n:args.every], ref[:n:args.every]),
-                           lpips_first=lpips_mean(video[:first], ref[:first]))
-        results.append(row)
-        by_prompt.setdefault(key, []).append((run["id"], video))
-        print(json.dumps(row), flush=True)
-    name = f"evaluation_{args.name}.json" if args.name else "evaluation.json"
-    (args.experiment / name).write_text(json.dumps(results, indent=1), encoding="utf-8")
-    for key, runs in by_prompt.items():
-        rows = ([cache[key][0][:min(len(v) for _, v in runs)]] if key in cache else []) + [v for _, v in runs]
-        labels = (["reference " + str(cache[key][0].shape[1:3])] if key in cache else []) + [r for r, _ in runs]
-        sheet(rows, labels, args.experiment / f"sheet_{key}.jpg")
+    Evaluator(args.device, dino=not args.no_dino, every=args.every).evaluate(
+        args.experiment, args.reference, name=args.name, reference_suffix=args.reference_suffix, crop=args.crop)
 
 
 if __name__ == "__main__":

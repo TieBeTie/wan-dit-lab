@@ -129,3 +129,14 @@ def test_chosen_heads_and_tokens_read_from_the_whole_cache(sage):
     out = sage.attend(Q[:, :, heads.long()].contiguous(), k, ks, v, vs, len(tokens), K[:, :, heads.long()].contiguous(),
                       V[:, :, heads.long()].contiguous(), heads=heads, tokens=tokens)
     assert torch.equal(out, expected)
+
+
+@pytest.mark.gpu
+def test_identical_calls_give_identical_bits(sage):
+    """The mean of the keys is summed in a fixed order: two calls on the same tensors give the same bits (an
+    atomic sum over the tiles reordered the additions, and the INT8 keys after the mean, and so every run of the
+    video, came out different)."""
+    Q, k, ks, v, vs, at, K, V, _, _ = setup(at=8000, n=1760, nq=1760, H=4)
+    first = sage.attend(Q, k, ks, v, vs, at, K, V)
+    for _ in range(10):
+        assert torch.equal(sage.attend(Q, k, ks, v, vs, at, K, V), first)

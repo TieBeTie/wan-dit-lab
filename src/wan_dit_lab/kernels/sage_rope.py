@@ -81,11 +81,13 @@ def _rotate_raw(X, R, W, F, b, h, t, valid, d,
 @triton.jit
 def _q_rope_int8(Q, QR, W, F, Q8, QS, N: tl.constexpr, H: tl.constexpr, D: tl.constexpr,
                  SQ: tl.constexpr, SF: tl.constexpr, GH: tl.constexpr, GW: tl.constexpr, START: tl.constexpr,
-                 MATCH: tl.constexpr):
+                 MATCH: tl.constexpr, QP=None, POOL: tl.constexpr = False):
     group, h, b = tl.program_id(0), tl.program_id(1), tl.program_id(2)
     t = (group // 8) * 32 + group % 8 + tl.arange(0, 4) * 8
     d = tl.arange(0, D)
     x = _rotate_raw(Q, QR, W, F, b, h, t, t < N, d, N, D, SQ, SF, GH, GW, START, False, MATCH)
+    if POOL:  # block sparsity: the sum of this group's rotated queries (0 past N), before quantization
+        tl.store(QP + ((b * H + h) * tl.num_programs(0) + group) * D + d, tl.sum(x, 0))
     scale = tl.max(tl.max(tl.abs(x), 1), 0) / 127. + 1e-7
     y = x / scale
     y = (y + tl.where(y >= 0, .5, -.5)).to(tl.int8)
@@ -148,10 +150,9 @@ _KEY = "".join(kernel.cache_key for kernel in (_rms, _q_rope_int8, _k_rope_sum, 
                                                sage_kv._sum_max, sage_kv._quant_v, _store_rows))
 
 
-def _prepare(q: torch.Tensor, k: torch.Tensor, v: torch.Tensor, wq: torch.Tensor, wk: torch.Tensor,
-             freq: torch.Tensor, grid_key: str, start: int, ck: torch.Tensor, ks: torch.Tensor,
-             cv: torch.Tensor, vs: torch.Tensor, at: int, eps_q: float, eps_k: float, match: bool
-             ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
+def _launch(q, k, v, wq, wk, freq, grid_key, start, ck, ks, cv, vs, at, eps_q, eps_k, match, pool):
+    """The kernels of the preparation. pool (block sparsity) adds the sums of the rotated queries per 32-token group
+    and of the keys per 64-token tile; without it not one instruction of them is compiled."""
     _, gh, gw = (int(x) for x in grid_key.split(","))
     b, n, h, d = q.shape
     dev, length = q.device, at + n
@@ -161,8 +162,13 @@ def _prepare(q: torch.Tensor, k: torch.Tensor, v: torch.Tensor, wq: torch.Tensor
                                  min(1024, triton.next_power_of_2(h * d)), num_warps=8)
     q8 = torch.empty(b, n, h, d, device=dev, dtype=torch.int8)
     qs = torch.empty(b, h, triton.cdiv(n, 128) * 32, device=dev, dtype=torch.float32)
-    wrap_triton(_q_rope_int8)[(qs.shape[-1], h, b)](q, qr, wq, freq, q8, qs, n, h, d,
-                                                     q.stride(), freq.stride(), gh, gw, start, match)
+    if pool:
+        qp = torch.empty(b, h, qs.shape[-1], d, device=dev, dtype=torch.float32)
+        wrap_triton(_q_rope_int8)[(qs.shape[-1], h, b)](q, qr, wq, freq, q8, qs, n, h, d,
+                                                         q.stride(), freq.stride(), gh, gw, start, match, qp, True)
+    else:
+        wrap_triton(_q_rope_int8)[(qs.shape[-1], h, b)](q, qr, wq, freq, q8, qs, n, h, d,
+                                                         q.stride(), freq.stride(), gh, gw, start, match, None, False)
     partial = torch.empty(b, h, tiles, d, device=dev, dtype=torch.float32)
     k_args = (at, n, h, d, ck.stride(), ks.stride(), k.stride(), freq.stride(), gh, gw, start, match)
     wrap_triton(_k_rope_sum)[(tiles, h, b)](ck, ks, k, kr, wk, freq, partial, *k_args)
@@ -184,17 +190,39 @@ def _prepare(q: torch.Tensor, k: torch.Tensor, v: torch.Tensor, wq: torch.Tensor
                                                 D=d, T=64, HMAP=False, TMAP=False)
     wrap_triton(_store_rows)[(triton.cdiv(b * n * h, 4),)](v, cv, vs, v.stride(), n, h, d, cv.shape[1], at,
                                                            b * n * h, d, 4, enable_fp_fusion=False)
+    if pool:  # the queries per 128-token block of Sage's kernel (32 groups each), the keys per 64-token block
+        return q8, k8, v8, qs, kscale, vscale, qp.view(b, h, -1, 32, d).sum(3), partial
     return q8, k8, v8, qs, kscale, vscale
 
 
+def _prepare(q: torch.Tensor, k: torch.Tensor, v: torch.Tensor, wq: torch.Tensor, wk: torch.Tensor,
+             freq: torch.Tensor, grid_key: str, start: int, ck: torch.Tensor, ks: torch.Tensor,
+             cv: torch.Tensor, vs: torch.Tensor, at: int, eps_q: float, eps_k: float, match: bool
+             ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
+    return _launch(q, k, v, wq, wk, freq, grid_key, start, ck, ks, cv, vs, at, eps_q, eps_k, match, False)
+
+
+def _prepare_pooled(q: torch.Tensor, k: torch.Tensor, v: torch.Tensor, wq: torch.Tensor, wk: torch.Tensor,
+                    freq: torch.Tensor, grid_key: str, start: int, ck: torch.Tensor, ks: torch.Tensor,
+                    cv: torch.Tensor, vs: torch.Tensor, at: int, eps_q: float, eps_k: float, match: bool
+                    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor,
+                               torch.Tensor, torch.Tensor]:
+    return _launch(q, k, v, wq, wk, freq, grid_key, start, ck, ks, cv, vs, at, eps_q, eps_k, match, True)
+
+
 # Host launch options matter too: changing num_warps changes reduction rounding.
-_NAME = "wan_dit_lab::sage_rope_prepare_" + hashlib.sha256((_KEY + inspect.getsource(_prepare)).encode()).hexdigest()[:16]
-_prepare = triton_op(_NAME, mutates_args={"ck", "ks", "cv", "vs"})(_prepare)
+_HASH = hashlib.sha256((_KEY + inspect.getsource(_launch)).encode()).hexdigest()[:16]
+_prepare = triton_op("wan_dit_lab::sage_rope_prepare_" + _HASH, mutates_args={"ck", "ks", "cv", "vs"})(_prepare)
+_prepare_pooled = triton_op("wan_dit_lab::sage_rope_prepare_pooled_" + _HASH,
+                            mutates_args={"ck", "ks", "cv", "vs"})(_prepare_pooled)
 
 
-def prepare(q, k, v, wq, wk, freq, grid, start, ck, ks, cv, vs, at, eps_q, eps_k, longlive_rounding=False):
+def prepare(q, k, v, wq, wk, freq, grid, start, ck, ks, cv, vs, at, eps_q, eps_k, longlive_rounding=False,
+            pool=False):
     """Inference-only [B,N,H,128] preparation; persistent cache buffers are mutated. longlive_rounding: round where
-    the separate path (RMSNorm, LongLive's RoPE kernel, then Sage) rounds to BF16, so the two agree."""
+    the separate path (RMSNorm, LongLive's RoPE kernel, then Sage) rounds to BF16, so the two agree. pool: also
+    return the sums of the rotated queries per 128-token block [B, H, blocks, 128] and of the keys, cached and new,
+    per 64-token block [B, H, blocks, 128] (block sparsity)."""
     if q.ndim != 4 or q.shape != k.shape or q.shape != v.shape or q.shape[-1] != 128:
         raise ValueError("Sage sm89 requires matching [B,N,H,128] Q/K/V")
     if any(x.stride(-1) != 1 or x.stride(-2) != q.shape[-1] for x in (q, k, v)):
@@ -205,10 +233,30 @@ def prepare(q, k, v, wq, wk, freq, grid, start, ck, ks, cv, vs, at, eps_q, eps_k
         raise ValueError("RoPE position exceeds the frequency table")
     if at < 0 or at + q.shape[1] > ck.shape[1]:
         raise ValueError("Write exceeds cache bounds")
-    return _prepare(q, k, v, wq, wk, freq, ",".join(map(str, grid)), start, ck, ks, cv, vs, at, eps_q, eps_k, longlive_rounding)
+    return (_prepare_pooled if pool else _prepare)(q, k, v, wq, wk, freq, ",".join(map(str, grid)), start, ck, ks,
+                                                    cv, vs, at, eps_q, eps_k, longlive_rounding)
 
 
-def attend(q, k, v, norm_q, norm_k, grid, freq, start, ck, ks, cv, vs, at, longlive_rounding=False):
-    q8, k8, v8, qs, kscale, vscale = prepare(q, k, v, norm_q.weight, norm_k.weight, freq, grid, start,
-                                            ck, ks, cv, vs, at, norm_q.eps, norm_k.eps, longlive_rounding)
-    return operators.load().sage_sm89(q8, k8, v8, qs, kscale, vscale, q.shape[-1] ** -.5)
+def attend(q, k, v, norm_q, norm_k, grid, freq, start, ck, ks, cv, vs, at, longlive_rounding=False,
+           skip_mass=None, key_keep=None):
+    """Sage over the cache and the chunk. skip_mass None: dense. A number: block-sparse (kernels/sparse_blocks.py),
+    over the key blocks key_keep allows (int32 [blocks of 64 of the cache buffer], nonzero allowed) and the chunk's,
+    less the weakest whose estimated shares add up to less than skip_mass."""
+    scale = q.shape[-1] ** -.5
+    if skip_mass is None:
+        q8, k8, v8, qs, kscale, vscale = prepare(q, k, v, norm_q.weight, norm_k.weight, freq, grid, start,
+                                                ck, ks, cv, vs, at, norm_q.eps, norm_k.eps, longlive_rounding)
+        return operators.load().sage_sm89(q8, k8, v8, qs, kscale, vscale, scale)
+    from wan_dit_lab.kernels import sparse_blocks as sparse
+    q8, k8, v8, qs, kscale, vscale, q_sums, k_sums = prepare(q, k, v, norm_q.weight, norm_k.weight, freq, grid, start,
+                                                             ck, ks, cv, vs, at, norm_q.eps, norm_k.eps,
+                                                             longlive_rounding, pool=True)
+    n, length = q.shape[1], at + q.shape[1]
+    k_tokens = sparse.block_tokens(length, sparse.CTA_K, q.device)
+    q_mean = q_sums / sparse.block_tokens(n, sparse.CTA_Q, q.device)[:, None]
+    k_mean = k_sums / k_tokens[:, None]
+    blocks = torch.arange(k_tokens.shape[0], device=q.device)
+    forced = blocks >= at // sparse.CTA_K  # the chunk's blocks, the last of the keys among them
+    kept = sparse.keep(q_mean, k_mean, k_tokens, key_keep[:k_tokens.shape[0]] != 0, forced, skip_mass, scale)
+    lut, valid = sparse.table(kept)
+    return operators.load().sage_sm89_sparse(q8, k8, v8, qs, kscale, vscale, lut, valid, scale)

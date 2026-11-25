@@ -33,8 +33,7 @@ class MultiHeadAttention(torch.nn.Module):
         return K, V
 
     def forward(self, X, grid_sizes=None, freq=None, context=None, start_frame=0, cache=None, context_kv=None):
-        # softmax((QK^T)/sqrt(d)) V; keys and values come from context in cross attention (or context_kv, computed
-        # beforehand), and from the cached frames before this chunk too when a cache is given (causal.KVCache)
+        # softmax((QK^T)/sqrt(d))
         cross = context is not None or context_kv is not None
         if cross and hasattr(self, "sage_cross_tokens"):
             from wan_dit_lab.kernels import sage_cross

@@ -77,7 +77,8 @@ def main():
     weights = self_forcing_weights(checkpoint)
     rows, layout = w4a4.mapped_pack([template] * cfg["num_layers"], ROOT / recipe["model"]["block_weights"], checkpoint)
     bound = ex.Bound(template, layout, rows.shape[1], attention=recipe["kernels"]["attention"],
-                     rope=recipe["kernels"].get("rope"), cross_attention=recipe["kernels"]["cross_attention"])
+                     rope=recipe["kernels"]["rope"], cross_attention=recipe["kernels"]["cross_attention"],
+                     rope_into_sage=recipe["kernels"]["fuse"]["rope_into_sage"])
     table64 = rope_table(dict(rope_interpolate=recipe["rope"]["interpolate"], vae_stride=16,
                              native=tuple(map(int, recipe["rope"]["native_size"].split("x"))),
                              height=h, width=w, rope_dtype="float64"), d, "cuda")

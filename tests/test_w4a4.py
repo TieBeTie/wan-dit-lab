@@ -189,3 +189,29 @@ def test_a_layer_with_mse_scales_stays_close_to_bfloat16():
     err = {rule: float((w4a4.linear(x, w4a4.quantize(W, rule=rule)).float() - ref).norm() / ref.norm())
            for rule in ("max", "mse")}
     assert err["mse"] < err["max"] < 0.2, err
+
+
+@pytest.mark.gpu
+def test_ordered_low_rank_sum_gives_identical_bits_and_the_atomic_result():
+    """ordered=True: the down projection of the low-rank branch is summed over the column blocks in a fixed order
+    (Nunchaku adds the blocks' partial products with float atomics, so two calls on the same input differ in about
+    three of four calls, and a video run never repeats itself). The result stays the atomic one up to rounding."""
+    if not torch.cuda.is_available():
+        pytest.skip("CUDA required")
+    w4a4 = pytest.importorskip("wan_dit_lab.quantization.w4a4")
+    pytest.importorskip("wan_dit_lab.kernels.operators").load()
+    torch.manual_seed(0)
+    M, K, H = 1000, 3072, 4096  # M not a multiple of the padding, many column blocks of 128
+    x = torch.randn(M, K, device="cuda", dtype=torch.bfloat16)
+    W = torch.randn(K, K, device="cuda") * 0.02
+    t = w4a4.quantize(W, torch.randn(K, device="cuda") * 0.1, smooth=w4a4.smoothing(x.abs().amax(dim=0), W))
+    W1, W2 = torch.randn(H, K, device="cuda") * 0.02, torch.randn(K, H, device="cuda") * 0.02
+    t1 = w4a4.quantize(W1, torch.randn(H, device="cuda") * 0.1, smooth=w4a4.smoothing(x.abs().amax(dim=0), W1))
+    t2 = w4a4.quantize(W2, torch.randn(K, device="cuda") * 0.1, shift=w4a4.GELU_SHIFT,
+                       smooth=w4a4.smoothing(torch.ones(H, device="cuda"), W2))
+    for call in (lambda o: w4a4.linear(x, t, ordered=o), lambda o: w4a4.gelu_mlp(x, t1, t2, ordered=o)):
+        first = call(True)
+        for _ in range(20):
+            assert torch.equal(call(True), first)
+        atomic = call(False).float()
+        assert float((first.float() - atomic).norm() / atomic.norm()) < 1e-3
