@@ -84,9 +84,17 @@ $$
 
 **MVP1 videos.** Left: the original, 704×1280. Right: MVP1, 512×928.
 
-| teacup_pour | astronaut | small fox |
-| :---: | :---: | :---: |
-| [![teacup_pour](docs/media/teacup_pour-mvp1.webp)](docs/media/teacup_pour-mvp1.mp4) | [![astronaut](docs/media/astronaut-mvp1.webp)](docs/media/astronaut-mvp1.mp4) | [![small fox](docs/media/fox_run-mvp1.webp)](docs/media/fox_run-mvp1.mp4) |
+**teacup_pour**
+
+[![teacup_pour](docs/media/teacup_pour-mvp1.webp)](docs/media/teacup_pour-mvp1.mp4)
+
+**astronaut**
+
+[![astronaut](docs/media/astronaut-mvp1.webp)](docs/media/astronaut-mvp1.mp4)
+
+**small fox**
+
+[![small fox](docs/media/fox_run-mvp1.webp)](docs/media/fox_run-mvp1.mp4)
 
 # Task 2
 
@@ -125,12 +133,28 @@ Start and decisions E30 · [Descent 09.11](D:/Experiments/DIT/outputs/res-descen
 
 **MVP2 videos.** Left: the original, 704×1280. Right: MVP2, 512×928.
 
-| teacup_pour | astronaut | small fox |
-| :---: | :---: | :---: |
-| [![teacup_pour](docs/media/teacup_pour-mvp2.webp)](docs/media/teacup_pour-mvp2.mp4) | [![astronaut](docs/media/astronaut-mvp2.webp)](docs/media/astronaut-mvp2.mp4) | [![small fox](docs/media/fox_run-mvp2.webp)](docs/media/fox_run-mvp2.mp4) |
+**teacup_pour**
+
+[![teacup_pour](docs/media/teacup_pour-mvp2.webp)](docs/media/teacup_pour-mvp2.mp4)
+
+**astronaut**
+
+[![astronaut](docs/media/astronaut-mvp2.webp)](docs/media/astronaut-mvp2.mp4)
+
+**small fox**
+
+[![small fox](docs/media/fox_run-mvp2.webp)](docs/media/fox_run-mvp2.mp4)
 
 **MVP3 videos.** Left: the original, 704×1280. Right: MVP3, 544×960.
 
-| teacup_pour | astronaut | small fox |
-| :---: | :---: | :---: |
-| [![teacup_pour](docs/media/teacup_pour-mvp3.webp)](docs/media/teacup_pour-mvp3.mp4) | [![astronaut](docs/media/astronaut-mvp3.webp)](docs/media/astronaut-mvp3.mp4) | [![small fox](docs/media/fox_run-mvp3.webp)](docs/media/fox_run-mvp3.mp4) |
+**teacup_pour**
+
+[![teacup_pour](docs/media/teacup_pour-mvp3.webp)](docs/media/teacup_pour-mvp3.mp4)
+
+**astronaut**
+
+[![astronaut](docs/media/astronaut-mvp3.webp)](docs/media/astronaut-mvp3.mp4)
+
+**small fox**
+
+[![small fox](docs/media/fox_run-mvp3.webp)](docs/media/fox_run-mvp3.mp4)
