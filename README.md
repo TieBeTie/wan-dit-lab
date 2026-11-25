@@ -154,10 +154,6 @@ Start and decisions E30 · [Descent 09.11](D:/Experiments/DIT/outputs/res-descen
 
 [![teacup_pour](docs/media/teacup_pour-mvp3-captioned.webp)](docs/media/teacup_pour-mvp3-captioned.mp4)
 
-**teacup_pour, same noise.** Left: the original, 704×1280. Middle: MVP3 with its own fresh noise, $`\mathcal L_1=0.850`$. Right: MVP3 with the original's noise cropped to the 544×960 grid (`native_spectral`: the 34×60 lowest DFT frequencies of the 44×80 noise), $`\mathcal L_1=0.346`$, $`\mathcal L=0.625`$ (was 0.986). With the same noise the mug matches the original; the doubled wall in the middle is another sample, not a regression. [Config](configs/experiments/readme-mvp-2026-11-25/mvp3-spectral-teacup.json)
-
-[![teacup_pour same noise](docs/media/teacup_pour-mvp3-spectral.webp)](docs/media/teacup_pour-mvp3-spectral.mp4)
-
 **astronaut**
 
 [![astronaut](docs/media/astronaut-mvp3-captioned.webp)](docs/media/astronaut-mvp3-captioned.mp4)
