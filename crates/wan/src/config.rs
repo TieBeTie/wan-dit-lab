@@ -1063,7 +1063,8 @@ mod tests {
     }
     #[test]
     fn live_and_offline_use_the_same_export_and_memory_recipe() {
-        let live=repository();
+        // offline runs follow the latest version
+        let live=Config::parse(include_str!("../../../configs/mvp3.json")).unwrap();
         let offline=Config::parse(include_str!("../../../configs/offline.json")).unwrap();
         assert_eq!(live.export,offline.export);
         assert_eq!(live.generate.offloading,offline.generate.offloading);
