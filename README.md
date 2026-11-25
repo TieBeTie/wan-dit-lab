@@ -19,17 +19,17 @@ Left: the original, 704×1280. Right: the latest version, MVP3, 544×960.
 **teacup_pour**
 - Prompts: a teacup pours water into a glass → stands still → pours red wine → stands still.
 
-[![teacup_pour](docs/media/teacup_pour-mvp3-labeled.webp)](docs/media/teacup_pour-mvp3-labeled.mp4)
+[![teacup_pour](docs/media/teacup_pour-mvp3-caption.webp)](docs/media/teacup_pour-mvp3-caption.mp4)
 
 **astronaut**
 - Prompts: an astronaut in a space station → an apple flies in → it floats → the astronaut grabs it → holds it.
 
-[![astronaut](docs/media/astronaut-mvp3-labeled.webp)](docs/media/astronaut-mvp3-labeled.mp4)
+[![astronaut](docs/media/astronaut-mvp3-caption.webp)](docs/media/astronaut-mvp3-caption.mp4)
 
 **small fox**
 - Prompts: an empty snowy clearing with a cabin → a small fox runs past the cabin.
 
-[![small fox](docs/media/fox_run-mvp3-labeled.webp)](docs/media/fox_run-mvp3-labeled.mp4)
+[![small fox](docs/media/fox_run-mvp3-caption.webp)](docs/media/fox_run-mvp3-caption.mp4)
 
 <!-- TODO: CLIP score to prompt and CLIP similarity to the left video (needs CLIP weights) -->
 
@@ -86,15 +86,15 @@ $$
 
 **teacup_pour**
 
-[![teacup_pour](docs/media/teacup_pour-mvp1-labeled.webp)](docs/media/teacup_pour-mvp1-labeled.mp4)
+[![teacup_pour](docs/media/teacup_pour-mvp1-caption.webp)](docs/media/teacup_pour-mvp1-caption.mp4)
 
 **astronaut**
 
-[![astronaut](docs/media/astronaut-mvp1-labeled.webp)](docs/media/astronaut-mvp1-labeled.mp4)
+[![astronaut](docs/media/astronaut-mvp1-caption.webp)](docs/media/astronaut-mvp1-caption.mp4)
 
 **small fox**
 
-[![small fox](docs/media/fox_run-mvp1-labeled.webp)](docs/media/fox_run-mvp1-labeled.mp4)
+[![small fox](docs/media/fox_run-mvp1-caption.webp)](docs/media/fox_run-mvp1-caption.mp4)
 
 # Task 2
 
@@ -134,15 +134,15 @@ Start and decisions E30 · [Descent 09.11](D:/Experiments/DIT/outputs/res-descen
 
 **teacup_pour**
 
-[![teacup_pour](docs/media/teacup_pour-mvp2-labeled.webp)](docs/media/teacup_pour-mvp2-labeled.mp4)
+[![teacup_pour](docs/media/teacup_pour-mvp2-caption.webp)](docs/media/teacup_pour-mvp2-caption.mp4)
 
 **astronaut**
 
-[![astronaut](docs/media/astronaut-mvp2-labeled.webp)](docs/media/astronaut-mvp2-labeled.mp4)
+[![astronaut](docs/media/astronaut-mvp2-caption.webp)](docs/media/astronaut-mvp2-caption.mp4)
 
 **small fox**
 
-[![small fox](docs/media/fox_run-mvp2-labeled.webp)](docs/media/fox_run-mvp2-labeled.mp4)
+[![small fox](docs/media/fox_run-mvp2-caption.webp)](docs/media/fox_run-mvp2-caption.mp4)
 
 | Version                                                                                                                                          | [Model](docs/research/mvp1/Model.md)                                                                                                                                    | [Quantization](docs/research/mvp2/E30.%20Starting%20point%20W4A4%20704%C3%971280%20and%20postponed%20steps.md)                                                                                                                                                                                                          | [Compilation](docs/research/MVP2.md)                                                                                                                                                                                                                                                                                 | [Resolution change](docs/research/mvp2/RoPE-positions.md)                                                                                                                                                                                                                                                                                                                                                                                | [Offloading](docs/research/mvp2/Offloading-MVP2.md)                                                                                                                                     | [Video continuation](docs/research/mvp2/Long-generation.md)                                                                     | [Scene change](docs/research/mvp1/Scene-change.md)                                                                  |
 | :----------------------------------------------------------------------------------------------------------------------------------------------- | :---------------------------------------------------------------------------------------------------------------------------------------------------------------------- | :---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | :------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | :--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | :-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | :------------------------------------------------------------------------------------------------------------------------------ | :------------------------------------------------------------------------------------------------------------------ |
@@ -152,12 +152,12 @@ Start and decisions E30 · [Descent 09.11](D:/Experiments/DIT/outputs/res-descen
 
 **teacup_pour**
 
-[![teacup_pour](docs/media/teacup_pour-mvp3-labeled.webp)](docs/media/teacup_pour-mvp3-labeled.mp4)
+[![teacup_pour](docs/media/teacup_pour-mvp3-caption.webp)](docs/media/teacup_pour-mvp3-caption.mp4)
 
 **astronaut**
 
-[![astronaut](docs/media/astronaut-mvp3-labeled.webp)](docs/media/astronaut-mvp3-labeled.mp4)
+[![astronaut](docs/media/astronaut-mvp3-caption.webp)](docs/media/astronaut-mvp3-caption.mp4)
 
 **small fox**
 
-[![small fox](docs/media/fox_run-mvp3-labeled.webp)](docs/media/fox_run-mvp3-labeled.mp4)
+[![small fox](docs/media/fox_run-mvp3-caption.webp)](docs/media/fox_run-mvp3-caption.mp4)
